@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Зарплата: учёт и расчёт</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif}
+body{background:#f0f2f5;color:#1a1a2e}
+.login-screen{max-width:400px;margin:80px auto;padding:30px;background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1)}
+.login-screen h1{text-align:center;margin-bottom:20px;font-size:22px;color:#16213e}
+.login-screen input,.login-screen select{width:100%;padding:10px 12px;margin:6px 0;border:1px solid #ddd;border-radius:6px;font-size:14px}
+.login-screen button{width:100%;padding:12px;margin:8px 0;border:none;border-radius:6px;font-size:14px;cursor:pointer}
+.login-screen .btn-primary{background:#0f3460;color:#fff}
+.login-screen .btn-primary:hover{background:#16213e}
+.login-screen .btn-link{background:transparent;color:#0f3460;text-decoration:underline}
+.login-screen .error{color:#e74c3c;font-size:13px;margin:6px 0;text-align:center}
+.login-screen .success{color:#27ae60;font-size:13px;margin:6px 0;text-align:center}
+.login-screen .links{text-align:center;margin-top:15px}
+.login-screen .links a{color:#0f3460;cursor:pointer;font-size:13px;margin:0 8px}
+.app-wrapper{display:none}
+header{background:#0f3460;color:#fff;padding:12px 24px;display:flex;justify-content:space-between;align-items:center}
+header h1{font-size:18px}
+header .user-info{display:flex;align-items:center;gap:12px;font-size:14px}
+header button{background:rgba(255,255,255,0.15);color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px}
+header button:hover{background:rgba(255,255,255,0.25)}
+.tabs{display:flex;background:#fff;border-bottom:2px solid #e0e0e0;padding:0 20px}
+.tab-btn{padding:12px 20px;border:none;background:transparent;cursor:pointer;font-size:14px;color:#666;border-bottom:3px solid transparent}
+.tab-btn.active{color:#0f3460;border-bottom-color:#0f3460;font-weight:600}
+.tab-btn:hover{color:#0f3460}
+.tab-content{display:none;padding:20px;max-width:1400px;margin:0 auto}
+.tab-content.active{display:block}
+.card{background:#fff;border-radius:10px;padding:20px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
+.form-group{margin-bottom:12px}
+.form-group label{display:block;font-size:13px;color:#555;margin-bottom:4px}
+.form-group input,.form-group select,.form-group textarea{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:14px}
+.form-row{display:flex;gap:12px;flex-wrap:wrap}
+.form-row .form-group{flex:1;min-width:150px}
+button.btn{padding:8px 18px;border:none;border-radius:6px;cursor:pointer;font-size:14px}
+.btn-blue{background:#0f3460;color:#fff}.btn-blue:hover{background:#16213e}
+.btn-red{background:#e74c3c;color:#fff}.btn-red:hover{background:#c0392b}
+.btn-green{background:#27ae60;color:#fff}.btn-green:hover{background:#229954}
+.btn-gray{background:#95a5a6;color:#fff}.btn-gray:hover{background:#7f8c8d}
+.btn-sm{padding:4px 10px;font-size:12px}
+table{width:100%;border-collapse:collapse;margin:10px 0}
+table th,table td{padding:8px 10px;text-align:left;border-bottom:1px solid #eee;font-size:13px}
+table th{background:#f8f9fa;font-weight:600;color:#333}
+table tr:hover{background:#f5f6fa}
+.salary-card{background:#fff;border-radius:10px;padding:16px;margin-bottom:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06);cursor:pointer;transition:0.2s}
+.salary-card:hover{box-shadow:0 4px 12px rgba(0,0,0,0.1)}
+.salary-card .name{font-size:16px;font-weight:600;color:#16213e}
+.salary-card .stats{display:flex;gap:20px;margin-top:8px;font-size:13px;color:#666}
+.salary-card .stat span{font-weight:600;color:#0f3460}
+.salary-detail{display:none;margin-top:10px}
+.salary-detail.show{display:block}
+.modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:100;justify-content:center;align-items:center}
+.modal-overlay.show{display:flex}
+.modal{background:#fff;border-radius:12px;padding:24px;max-width:600px;width:90%;max-height:85vh;overflow-y:auto}
+.modal h2{font-size:18px;margin-bottom:16px;color:#16213e}
+.modal-close{float:right;cursor:pointer;font-size:24px;color:#999;border:none;background:none}
+.autocomplete-list{position:absolute;z-index:50;background:#fff;border:1px solid #ddd;border-radius:6px;max-height:200px;overflow-y:auto;display:none}
+.autocomplete-list.show{display:block}
+.autocomplete-item{padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f0f0f0}
+.autocomplete-item:hover,.autocomplete-item.active{background:#e8f0fe}
+.autocomplete-item .sub{font-size:11px;color:#999}
+.toast{position:fixed;top:20px;right:20px;padding:12px 20px;border-radius:8px;color:#fff;z-index:200;font-size:14px;animation:slideIn 0.3s}
+.toast.success{background:#27ae60}.toast.error{background:#e74c3c}
+@keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.badge-blue{background:#e3f2fd;color:#1565c0}
+.badge-green{background:#e8f5e9;color:#2e7d32}
+.badge-orange{background:#fff3e0;color:#e65100}
+.badge-purple{background:#f3e5f5;color:#7b1fa2}
+</style>
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div id="loginScreen" class="login-screen">
+  <h1>Зарплата: учёт и расчёт</h1>
+  <div id="loginForm">
+    <input type="text" id="loginInput" placeholder="Логин" value="">
+    <input type="password" id="passwordInput" placeholder="Пароль" value="">
+    <button class="btn-primary" onclick="doLogin()">Войти</button>
+    <div id="loginError" class="error"></div>
+    <div class="links">
+      <a onclick="showRegister()">Зарегистрироваться</a>
+      <a onclick="showRecover()">Восстановить пароль</a>
+    </div>
+  </div>
+  <div id="registerForm" style="display:none">
+    <h2 style="font-size:16px;margin-bottom:10px">Регистрация</h2>
+    <input type="text" id="regFio" placeholder="ФИО">
+    <input type="text" id="regPhone" placeholder="Телефон">
+    <input type="text" id="regLogin" placeholder="Логин">
+    <input type="password" id="regPassword" placeholder="Пароль">
+    <button class="btn-primary" onclick="doRegister()">Зарегистрироваться</button>
+    <div id="regMsg" class="error"></div>
+    <div class="links"><a onclick="showLogin()">← Назад ко входу</a></div>
+  </div>
+  <div id="recoverForm" style="display:none">
+    <h2 style="font-size:16px;margin-bottom:10px">Восстановление пароля</h2>
+    <input type="text" id="recLogin" placeholder="Логин">
+    <input type="text" id="recPhone" placeholder="Телефон">
+    <button class="btn-primary" onclick="doRecover()">Восстановить</button>
+    <div id="recMsg" class="error"></div>
+    <div class="links"><a onclick="showLogin()">← Назад ко входу</a></div>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="mainApp" class="app-wrapper">
+  <header>
+    <h1>Зарплата: учёт и расчёт</h1>
+    <div class="user-info">
+      <button onclick="showLog()">Журнал действий</button>
+      <span>Пользователь: <b id="userFio"></b> (<span id="userRole"></span>)</span>
+      <button onclick="doLogout()">Выйти</button>
+    </div>
+  </header>
+  <div class="tabs" id="tabs">
+    <button class="tab-btn active" data-tab="input" onclick="showTab('input')">Ввод данных</button>
+    <button class="tab-btn" data-tab="salary" onclick="showTab('salary')">Зарплата</button>
+    <button class="tab-btn" data-tab="employees" onclick="showTab('employees')">Сотрудники</button>
+    <button class="tab-btn" data-tab="objects" onclick="showTab('objects')">Объекты</button>
+    <button class="tab-btn" data-tab="organizations" onclick="showTab('organizations')">Организации</button>
+    <button class="tab-btn" data-tab="users" onclick="showTab('users')" id="usersTab" style="display:none">Пользователи</button>
+    <button class="tab-btn" data-tab="data" onclick="showTab('data')">Данные</button>
+  </div>
+
+  <!-- TAB: INPUT -->
+  <div id="tab-input" class="tab-content active">
+    <div class="card">
+      <h2 style="margin-bottom:16px">Ввод данных и расчёт</h2>
+      <div class="form-row">
+        <div class="form-group" style="position:relative">
+          <label>Сотрудник (ФИО)</label>
+          <input type="text" id="inpFio" oninput="autocompleteFio(this)" onblur="setTimeout(()=>hideAutocomplete('fioAc'),200)">
+          <div class="autocomplete-list" id="fioAc"></div>
+        </div>
+        <div class="form-group" style="position:relative">
+          <label>Объект</label>
+          <input type="text" id="inpObject" oninput="autocompleteObj(this)" onblur="setTimeout(()=>hideAutocomplete('objAc'),200)">
+          <div class="autocomplete-list" id="objAc"></div>
+        </div>
+        <div class="form-group">
+          <label>Месяц</label>
+          <select id="inpMonth">
+            <option value="">—</option>
+            <option>Январь</option><option>Февраль</option><option>Март</option><option>Апрель</option>
+            <option>Май</option><option>Июнь</option><option>Июль</option><option>Август</option>
+            <option>Сентябрь</option><option>Октябрь</option><option>Ноябрь</option><option>Декабрь</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Год</label>
+          <input type="text" id="inpYear" value="2026">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Ставка за час</label><input type="number" id="inpHourRate" value="0"></div>
+        <div class="form-group"><label>Отработано часов</label><input type="number" id="inpHours" value="0"></div>
+        <div class="form-group"><label>Дней суточных</label><input type="number" id="inpPerDiemDays" value="0"></div>
+        <div class="form-group"><label>Ставка суточных</label><input type="number" id="inpPerDiemRate" value="0"></div>
+      </div>
+      <div class="form-group">
+        <label>Дополнительные начисления</label>
+        <div id="extraChargesContainer"></div>
+        <button class="btn btn-blue btn-sm" onclick="addExtraCharge()">+ Начисление</button>
+      </div>
+      <div class="form-group">
+        <label>Выплаты</label>
+        <div id="paymentsContainer"></div>
+        <button class="btn btn-blue btn-sm" onclick="addPayment()">+ Выплата</button>
+      </div>
+      <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-green" onclick="calculateAndSave()">Рассчитать и сохранить</button>
+        <button class="btn btn-gray" onclick="clearInputForm()">Очистить</button>
+        <button class="btn btn-blue" onclick="showImportStatement()">Импорт из выписки</button>
+      </div>
+      <div id="calcResult" style="margin-top:16px;padding:12px;background:#f8f9fa;border-radius:6px;display:none"></div>
+    </div>
+  </div>
+
+  <!-- TAB: SALARY -->
+  <div id="tab-salary" class="tab-content">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+        <h2>Зарплата — сводка по сотрудникам</h2>
+        <div style="display:flex;gap:8px">
+          <select id="salaryMonthFilter" onchange="renderSalary()">
+            <option value="">Все месяцы</option>
+            <option>Январь</option><option>Февраль</option><option>Март</option><option>Апрель</option>
+            <option>Май</option><option>Июнь</option><option>Июль</option><option>Август</option>
+            <option>Сентябрь</option><option>Октябрь</option><option>Ноябрь</option><option>Декабрь</option>
+          </select>
+          <input type="text" id="salarySearch" placeholder="Поиск по ФИО" oninput="renderSalary()">
+          <button class="btn btn-blue btn-sm" onclick="exportSalaryCSV()">Экспорт CSV</button>
+        </div>
+      </div>
+      <div id="salaryCards"></div>
+    </div>
+  </div>
+
+  <!-- TAB: EMPLOYEES -->
+  <div id="tab-employees" class="tab-content">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+        <h2>Список сотрудников</h2>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="empSearch" placeholder="Поиск" oninput="renderEmployees()">
+          <button class="btn btn-green btn-sm" onclick="showEmpModal()">+ Добавить</button>
+          <button class="btn btn-blue btn-sm" onclick="exportEmployeesExcel()">Экспорт Excel</button>
+          <label class="btn btn-blue btn-sm" style="cursor:pointer">Импорт Excel<input type="file" accept=".xlsx,.xls" onchange="importEmployeesExcel(event)" style="display:none"></label>
+        </div>
+      </div>
+      <table id="employeesTable">
+        <thead><tr><th>ФИО</th><th>Организация</th><th>Должность</th><th>Телефон</th><th>Дата рождения</th><th>Комментарии</th><th>Действия</th></tr></thead>
+        <tbody id="employeesBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TAB: OBJECTS -->
+  <div id="tab-objects" class="tab-content">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2>Объекты</h2>
+        <button class="btn btn-green btn-sm" onclick="showObjModal()">+ Добавить объект</button>
+      </div>
+      <table><thead><tr><th>Наименование</th><th>Адрес</th><th>Заказчик</th><th>Организация</th><th>Ответственный</th><th>Действия</th></tr></thead>
+      <tbody id="objectsBody"></tbody></table>
+    </div>
+  </div>
+
+  <!-- TAB: ORGANIZATIONS -->
+  <div id="tab-organizations" class="tab-content">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2>Организации</h2>
+        <button class="btn btn-green btn-sm" onclick="showOrgModal()">+ Добавить организацию</button>
+      </div>
+      <table><thead><tr><th>Наименование</th><th>Адрес</th><th>Контакты</th><th>Действия</th></tr></thead>
+      <tbody id="orgsBody"></tbody></table>
+    </div>
+  </div>
+
+  <!-- TAB: USERS -->
+  <div id="tab-users" class="tab-content">
+    <div class="card">
+      <h2 style="margin-bottom:16px">Пользователи и роли</h2>
+      <p style="color:#666;margin-bottom:12px;font-size:13px">После регистрации назначьте пользователю роль, организацию и объект.</p>
+      <table><thead><tr><th>ФИО</th><th>Логин</th><th>Телефон</th><th>Роль</th><th>Организация / объект</th><th>Действия</th></tr></thead>
+      <tbody id="usersBody"></tbody></table>
+    </div>
+  </div>
+
+  <!-- TAB: DATA -->
+  <div id="tab-data" class="tab-content">
+    <div class="card">
+      <h2 style="margin-bottom:16px">Экспорт и импорт данных</h2>
+      <p style="color:#666;margin-bottom:12px;font-size:13px">Резервная копия содержит пользователей, сотрудников, объекты, зарплатные записи и журнал.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-blue" onclick="exportJSON()">Экспорт JSON</button>
+        <label class="btn btn-blue" style="cursor:pointer">Импорт JSON<input type="file" accept=".json" onchange="importJSON(event)" style="display:none"></label>
+        <button class="btn btn-red" onclick="clearAllData()">Полная очистка данных</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODALS -->
+<div class="modal-overlay" id="empModal"><div class="modal"><span class="modal-close" onclick="closeModal('empModal')">&times;</span><h2>Сотрудник</h2><div class="form-group"><label>ФИО</label><input type="text" id="empFio"></div><div class="form-group"><label>Организация</label><input type="text" id="empOrg"></div><div class="form-group"><label>Должность</label><input type="text" id="empPos"></div><div class="form-group"><label>Телефон</label><input type="text" id="empPhone"></div><div class="form-group"><label>Дата рождения</label><input type="text" id="empBirth"></div><div class="form-group"><label>Комментарии</label><textarea id="empComments"></textarea></div><button class="btn btn-green" onclick="saveEmp()">Сохранить</button></div></div>
+<div class="modal-overlay" id="objModal"><div class="modal"><span class="modal-close" onclick="closeModal('objModal')">&times;</span><h2>Объект</h2><div class="form-group"><label>Наименование</label><input type="text" id="objName"></div><div class="form-group"><label>Адрес</label><input type="text" id="objAddr"></div><div class="form-group"><label>Заказчик</label><input type="text" id="objCust"></div><div class="form-group"><label>Организация</label><input type="text" id="objOrg"></div><div class="form-group"><label>Ответственный сотрудник</label><input type="text" id="objResp"></div><button class="btn btn-green" onclick="saveObj()">Сохранить</button></div></div>
+<div class="modal-overlay" id="orgModal"><div class="modal"><span class="modal-close" onclick="closeModal('orgModal')">&times;</span><h2>Организация</h2><div class="form-group"><label>Наименование</label><input type="text" id="orgName"></div><div class="form-group"><label>Адрес</label><input type="text" id="orgAddr"></div><div class="form-group"><label>Контакты</label><input type="text" id="orgContacts"></div><button class="btn btn-green" onclick="saveOrg()">Сохранить</button></div></div>
+<div class="modal-overlay" id="salaryEditModal"><div class="modal"><span class="modal-close" onclick="closeModal('salaryEditModal')">&times;</span><h2>Редактирование записи</h2><div class="form-row"><div class="form-group" style="position:relative"><label>Сотрудник</label><input type="text" id="editFio" oninput="autocompleteFio(this)" onblur="setTimeout(()=>hideAutocomplete('fioAc2'),200)"><div class="autocomplete-list" id="fioAc2"></div></div><div class="form-group" style="position:relative"><label>Объект</label><input type="text" id="editObject" oninput="autocompleteObj(this)" onblur="setTimeout(()=>hideAutocomplete('objAc2'),200)"><div class="autocomplete-list" id="objAc2"></div></div></div><div class="form-row"><div class="form-group"><label>Месяц</label><select id="editMonth"><option value="">—</option><option>Январь</option><option>Февраль</option><option>Март</option><option>Апрель</option><option>Май</option><option>Июнь</option><option>Июль</option><option>Август</option><option>Сентябрь</option><option>Октябрь</option><option>Ноябрь</option><option>Декабрь</option></select></div><div class="form-group"><label>Год</label><input type="text" id="editYear"></div></div><div class="form-row"><div class="form-group"><label>Ставка за час</label><input type="number" id="editHourRate"></div><div class="form-group"><label>Часы</label><input type="number" id="editHours"></div><div class="form-group"><label>Дни суточных</label><input type="number" id="editPerDiemDays"></div><div class="form-group"><label>Ставка суточных</label><input type="number" id="editPerDiemRate"></div></div><div class="form-group"><label>Доп. начисления (JSON)</label><textarea id="editExtra" rows="2"></textarea></div><div class="form-group"><label>Выплаты (JSON)</label><textarea id="editPayments" rows="2"></textarea></div><div class="form-row"><div class="form-group"><label>Итого</label><input type="number" id="editTotal"></div><div class="form-group"><label>Выплачено</label><input type="number" id="editPaid"></div></div><button class="btn btn-green" onclick="saveEditSalary()">Сохранить изменения</button></div></div>
+<div class="modal-overlay" id="logModal"><div class="modal"><span class="modal-close" onclick="closeModal('logModal')">&times;</span><h2>Журнал действий</h2><table><thead><tr><th>Дата</th><th>Пользователь</th><th>Действие</th></tr></thead><tbody id="logBody"></tbody></table></div></div>
+<div class="modal-overlay" id="roleModal"><div class="modal"><span class="modal-close" onclick="closeModal('roleModal')">&times;</span><h2>Назначить роль</h2><div class="form-group"><label>Роль</label><select id="roleSelect"><option value="">—</option><option>Руководитель сайта</option><option>Руководитель организации</option><option>Руководитель</option><option>Руководитель проекта</option></select></div><div class="form-group"><label>Организация</label><input type="text" id="roleOrg"></div><div class="form-group"><label>Объект</label><input type="text" id="roleObj"></div><button class="btn btn-green" onclick="saveRole()">Сохранить</button></div></div>
+<div class="modal-overlay" id="importStmtModal"><div class="modal"><span class="modal-close" onclick="closeModal('importStmtModal')">&times;</span><h2>Импорт из выписки</h2><p style="font-size:13px;color:#666;margin-bottom:10px">Одна строка: ФИО; сумма; дата. Дата необязательна.</p><div class="form-group"><textarea id="stmtText" rows="8" placeholder="Иванов И.И.; 50000; 2026-01"></textarea></div><button class="btn btn-green" onclick="doImportStatement()">Импортировать</button></div></div>
+
+<script>
+let currentUser = null;
+let employees = [];
+let objects = [];
+let organizations = [];
+let salaryRecords = [];
+let users = [];
+let editingEmpId = null;
+let editingObjId = null;
+let editingOrgId = null;
+let editingSalaryId = null;
+let editingUserId = null;
+
+// === API ===
+async function api(url, method = 'GET', body = null) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(url, opts);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Ошибка сервера');
+  return data;
+}
+
+function toast(msg, type = 'success') {
+  const t = document.createElement('div');
+  t.className = 'toast ' + type;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+// === LOGIN ===
+async function doLogin() {
+  const login = document.getElementById('loginInput').value.trim();
+  const password = document.getElementById('passwordInput').value.trim();
+  document.getElementById('loginError').textContent = '';
+  if (!login || !password) { document.getElementById('loginError').textContent = 'Введите логин и пароль'; return; }
+  try {
+    const user = await api('/api/login', 'POST', { login, password });
+    currentUser = user;
+    showApp();
+  } catch (e) {
+    document.getElementById('loginError').textContent = e.message;
+  }
+}
+
+function showRegister() {
+  document.getElementById('loginForm').style.display = 'none';
+  document.getElementById('registerForm').style.display = 'block';
+}
+function showRecover() {
+  document.getElementById('loginForm').style.display = 'none';
+  document.getElementById('recoverForm').style.display = 'block';
+}
+function showLogin() {
+  document.getElementById('registerForm').style.display = 'none';
+  document.getElementById('recoverForm').style.display = 'none';
+  document.getElementById('loginForm').style.display = 'block';
+}
+
+async function doRegister() {
+  const fio = document.getElementById('regFio').value.trim();
+  const phone = document.getElementById('regPhone').value.trim();
+  const login = document.getElementById('regLogin').value.trim();
+  const password = document.getElementById('regPassword').value.trim();
+  document.getElementById('regMsg').textContent = '';
+  if (!fio || !login || !password) { document.getElementById('regMsg').textContent = 'Заполните ФИО, логин и пароль'; return; }
+  try {
+    await api('/api/register', 'POST', { fio, phone, login, password });
+    document.getElementById('regMsg').className = 'success';
+    document.getElementById('regMsg').textContent = 'Регистрация успешна! Обратитесь к руководителю сайта для назначения роли.';
+    setTimeout(showLogin, 2000);
+  } catch (e) {
+    document.getElementById('regMsg').textContent = e.message;
+  }
+}
+
+async function doRecover() {
+  const login = document.getElementById('recLogin').value.trim();
+  const phone = document.getElementById('recPhone').value.trim();
+  document.getElementById('recMsg').textContent = '';
+  try {
+    const res = await api('/api/recover', 'POST', { login, phone });
+    document.getElementById('recMsg').className = 'success';
+    document.getElementById('recMsg').textContent = 'Новый пароль: ' + res.newPassword;
+  } catch (e) {
+    document.getElementById('recMsg').textContent = e.message;
+  }
+}
+
+async function doLogout() {
+  try { await api('/api/logout', 'POST'); } catch(e) {}
+  currentUser = null;
+  document.getElementById('mainApp').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'block';
+}
+
+// === INIT APP ===
+async function showApp() {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('mainApp').style.display = 'block';
+  document.getElementById('userFio').textContent = currentUser.fio;
+  document.getElementById('userRole').textContent = currentUser.role || 'без роли';
+  if (currentUser.role === 'Руководитель сайта') {
+    document.getElementById('usersTab').style.display = 'inline-block';
+  } else {
+    document.getElementById('usersTab').style.display = 'none';
+  }
+  await loadAll();
+  showTab('input');
+}
+
+async function loadAll() {
+  try {
+    employees = await api('/api/employees');
+    objects = await api('/api/objects');
+    organizations = await api('/api/organizations');
+    salaryRecords = await api('/api/salary');
+    if (currentUser.role === 'Руководитель сайта') {
+      users = await api('/api/users');
+    }
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+// === TABS ===
+function showTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelector('[data-tab="' + tab + '"]').classList.add('active');
+  document.getElementById('tab-' + tab).classList.add('active');
+  if (tab === 'salary') renderSalary();
+  if (tab === 'employees') renderEmployees();
+  if (tab === 'objects') renderObjects();
+  if (tab === 'organizations') renderOrganizations();
+  if (tab === 'users') renderUsers();
+}
+
+// === AUTOCOMPLETE ===
+function autocompleteFio(input) {
+  const val = input.value.toLowerCase();
+  const listId = input.id === 'editFio' ? 'fioAc2' : 'fioAc';
+  const list = document.getElementById(listId);
+  if (val.length < 1) { list.classList.remove('show'); return; }
+  const matches = employees.filter(e => e.fio.toLowerCase().includes(val)).slice(0, 50);
+  if (matches.length === 0) { list.classList.remove('show'); return; }
+  list.innerHTML = matches.map(e => '<div class="autocomplete-item" onclick="setAcValue(\'' + listId + '\',\'' + input.id + '\',\'' + e.fio.replace(/'/g, "\\'") + '\')"><b>' + e.fio + '</b> <span class="sub">' + (e.position || '') + '</span></div>').join('');
+  list.classList.add('show');
+}
+
+function autocompleteObj(input) {
+  const val = input.value.toLowerCase();
+  const listId = input.id === 'editObject' ? 'objAc2' : 'objAc';
+  const list = document.getElementById(listId);
+  if (val.length < 1) { list.classList.remove('show'); return; }
+  const matches = objects.filter(o => o.name.toLowerCase().includes(val)).slice(0, 50);
+  if (matches.length === 0) { list.classList.remove('show'); return; }
+  list.innerHTML = matches.map(o => '<div class="autocomplete-item" onclick="setAcValue(\'' + listId + '\',\'' + input.id + '\',\'' + o.name.replace(/'/g, "\\'") + '\')"><b>' + o.name + '</b> <span class="sub">' + (o.address || '') + '</span></div>').join('');
+  list.classList.add('show');
+}
+
+function setAcValue(listId, inputId, val) {
+  document.getElementById(inputId).value = val;
+  document.getElementById(listId).classList.remove('show');
+}
+
+function hideAutocomplete(id) {
+  document.getElementById(id).classList.remove('show');
+}
+
+// === INPUT FORM ===
+function addExtraCharge() {
+  const c = document.getElementById('extraChargesContainer');
+  const div = document.createElement('div');
+  div.style.cssText = 'display:flex;gap:6px;margin:4px 0';
+  div.innerHTML = '<input type="text" placeholder="Описание" style="flex:2"><input type="number" placeholder="Сумма" style="flex:1"><button class="btn btn-red btn-sm" onclick="this.parentElement.remove()">×</button>';
+  c.appendChild(div);
+}
+
+function addPayment() {
+  const c = document.getElementById('paymentsContainer');
+  const div = document.createElement('div');
+  div.style.cssText = 'display:flex;gap:6px;margin:4px 0';
+  div.innerHTML = '<input type="text" placeholder="Описание" style="flex:2"><input type="number" placeholder="Сумма" style="flex:1"><button class="btn btn-red btn-sm" onclick="this.parentElement.remove()">×</button>';
+  c.appendChild(div);
+}
+
+function getExtraCharges() {
+  const items = document.querySelectorAll('#extraChargesContainer > div');
+  return Array.from(items).map(d => {
+    const inputs = d.querySelectorAll('input');
+    return { description: inputs[0].value, amount: parseFloat(inputs[1].value) || 0 };
+  }).filter(x => x.description || x.amount);
+}
+
+function getPayments() {
+  const items = document.querySelectorAll('#paymentsContainer > div');
+  return Array.from(items).map(d => {
+    const inputs = d.querySelectorAll('input');
+    return { description: inputs[0].value, amount: parseFloat(inputs[1].value) || 0 };
+  }).filter(x => x.description || x.amount);
+}
+
+async function calculateAndSave() {
+  const fio = document.getElementById('inpFio').value.trim();
+  if (!fio) { toast('Введите ФИО сотрудника', 'error'); return; }
+  const hourRate = parseFloat(document.getElementById('inpHourRate').value) || 0;
+  const hours = parseFloat(document.getElementById('inpHours').value) || 0;
+  const perDiemDays = parseFloat(document.getElementById('inpPerDiemDays').value) || 0;
+  const perDiemRate = parseFloat(document.getElementById('inpPerDiemRate').value) || 0;
+  const extra = getExtraCharges();
+  const payments = getPayments();
+  const extraTotal = extra.reduce((s, x) => s + x.amount, 0);
+  const payTotal = payments.reduce((s, x) => s + x.amount, 0);
+  const total = hourRate * hours + perDiemDays * perDiemRate + extraTotal;
+  try {
+    await api('/api/salary', 'POST', {
+      employee_fio: fio,
+      object_name: document.getElementById('inpObject').value,
+      month: document.getElementById('inpMonth').value,
+      year: document.getElementById('inpYear').value,
+      hour_rate: hourRate, hours: hours,
+      per_diem_days: perDiemDays, per_diem_rate: perDiemRate,
+      extra_charges: extra, payments: payments,
+      total: total, paid: payTotal
+    });
+    salaryRecords = await api('/api/salary');
+    const result = document.getElementById('calcResult');
+    result.style.display = 'block';
+    result.innerHTML = '<b>Итого начислено:</b> ' + total.toFixed(2) + ' ₽<br><b>Выплачено:</b> ' + payTotal.toFixed(2) + ' ₽<br><b>К выплате:</b> ' + (total - payTotal).toFixed(2) + ' ₽';
+    toast('Запись сохранена');
+    clearInputForm();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function clearInputForm() {
+  document.getElementById('inpFio').value = '';
+  document.getElementById('inpObject').value = '';
+  document.getElementById('inpHourRate').value = '0';
+  document.getElementById('inpHours').value = '0';
+  document.getElementById('inpPerDiemDays').value = '0';
+  document.getElementById('inpPerDiemRate').value = '0';
+  document.getElementById('extraChargesContainer').innerHTML = '';
+  document.getElementById('paymentsContainer').innerHTML = '';
+  document.getElementById('calcResult').style.display = 'none';
+}
+
+// === SALARY ===
+function renderSalary() {
+  const filter = document.getElementById('salaryMonthFilter').value;
+  const search = (document.getElementById('salarySearch').value || '').toLowerCase();
+  let records = salaryRecords;
+  if (filter) records = records.filter(r => r.month === filter);
+  if (search) records = records.filter(r => (r.employee_fio || '').toLowerCase().includes(search));
+  const byEmp = {};
+  records.forEach(r => {
+    if (!byEmp[r.employee_fio]) byEmp[r.employee_fio] = [];
+    byEmp[r.employee_fio].push(r);
+  });
+  const container = document.getElementById('salaryCards');
+  container.innerHTML = '';
+  Object.keys(byEmp).sort().forEach(fio => {
+    const recs = byEmp[fio];
+    const total = recs.reduce((s, r) => s + parseFloat(r.total || 0), 0);
+    const paid = recs.reduce((s, r) => s + parseFloat(r.paid || 0), 0);
+    const card = document.createElement('div');
+    card.className = 'salary-card';
+    card.innerHTML = '<div class="name">' + fio + ' (' + recs.length + ' зап.)</div><div class="stats"><div class="stat">Начислено: <span>' + total.toFixed(2) + ' ₽</span></div><div class="stat">Выплачено: <span>' + paid.toFixed(2) + ' ₽</span></div><div class="stat">К выплате: <span>' + (total - paid).toFixed(2) + ' ₽</span></div></div>';
+    card.onclick = function(e) {
+      if (e.target.tagName === 'BUTTON') return;
+      const detail = card.querySelector('.salary-detail');
+      if (detail) { detail.classList.toggle('show'); }
+    };
+    const detail = document.createElement('div');
+    detail.className = 'salary-detail';
+    detail.innerHTML = '<table><thead><tr><th>Объект</th><th>Месяц</th><th>Год</th><th>Ставка</th><th>Часы</th><th>Суточные</th><th>Доп.</th><th>Итого</th><th>Выплачено</th><th>Действия</th></tr></thead><tbody>' +
+      recs.map(r => '<tr><td>' + (r.object_name||'') + '</td><td>' + (r.month||'') + '</td><td>' + (r.year||'') + '</td><td>' + (r.hour_rate||0) + '</td><td>' + (r.hours||0) + '</td><td>' + (r.per_diem_days||0) + '×' + (r.per_diem_rate||0) + '</td><td>' + (r.extra_charges||'[]') + '</td><td>' + (r.total||0) + '</td><td>' + (r.paid||0) + '</td><td><button class="btn btn-blue btn-sm" onclick="editSalary(' + r.id + ')">Изм.</button> <button class="btn btn-red btn-sm" onclick="deleteSalary(' + r.id + ')">Удал.</button></td></tr>').join('') +
+      '</tbody></table><button class="btn btn-green btn-sm" onclick="addSalaryFor(\'' + fio.replace(/'/g, "\\'") + '\')">+ Добавить запись</button>';
+    card.appendChild(detail);
+    container.appendChild(card);
+  });
+}
+
+async function deleteSalary(id) {
+  if (!confirm('Удалить запись?')) return;
+  try {
+    await api('/api/salary/' + id, 'DELETE');
+    salaryRecords = await api('/api/salary');
+    renderSalary();
+    toast('Запись удалена');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function editSalary(id) {
+  const r = salaryRecords.find(x => x.id === id);
+  if (!r) return;
+  editingSalaryId = id;
+  document.getElementById('editFio').value = r.employee_fio || '';
+  document.getElementById('editObject').value = r.object_name || '';
+  document.getElementById('editMonth').value = r.month || '';
+  document.getElementById('editYear').value = r.year || '';
+  document.getElementById('editHourRate').value = r.hour_rate || 0;
+  document.getElementById('editHours').value = r.hours || 0;
+  document.getElementById('editPerDiemDays').value = r.per_diem_days || 0;
+  document.getElementById('editPerDiemRate').value = r.per_diem_rate || 0;
+  document.getElementById('editExtra').value = r.extra_charges || '[]';
+  document.getElementById('editPayments').value = r.payments || '[]';
+  document.getElementById('editTotal').value = r.total || 0;
+  document.getElementById('editPaid').value = r.paid || 0;
+  document.getElementById('salaryEditModal').classList.add('show');
+}
+
+async function saveEditSalary() {
+  try {
+    await api('/api/salary/' + editingSalaryId, 'PUT', {
+      employee_fio: document.getElementById('editFio').value,
+      object_name: document.getElementById('editObject').value,
+      month: document.getElementById('editMonth').value,
+      year: document.getElementById('editYear').value,
+      hour_rate: parseFloat(document.getElementById('editHourRate').value) || 0,
+      hours: parseFloat(document.getElementById('editHours').value) || 0,
+      per_diem_days: parseFloat(document.getElementById('editPerDiemDays').value) || 0,
+      per_diem_rate: parseFloat(document.getElementById('editPerDiemRate').value) || 0,
+      extra_charges: JSON.parse(document.getElementById('editExtra').value || '[]'),
+      payments: JSON.parse(document.getElementById('editPayments').value || '[]'),
+      total: parseFloat(document.getElementById('editTotal').value) || 0,
+      paid: parseFloat(document.getElementById('editPaid').value) || 0
+    });
+    salaryRecords = await api('/api/salary');
+    closeModal('salaryEditModal');
+    renderSalary();
+    toast('Запись изменена');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function addSalaryFor(fio) {
+  document.getElementById('inpFio').value = fio;
+  showTab('input');
+  toast('ФИО заполнено, введите данные и нажмите «Рассчитать и сохранить»');
+}
+
+function exportSalaryCSV() {
+  let csv = 'ФИО;Объект;Месяц;Год;Ставка;Часы;Суточные дни;Суточные ставка;Итого;Выплачено\n';
+  salaryRecords.forEach(r => {
+    csv += [r.employee_fio, r.object_name, r.month, r.year, r.hour_rate, r.hours, r.per_diem_days, r.per_diem_rate, r.total, r.paid].join(';') + '\n';
+  });
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'salary.csv';
+  a.click();
+}
+
+// === EMPLOYEES ===
+function renderEmployees() {
+  const search = (document.getElementById('empSearch').value || '').toLowerCase();
+  let list = employees;
+  if (search) list = list.filter(e => e.fio.toLowerCase().includes(search));
+  document.getElementById('employeesBody').innerHTML = list.map(e =>
+    '<tr><td>' + (e.fio||'') + '</td><td>' + (e.organization||'') + '</td><td>' + (e.position||'') + '</td><td>' + (e.phone||'') + '</td><td>' + (e.birth_date||'') + '</td><td>' + (e.comments||'') + '</td><td><button class="btn btn-blue btn-sm" onclick="editEmp(' + e.id + ')">Изм.</button> <button class="btn btn-red btn-sm" onclick="deleteEmp(' + e.id + ')">Удал.</button></td></tr>'
+  ).join('');
+}
+
+function showEmpModal() {
+  editingEmpId = null;
+  document.getElementById('empFio').value = '';
+  document.getElementById('empOrg').value = '';
+  document.getElementById('empPos').value = '';
+  document.getElementById('empPhone').value = '';
+  document.getElementById('empBirth').value = '';
+  document.getElementById('empComments').value = '';
+  document.getElementById('empModal').classList.add('show');
+}
+
+function editEmp(id) {
+  const e = employees.find(x => x.id === id);
+  if (!e) return;
+  editingEmpId = id;
+  document.getElementById('empFio').value = e.fio || '';
+  document.getElementById('empOrg').value = e.organization || '';
+  document.getElementById('empPos').value = e.position || '';
+  document.getElementById('empPhone').value = e.phone || '';
+  document.getElementById('empBirth').value = e.birth_date || '';
+  document.getElementById('empComments').value = e.comments || '';
+  document.getElementById('empModal').classList.add('show');
+}
+
+async function saveEmp() {
+  const data = {
+    fio: document.getElementById('empFio').value,
+    organization: document.getElementById('empOrg').value,
+    position: document.getElementById('empPos').value,
+    phone: document.getElementById('empPhone').value,
+    birth_date: document.getElementById('empBirth').value,
+    comments: document.getElementById('empComments').value
+  };
+  try {
+    if (editingEmpId) {
+      await api('/api/employees/' + editingEmpId, 'PUT', data);
+    } else {
+      await api('/api/employees', 'POST', data);
+    }
+    employees = await api('/api/employees');
+    closeModal('empModal');
+    renderEmployees();
+    toast('Сотрудник сохранён');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function deleteEmp(id) {
+  if (!confirm('Удалить сотрудника?')) return;
+  try {
+    await api('/api/employees/' + id, 'DELETE');
+    employees = await api('/api/employees');
+    renderEmployees();
+    toast('Сотрудник удалён');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function exportEmployeesExcel() {
+  const ws = XLSX.utils.json_to_sheet(employees.map(e => ({
+    'ФИО': e.fio||'', 'Организация': e.organization||'', 'Должность': e.position||'',
+    'Телефон': e.phone||'', 'Дата рождения': e.birth_date||'', 'Комментарии': e.comments||''
+  })));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Сотрудники');
+  XLSX.writeFile(wb, 'employees.xlsx');
+}
+
+async function importEmployeesExcel(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws);
+      let count = 0;
+      for (const row of rows) {
+        const fio = row['ФИО'] || row['fio'] || row['FIO'] || '';
+        if (!fio) continue;
+        const existing = employees.find(emp => emp.fio === fio);
+        const data = {
+          fio: String(fio),
+          organization: String(row['Организация'] || row['organization'] || ''),
+          position: String(row['Должность'] || row['position'] || ''),
+          phone: String(row['Телефон'] || row['phone'] || ''),
+          birth_date: String(row['Дата рождения'] || row['birth_date'] || ''),
+          comments: String(row['Комментарии'] || row['comments'] || '')
+        };
+        if (existing) {
+          await api('/api/employees/' + existing.id, 'PUT', data);
+        } else {
+          await api('/api/employees', 'POST', data);
+        }
+        count++;
+      }
+      employees = await api('/api/employees');
+      renderEmployees();
+      toast('Импортировано: ' + count + ' сотрудников');
+    } catch (err) { toast('Ошибка импорта: ' + err.message, 'error'); }
+  };
+  reader.readAsArrayBuffer(file);
+  event.target.value = '';
+}
+
+// === OBJECTS ===
+function renderObjects() {
+  document.getElementById('objectsBody').innerHTML = objects.map(o =>
+    '<tr><td>' + (o.name||'') + '</td><td>' + (o.address||'') + '</td><td>' + (o.customer||'') + '</td><td>' + (o.organization||'') + '</td><td>' + (o.responsible||'') + '</td><td><button class="btn btn-blue btn-sm" onclick="editObj(' + o.id + ')">Изм.</button> <button class="btn btn-red btn-sm" onclick="deleteObj(' + o.id + ')">Удал.</button></td></tr>'
+  ).join('');
+}
+
+function showObjModal() {
+  editingObjId = null;
+  ['objName','objAddr','objCust','objOrg','objResp'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('objModal').classList.add('show');
+}
+
+function editObj(id) {
+  const o = objects.find(x => x.id === id);
+  if (!o) return;
+  editingObjId = id;
+  document.getElementById('objName').value = o.name || '';
+  document.getElementById('objAddr').value = o.address || '';
+  document.getElementById('objCust').value = o.customer || '';
+  document.getElementById('objOrg').value = o.organization || '';
+  document.getElementById('objResp').value = o.responsible || '';
+  document.getElementById('objModal').classList.add('show');
+}
+
+async function saveObj() {
+  const data = {
+    name: document.getElementById('objName').value,
+    address: document.getElementById('objAddr').value,
+    customer: document.getElementById('objCust').value,
+    organization: document.getElementById('objOrg').value,
+    responsible: document.getElementById('objResp').value
+  };
+  try {
+    if (editingObjId) await api('/api/objects/' + editingObjId, 'PUT', data);
+    else await api('/api/objects', 'POST', data);
+    objects = await api('/api/objects');
+    closeModal('objModal');
+    renderObjects();
+    toast('Объект сохранён');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function deleteObj(id) {
+  if (!confirm('Удалить объект?')) return;
+  try {
+    await api('/api/objects/' + id, 'DELETE');
+    objects = await api('/api/objects');
+    renderObjects();
+    toast('Объект удалён');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// === ORGANIZATIONS ===
+function renderOrganizations() {
+  document.getElementById('orgsBody').innerHTML = organizations.map(o =>
+    '<tr><td>' + (o.name||'') + '</td><td>' + (o.address||'') + '</td><td>' + (o.contacts||'') + '</td><td><button class="btn btn-blue btn-sm" onclick="editOrg(' + o.id + ')">Изм.</button> <button class="btn btn-red btn-sm" onclick="deleteOrg(' + o.id + ')">Удал.</button></td></tr>'
+  ).join('');
+}
+
+function showOrgModal() {
+  editingOrgId = null;
+  ['orgName','orgAddr','orgContacts'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('orgModal').classList.add('show');
+}
+
+function editOrg(id) {
+  const o = organizations.find(x => x.id === id);
+  if (!o) return;
+  editingOrgId = id;
+  document.getElementById('orgName').value = o.name || '';
+  document.getElementById('orgAddr').value = o.address || '';
+  document.getElementById('orgContacts').value = o.contacts || '';
+  document.getElementById('orgModal').classList.add('show');
+}
+
+async function saveOrg() {
+  const data = {
+    name: document.getElementById('orgName').value,
+    address: document.getElementById('orgAddr').value,
+    contacts: document.getElementById('orgContacts').value
+  };
+  try {
+    if (editingOrgId) await api('/api/organizations/' + editingOrgId, 'PUT', data);
+    else await api('/api/organizations', 'POST', data);
+    organizations = await api('/api/organizations');
+    closeModal('orgModal');
+    renderOrganizations();
+    toast('Организация сохранена');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function deleteOrg(id) {
+  if (!confirm('Удалить организацию?')) return;
+  try {
+    await api('/api/organizations/' + id, 'DELETE');
+    organizations = await api('/api/organizations');
+    renderOrganizations();
+    toast('Организация удалена');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// === USERS ===
+function renderUsers() {
+  if (currentUser.role !== 'Руководитель сайта') return;
+  document.getElementById('usersBody').innerHTML = users.map(u => {
+    const roleBadge = u.role ? '<span class="badge badge-blue">' + u.role + '</span>' : '<span class="badge" style="background:#eee;color:#999">нет роли</span>';
+    return '<tr><td>' + (u.fio||'') + '</td><td>' + (u.login||'') + '</td><td>' + (u.phone||'') + '</td><td>' + roleBadge + '</td><td>' + (u.organization||'') + (u.object_name ? ' / ' + u.object_name : '') + '</td><td><button class="btn btn-blue btn-sm" onclick="showRoleModal(' + u.id + ')">Назначить роль</button></td></tr>';
+  }).join('');
+}
+
+function showRoleModal(userId) {
+  editingUserId = userId;
+  document.getElementById('roleSelect').value = '';
+  document.getElementById('roleOrg').value = '';
+  document.getElementById('roleObj').value = '';
+  document.getElementById('roleModal').classList.add('show');
+}
+
+async function saveRole() {
+  try {
+    await api('/api/users/role', 'POST', {
+      userId: editingUserId,
+      role: document.getElementById('roleSelect').value,
+      organization: document.getElementById('roleOrg').value,
+      object_name: document.getElementById('roleObj').value
+    });
+    users = await api('/api/users');
+    closeModal('roleModal');
+    renderUsers();
+    toast('Роль назначена');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// === LOG ===
+async function showLog() {
+  try {
+    const log = await api('/api/log');
+    document.getElementById('logBody').innerHTML = log.map(l =>
+      '<tr><td>' + new Date(l.created_at).toLocaleString('ru') + '</td><td>' + (l.user_login||'') + '</td><td>' + (l.action||'') + '</td></tr>'
+    ).join('');
+    document.getElementById('logModal').classList.add('show');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// === IMPORT STATEMENT ===
+function showImportStatement() {
+  document.getElementById('stmtText').value = '';
+  document.getElementById('importStmtModal').classList.add('show');
+}
+
+async function doImportStatement() {
+  const text = document.getElementById('stmtText').value;
+  const lines = text.split('\n').filter(l => l.trim());
+  let count = 0;
+  for (const line of lines) {
+    const parts = line.split(';').map(p => p.trim());
+    if (parts.length < 2) continue;
+    const fio = parts[0];
+    const amount = parseFloat(parts[1]) || 0;
+    const date = parts[2] || '';
+    const month = date.split('-')[1] || '';
+    const year = date.split('-')[0] || '';
+    try {
+      await api('/api/salary', 'POST', {
+        employee_fio: fio, object_name: '', month: '', year: year,
+        hour_rate: 0, hours: 0, per_diem_days: 0, per_diem_rate: 0,
+        extra_charges: [], payments: [{ description: 'Выплата по выписке', amount: amount }],
+        total: 0, paid: amount
+      });
+      count++;
+    } catch (e) {}
+  }
+  salaryRecords = await api('/api/salary');
+  closeModal('importStmtModal');
+  toast('Импортировано: ' + count + ' записей');
+}
+
+// === DATA EXPORT/IMPORT ===
+async function exportJSON() {
+  try {
+    const data = await api('/api/export');
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'backup-' + new Date().toISOString().slice(0,10) + '.json';
+    a.click();
+    toast('Экспорт выполнен');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function importJSON(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      await api('/api/import', 'POST', data);
+      await loadAll();
+      toast('Импорт выполнен');
+    } catch (err) { toast('Ошибка импорта: ' + err.message, 'error'); }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+async function clearAllData() {
+  if (!confirm('Удалить ВСЕ данные? Это действие необратимо!')) return;
+  if (!confirm('Точно? Будут удалены все сотрудники, объекты, записи и пользователи (кроме ADMIN).')) return;
+  try {
+    await api('/api/clear', 'POST');
+    await loadAll();
+    toast('Все данные очищены');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// === MODALS ===
+function closeModal(id) {
+  document.getElementById(id).classList.remove('show');
+}
+
+// === INIT ===
+async function init() {
+  try {
+    const user = await api('/api/me');
+    currentUser = user;
+    showApp();
+  } catch (e) {
+    // Not logged in, show login screen
+    document.getElementById('loginScreen').style.display = 'block';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && document.getElementById('loginScreen').style.display !== 'none') {
+    if (document.activeElement.id === 'passwordInput' || document.activeElement.id === 'loginInput') doLogin();
+  }
+});
+</script>
+</body>
+</html>
