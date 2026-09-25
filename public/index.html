@@ -630,7 +630,7 @@ async function saveEditSalary() {
       per_diem_rate: parseFloat(document.getElementById('editPerDiemRate').value) || 0,
       extra_charges: JSON.parse(document.getElementById('editExtra').value || '[]'),
       payments: JSON.parse(document.getElementById('editPayments').value || '[]'),
-      total: parseFloat(document.getElementById('editTotal').value) || 0,
+      total: (parseFloat(document.getElementById('editHourRate').value)||0) * (parseFloat(document.getElementById('editHours').value)||0) + (parseFloat(document.getElementById('editPerDiemDays').value)||0) * (parseFloat(document.getElementById('editPerDiemRate').value)||0) + (JSON.parse(document.getElementById('editExtra').value||'[]').reduce((s,e)=>s+parseFloat(e.amount||e.sum||0),0)),
       paid: parseFloat(document.getElementById('editPaid').value) || 0
     });
     salaryRecords = await api('/api/salary');
