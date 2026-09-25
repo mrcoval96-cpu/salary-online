@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Зарплата: учёт и расчёт</title>
@@ -72,6 +73,30 @@ table tr:hover{background:#f5f6fa}
 .badge-green{background:#e8f5e9;color:#2e7d32}
 .badge-orange{background:#fff3e0;color:#e65100}
 .badge-purple{background:#f3e5f5;color:#7b1fa2}
+@media (max-width: 768px) {
+  .login-screen {
+    max-width: 100% !important;
+    margin: 20px auto !important;
+    padding: 20px 15px !important;
+  }
+  .login-screen h1 {
+    font-size: 18px !important;
+  }
+  .login-screen input, .login-screen select {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .login-screen button {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+}
+
 </style>
 </head>
 <body>
