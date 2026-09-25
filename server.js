@@ -9,6 +9,8 @@ const cors = require('cors');
 dotenv.config();
 
 const app = express();
+app.get('/health', (req, res) => res.status(200).send('OK'));
+
 const PORT = process.env.PORT || 3000;
 
 // PostgreSQL pool
