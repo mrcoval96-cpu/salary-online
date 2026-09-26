@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS salary_records (
     object_name VARCHAR(255) DEFAULT '',
     month VARCHAR(20) DEFAULT '',
     year VARCHAR(10) DEFAULT '',
+    charge_date DATE,
     hour_rate NUMERIC(10,2) DEFAULT 0,
     hours NUMERIC(10,2) DEFAULT 0,
     per_diem_days NUMERIC(10,2) DEFAULT 0,

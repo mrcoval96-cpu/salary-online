@@ -353,12 +353,12 @@ app.get('/api/salary', requireAuth, async (req, res) => {
 });
 
 app.post('/api/salary', requireAuth, async (req, res) => {
-  const { employee_fio, object_name, month, year, hour_rate, hours, per_diem_days, per_diem_rate, extra_charges, payments, total, paid } = req.body;
+  const { employee_fio, object_name, month, year, charge_date, hour_rate, hours, per_diem_days, per_diem_rate, extra_charges, payments, total, paid } = req.body;
   try {
     const result = await pool.query(
-      `INSERT INTO salary_records (employee_fio, object_name, month, year, hour_rate, hours, per_diem_days, per_diem_rate, extra_charges, payments, total, paid)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
-      [employee_fio||'', object_name||'', month||'', year||'', hour_rate||0, hours||0, per_diem_days||0, per_diem_rate||0,
+      `INSERT INTO salary_records (employee_fio, object_name, month, year, charge_date, hour_rate, hours, per_diem_days, per_diem_rate, extra_charges, payments, total, paid)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+      [employee_fio||'', object_name||'', month||'', year||'', charge_date||null, hour_rate||0, hours||0, per_diem_days||0, per_diem_rate||0,
        JSON.stringify(extra_charges||[]), JSON.stringify(payments||[]), total||0, paid||0]
     );
     await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)',
@@ -371,12 +371,11 @@ app.post('/api/salary', requireAuth, async (req, res) => {
 
 app.put('/api/salary/:id', requireAuth, async (req, res) => {
   const { id } = req.params;
-  const { employee_fio, object_name, month, year, hour_rate, hours, per_diem_days, per_diem_rate, extra_charges, payments, total, paid } = req.body;
+  const { employee_fio, object_name, month, year, charge_date, hour_rate, hours, per_diem_days, per_diem_rate, extra_charges, payments, total, paid } = req.body;
   try {
     const result = await pool.query(
-      `UPDATE salary_records SET employee_fio=$1, object_name=$2, month=$3, year=$4, hour_rate=$5, hours=$6,
-       per_diem_days=$7, per_diem_rate=$8, extra_charges=$9, payments=$10, total=$11, paid=$12 WHERE id=$13 RETURNING *`,
-      [employee_fio||'', object_name||'', month||'', year||'', hour_rate||0, hours||0, per_diem_days||0, per_diem_rate||0,
+      `UPDATE salary_records SET employee_fio=$1, object_name=$2, month=$3, year=$4, charge_date=$5, hour_rate=$6, hours=$7,, per_diem_days=$8, per_diem_rate=$9, extra_charges=$10, payments=$11, total=$12, paid=$13 WHERE id=$14 RETURNING *`,
+      [employee_fio||'', object_name||'', month||'', year||'', charge_date||null, hour_rate||0, hours||0, per_diem_days||0, per_diem_rate||0,
        JSON.stringify(extra_charges||[]), JSON.stringify(payments||[]), total||0, paid||0, id]
     );
     await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)',
@@ -454,10 +453,10 @@ app.post('/api/import', requireSiteManager, async (req, res) => {
     if (data.salary) {
       for (const rec of data.salary) {
         await pool.query(
-          `INSERT INTO salary_records (employee_fio, object_name, month, year, hour_rate, hours, per_diem_days, per_diem_rate, extra_charges, payments, total, paid)
+          `INSERT INTO salary_records (employee_fio, object_name, month, year, charge_date, hour_rate, hours, per_diem_days, per_diem_rate, extra_charges, payments, total, paid)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
           [rec.employee_fio||'', rec.object_name||'', rec.month||'', rec.year||'', rec.hour_rate||0, rec.hours||0,
-           rec.per_diem_days||0, rec.per_diem_rate||0, rec.extra_charges||'[]', rec.payments||'[]', rec.total||0, rec.paid||0]
+           rec.per_diem_days||0, rec.per_diem_rate||0, rec.extra_charges||'[]', rec.payments||'[]', rec.total||0, rec.paid||0, rec.charge_date||null]
         );
       }
     }
