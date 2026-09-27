@@ -607,11 +607,13 @@ function addExtraCharge() {
   c.appendChild(div);
 }
 
-function addPayment() {
+function addPayment(item) {
   const c = document.getElementById('paymentsContainer');
   const div = document.createElement('div');
-  div.style.cssText = 'display:flex;gap:6px;margin:4px 0';
-  div.innerHTML = '<input type="text" placeholder="Описание" style="flex:2"><input type="number" placeholder="Сумма" style="flex:1"><button class="btn btn-red btn-sm" onclick="this.parentElement.remove()">×</button>';
+  div.style.cssText = 'display:flex;gap:6px;margin:4px 0;align-items:center';
+  const date = item && (item.date || item.payment_date) ? String(item.date || item.payment_date).slice(0,10) : '';
+  const amount = item && item.amount != null ? item.amount : '';
+  div.innerHTML = '<input type="date" aria-label="Дата выплаты" value="'+escapeHtml(date)+'" style="flex:1"><input type="number" aria-label="Сумма выплаты" placeholder="Сумма" value="'+escapeHtml(amount)+'" style="flex:1"><button class="btn btn-red btn-sm" type="button" onclick="this.parentElement.remove()">×</button>';
   c.appendChild(div);
 }
 
@@ -627,8 +629,8 @@ function getPayments() {
   const items = document.querySelectorAll('#paymentsContainer > div');
   return Array.from(items).map(d => {
     const inputs = d.querySelectorAll('input');
-    return { description: inputs[0].value, amount: parseFloat(inputs[1].value) || 0 };
-  }).filter(x => x.description || x.amount);
+    return { date: inputs[0].value, amount: parseFloat(inputs[1].value) || 0 };
+  }).filter(x => x.date || x.amount);
 }
 
 async function calculateAndSave() {
@@ -700,12 +702,26 @@ function getEditableList(containerId){
   }).filter(function(x){return x.description || x.amount;});
 }
 function addEditExtraCharge(item){editListRow('editExtraContainer',item||{});}
-function addEditPayment(item){editListRow('editPaymentsContainer',item||{});}
+function addEditPayment(item){
+  const container=document.getElementById('editPaymentsContainer'), row=document.createElement('div');
+  row.style.cssText='display:grid;grid-template-columns:minmax(140px,1fr) minmax(100px,1fr) auto;gap:6px;margin:6px 0;align-items:center';
+  const date=item && (item.date || item.payment_date) ? String(item.date || item.payment_date).slice(0,10) : '';
+  const amount=parseFloat(item && (item.amount != null ? item.amount : item.sum)) || 0;
+  row.innerHTML='<input type="date" aria-label="Дата выплаты" value="'+escapeHtml(date)+'"><input type="number" aria-label="Сумма выплаты" placeholder="Сумма" value="'+amount+'"><button class="btn btn-red btn-sm" type="button">×</button>';
+  row.querySelector('button').onclick=function(){row.remove();};
+  container.appendChild(row);
+}
+function getEditablePayments(){
+  return Array.from(document.querySelectorAll('#editPaymentsContainer > div')).map(function(row){
+    const inputs=row.querySelectorAll('input');
+    return {date:inputs[0].value,amount:parseFloat(inputs[1].value)||0};
+  }).filter(function(x){return x.date || x.amount;});
+}
 function populateEditLists(r){
   document.getElementById('editExtraContainer').innerHTML='';
   document.getElementById('editPaymentsContainer').innerHTML='';
   normalizeExtraItems(r.extra_charges).forEach(addEditExtraCharge);
-  parseJsonArray(r.payments).forEach(function(item){addEditPayment({description:item.description || item.name || '',amount:item.amount != null ? item.amount : item.sum});});
+  parseJsonArray(r.payments).forEach(addEditPayment);
 }
 function renderSalary(){
   const filter=document.getElementById('salaryMonthFilter').value;
@@ -763,7 +779,7 @@ function editSalary(id){
 }
 async function saveEditSalary(){
   try{
-    const extra=getEditableList('editExtraContainer'), payments=getEditableList('editPaymentsContainer');
+    const extra=getEditableList('editExtraContainer'), payments=getEditablePayments();
     const hourRate=parseFloat(document.getElementById('editHourRate').value)||0;
     const hours=parseFloat(document.getElementById('editHours').value)||0;
     const perDiemDays=parseFloat(document.getElementById('editPerDiemDays').value)||0;
@@ -1101,7 +1117,7 @@ async function doImportStatement() {
       await api('/api/salary', 'POST', {
         employee_fio: fio, object_name: '', month: '', year: year,
         hour_rate: 0, hours: 0, per_diem_days: 0, per_diem_rate: 0,
-        extra_charges: [], payments: [{ description: 'Выплата по выписке', amount: amount }],
+        extra_charges: [], payments: [{ date: date, amount: amount }],
         total: 0, paid: amount
       });
       count++;
