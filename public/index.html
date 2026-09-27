@@ -306,10 +306,10 @@ button,input,select,textarea{max-width:100%}
     <input type="text" id="regLogin" placeholder="Логин сформируется автоматически *" readonly required tabindex="-1" title="Логин формируется автоматически из ФИО">
     <input type="password" id="regPassword" placeholder="Пароль *" autocomplete="new-password" required>
     <input type="password" id="regPasswordConfirm" placeholder="Повторите пароль *" autocomplete="new-password" required>
-    <button class="btn-primary" onclick="doRegister()">Зарегистрироваться</button>
+    <button class="btn-primary" id="regSubmitBtn" onclick="doRegister()">Зарегистрироваться</button>
     <div id="regVerifyBlock" style="display:none;margin-top:10px">
       <input type="text" id="regEmailCode" placeholder="Код из письма" inputmode="numeric" maxlength="6">
-      <button class="btn-primary" onclick="verifyRegistrationEmail()">Подтвердить email</button>
+      <button class="btn-primary" id="regVerifyBtn" onclick="verifyRegistrationEmail()">Подтвердить email</button>
     </div>
     <div id="regMsg" class="error"></div>
     <div class="links"><a onclick="showLogin()">← Назад ко входу</a></div>
@@ -322,7 +322,7 @@ button,input,select,textarea{max-width:100%}
       <input type="text" id="recCode" placeholder="Код из письма" inputmode="numeric" maxlength="6">
       <input type="password" id="recNewPassword" placeholder="Новый пароль" autocomplete="new-password">
       <input type="password" id="recNewPasswordConfirm" placeholder="Повторите новый пароль" autocomplete="new-password">
-      <button class="btn-primary" onclick="resetPasswordByEmail()">Сменить пароль</button>
+      <button class="btn-primary" id="recResetBtn" onclick="resetPasswordByEmail()">Сменить пароль</button>
     </div>
     <div id="recMsg" class="error"></div>
     <div class="links"><a onclick="showLogin()">← Назад ко входу</a></div>
@@ -331,10 +331,10 @@ button,input,select,textarea{max-width:100%}
     <h2 style="font-size:16px;margin-bottom:10px">Подтвердите электронную почту</h2>
     <div style="font-size:12px;color:#667085;margin-bottom:9px">Для защиты аккаунта укажите email. На него придёт 6-значный код.</div>
     <input type="email" id="requiredEmail" placeholder="Электронная почта *" autocomplete="email">
-    <button class="btn-primary" onclick="sendRequiredEmailCode()">Получить код</button>
+    <button class="btn-primary" id="requiredSendBtn" onclick="sendRequiredEmailCode()">Получить код</button>
     <div id="requiredCodeBlock" style="display:none">
       <input type="text" id="requiredEmailCode" placeholder="Код из письма" inputmode="numeric" maxlength="6">
-      <button class="btn-primary" onclick="verifyRequiredEmail()">Подтвердить и продолжить</button>
+      <button class="btn-primary" id="requiredVerifyBtn" onclick="verifyRequiredEmail()">Подтвердить и продолжить</button>
     </div>
     <div id="requiredEmailMsg" class="error"></div>
     <div class="links"><a onclick="doLogout()">Выйти</a></div>
@@ -718,6 +718,24 @@ function formatPhoneInput(input){input.value=formatPhoneValue(input.value);}
 function formatRegistrationPhone(input){formatPhoneInput(input);}
 function isValidPhone(value){return /^7 \(\d{3}\) \d{3}-\d{2}-\d{2}$/.test(String(value||''));}
 function isValidRegistrationPhone(value){return isValidPhone(value);}
+function setButtonBusy(button,busy,busyText){
+  if(!button)return;
+  if(busy){button.dataset.normalText=button.textContent;button.disabled=true;button.textContent=busyText||'Подождите…';}
+  else{button.disabled=false;button.textContent=button.dataset.normalText||button.textContent;delete button.dataset.normalText;}
+}
+const resendTimers={};
+function startResendTimer(buttonId,seconds){
+  const btn=document.getElementById(buttonId);if(!btn)return;
+  if(resendTimers[buttonId])clearInterval(resendTimers[buttonId]);
+  const normal=btn.dataset.normalText||btn.textContent||'Получить код';let left=seconds||60;btn.disabled=true;
+  const draw=function(){btn.textContent='Повторить через '+left+' сек.';left--;if(left<0){clearInterval(resendTimers[buttonId]);delete resendTimers[buttonId];btn.disabled=false;btn.textContent='Отправить код повторно';btn.dataset.normalText=normal;}};
+  draw();resendTimers[buttonId]=setInterval(draw,1000);
+}
+async function withBusyButton(buttonId,busyText,fn){
+  const btn=document.getElementById(buttonId);setButtonBusy(btn,true,busyText);
+  try{return await fn();}finally{if(!resendTimers[buttonId])setButtonBusy(btn,false);}
+}
+
 async function doRegister() {
   const fio = document.getElementById('regFio').value.trim();
   const phone = document.getElementById('regPhone').value.trim();
@@ -733,7 +751,7 @@ async function doRegister() {
   if (fio.split(/\s+/).filter(Boolean).length < 3) { document.getElementById('regMsg').textContent = 'Введите ФИО полностью: Фамилия Имя Отчество'; return; }
   if (!isValidRegistrationPhone(phone)) { document.getElementById('regMsg').textContent = 'Введите номер телефона полностью: 7 (900) 900-90-90'; return; }
   try {
-    const created=await api('/api/register', 'POST', { fio, phone, email, login, password });
+    const created=await withBusyButton('regSubmitBtn','Регистрируем…',function(){return api('/api/register', 'POST', { fio, phone, email, login, password });});
     document.getElementById('regMsg').className = 'success';
     document.getElementById('regMsg').textContent = created.message;
     document.getElementById('regVerifyBlock').style.display='block';
@@ -755,25 +773,25 @@ async function sendRequiredEmailCode(){
   const email=document.getElementById('requiredEmail').value.trim().toLowerCase(), msg=document.getElementById('requiredEmailMsg');
   msg.className='error';msg.textContent='';
   if(!email){msg.textContent='Введите электронную почту';return;}
-  try{const r=await api('/api/email/send-verification','POST',{email});msg.className='success';msg.textContent=r.message;document.getElementById('requiredCodeBlock').style.display='block';}
+  try{const r=await withBusyButton('requiredSendBtn','Отправляем…',function(){return api('/api/email/send-verification','POST',{email});});msg.className='success';msg.textContent=r.message;document.getElementById('requiredCodeBlock').style.display='block';startResendTimer('requiredSendBtn',60);}
   catch(e){msg.textContent=e.message;}
 }
 async function verifyRequiredEmail(){
   const code=document.getElementById('requiredEmailCode').value.trim(),msg=document.getElementById('requiredEmailMsg');
-  try{await api('/api/email/verify','POST',{code});currentUser.email_verified=true;currentUser.email=document.getElementById('requiredEmail').value.trim().toLowerCase();document.getElementById('emailRequiredForm').style.display='none';showApp();toast('Электронная почта подтверждена');}
+  try{await withBusyButton('requiredVerifyBtn','Проверяем…',function(){return api('/api/email/verify','POST',{code});});currentUser.email_verified=true;currentUser.email=document.getElementById('requiredEmail').value.trim().toLowerCase();document.getElementById('emailRequiredForm').style.display='none';showApp();toast('Электронная почта подтверждена');}
   catch(e){msg.className='error';msg.textContent=e.message;}
 }
 async function verifyRegistrationEmail(){
   const msg=document.getElementById('regMsg'), code=document.getElementById('regEmailCode').value.trim();
   const block=document.getElementById('regVerifyBlock'),login=block.dataset.login,email=block.dataset.email;
-  try{await api('/api/register/verify-email','POST',{login,email,code});msg.className='success';msg.textContent='Email подтверждён. После назначения роли руководителем сайта вы сможете войти.';setTimeout(showLogin,1800);}
+  try{await withBusyButton('regVerifyBtn','Проверяем…',function(){return api('/api/register/verify-email','POST',{login,email,code});});msg.className='success';msg.textContent='Email подтверждён. После назначения роли руководителем сайта вы сможете войти.';setTimeout(showLogin,1800);}
   catch(e){msg.className='error';msg.textContent=e.message;}
 }
 async function requestRecoveryCode(){
   const identifier=document.getElementById('recIdentifier').value.trim(),msg=document.getElementById('recMsg');
   msg.className='error';msg.textContent='';
   if(!identifier){msg.textContent='Введите логин или электронную почту';return;}
-  try{const r=await api('/api/recover/request','POST',{identifier});msg.className='success';msg.textContent=r.message;document.getElementById('recResetBlock').style.display='block';}
+  try{const r=await withBusyButton('recSendBtn','Отправляем…',function(){return api('/api/recover/request','POST',{identifier});});msg.className='success';msg.textContent=r.message;document.getElementById('recResetBlock').style.display='block';startResendTimer('recSendBtn',60);}
   catch(e){msg.textContent=e.message;}
 }
 async function resetPasswordByEmail(){
@@ -783,7 +801,7 @@ async function resetPasswordByEmail(){
   if(!code||!password||!confirm){msg.textContent='Заполните код и новый пароль';return;}
   if(password!==confirm){msg.textContent='Пароли не совпадают';return;}
   if(password.length<8){msg.textContent='Пароль должен содержать не менее 8 символов';return;}
-  try{await api('/api/recover/reset','POST',{identifier,code,password});msg.className='success';msg.textContent='Пароль изменён. Теперь можно войти.';setTimeout(showLogin,1800);}
+  try{await withBusyButton('recResetBtn','Сохраняем…',function(){return api('/api/recover/reset','POST',{identifier,code,password});});msg.className='success';msg.textContent='Пароль изменён. Теперь можно войти.';setTimeout(showLogin,1800);}
   catch(e){msg.textContent=e.message;}
 }
 
@@ -962,12 +980,14 @@ function maskDateInput(input) {
   if(!input || input.dataset.dateMaskReady) return;
   input.dataset.dateMaskReady='1';
   input.addEventListener('input',function(){
+    const oldPos=this.selectionStart||0, digitsBefore=this.value.slice(0,oldPos).replace(/\D/g,'').length;
     const digits=this.value.replace(/\D/g,'').slice(0,8);
     let value=digits.slice(0,2);
     if(digits.length>2) value+='.'+digits.slice(2,4);
     if(digits.length>4) value+='.'+digits.slice(4,8);
     this.value=value;
-    this.setSelectionRange(value.length,value.length);
+    let pos=digitsBefore;if(digitsBefore>2)pos++;if(digitsBefore>4)pos++;pos=Math.min(pos,value.length);
+    this.setSelectionRange(pos,pos);
   });
 }
 function initDateInputs(root) {(root||document).querySelectorAll('.date-input').forEach(maskDateInput);}
