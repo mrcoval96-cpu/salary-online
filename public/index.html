@@ -289,9 +289,9 @@ button,input,select,textarea{max-width:100%}
   </div>
   <div id="registerForm" style="display:none">
     <h2 style="font-size:16px;margin-bottom:10px">Регистрация</h2>
-    <input type="text" id="regFio" placeholder="ФИО">
-    <input type="text" id="regPhone" placeholder="Телефон">
-    <input type="text" id="regLogin" placeholder="Логин">
+    <input type="text" id="regFio" placeholder="ФИО" autocomplete="name" oninput="updateRegistrationLogin()">
+    <input type="tel" id="regPhone" placeholder="7 (900) 900-90-90" inputmode="numeric" autocomplete="tel" maxlength="18" oninput="formatRegistrationPhone(this)">
+    <input type="text" id="regLogin" placeholder="Логин сформируется автоматически" readonly tabindex="-1" title="Логин формируется автоматически из ФИО">
     <input type="password" id="regPassword" placeholder="Пароль">
     <button class="btn-primary" onclick="doRegister()">Зарегистрироваться</button>
     <div id="regMsg" class="error"></div>
@@ -637,13 +637,36 @@ function showLogin() {
   document.getElementById('loginForm').style.display = 'block';
 }
 
+function buildLoginFromFio(fio){
+  const parts=String(fio||'').trim().replace(/\s+/g,' ').split(' ').filter(Boolean);
+  if(!parts.length)return '';
+  const surname=parts[0],initials=parts.slice(1,3).map(function(x){return x.charAt(0).toUpperCase();}).join('');
+  return surname+(initials?' '+initials:'');
+}
+function updateRegistrationLogin(){document.getElementById('regLogin').value=buildLoginFromFio(document.getElementById('regFio').value);}
+function formatRegistrationPhone(input){
+  let d=String(input.value||'').replace(/\D/g,'');
+  if(d.charAt(0)==='8')d='7'+d.slice(1);
+  if(d.charAt(0)!=='7')d='7'+d;
+  d=d.slice(0,11);
+  let out='7';
+  if(d.length>1)out+=' ('+d.slice(1,4);
+  if(d.length>=4)out+=')';
+  if(d.length>4)out+=' '+d.slice(4,7);
+  if(d.length>7)out+='-'+d.slice(7,9);
+  if(d.length>9)out+='-'+d.slice(9,11);
+  input.value=out;
+}
+function isValidRegistrationPhone(value){return /^7 \(\d{3}\) \d{3}-\d{2}-\d{2}$/.test(String(value||''));}
 async function doRegister() {
   const fio = document.getElementById('regFio').value.trim();
   const phone = document.getElementById('regPhone').value.trim();
-  const login = document.getElementById('regLogin').value.trim();
+  const login = buildLoginFromFio(fio);
+  document.getElementById('regLogin').value=login;
   const password = document.getElementById('regPassword').value.trim();
   document.getElementById('regMsg').textContent = '';
-  if (!fio || !login || !password) { document.getElementById('regMsg').textContent = 'Заполните ФИО, логин и пароль'; return; }
+  if (!fio || !login || !password) { document.getElementById('regMsg').textContent = 'Заполните ФИО и пароль'; return; }
+  if (!isValidRegistrationPhone(phone)) { document.getElementById('regMsg').textContent = 'Введите номер телефона полностью: 7 (900) 900-90-90'; return; }
   try {
     await api('/api/register', 'POST', { fio, phone, login, password });
     document.getElementById('regMsg').className = 'success';
