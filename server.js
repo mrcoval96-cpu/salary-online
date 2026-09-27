@@ -29,6 +29,15 @@ const pool = new pg.Pool({
 });
 
 
+async function ensureDatabaseSchema(){
+  await pool.query("ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS charge_date DATE");
+  await pool.query("CREATE TABLE IF NOT EXISTS object_responsibles (object_id INTEGER NOT NULL REFERENCES objects(id) ON DELETE CASCADE, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (object_id, employee_id))");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_object_responsibles_employee ON object_responsibles(employee_id)");
+  await pool.query("INSERT INTO object_responsibles (object_id,employee_id) SELECT o.id,e.id FROM objects o CROSS JOIN LATERAL regexp_split_to_table(COALESCE(o.responsible,''),',') AS part(name) JOIN employees e ON lower(trim(e.fio))=lower(trim(part.name)) WHERE trim(part.name)<>'' ON CONFLICT (object_id,employee_id) DO NOTHING");
+}
+
+
+
 pool.on('error', (err) => {
   console.error('PostgreSQL error:', err);
 });
@@ -250,50 +259,62 @@ app.delete('/api/employees/:id', requireAuth, async (req, res) => {
 });
 
 // === OBJECTS ===
-app.get('/api/objects', requireAuth, async (req, res) => {
-  try {
-    const result = await pool.query('SELECT * FROM objects ORDER BY name');
+async function normalizeResponsibleIds(body){
+  let ids=Array.isArray(body.responsible_ids) ? body.responsible_ids : [];
+  ids=Array.from(new Set(ids.map(function(v){return Number(v);}).filter(function(v){return Number.isInteger(v)&&v>0;})));
+  if(!Array.isArray(body.responsible_ids) && body.responsible){
+    const names=String(body.responsible).split(',').map(function(x){return x.trim();}).filter(Boolean);
+    if(names.length){
+      const found=await pool.query("SELECT id FROM employees WHERE lower(fio)=ANY($1::text[])",[names.map(function(n){return n.toLowerCase();})]);
+      ids=found.rows.map(function(r){return Number(r.id);});
+    }
+  }
+  if(!ids.length)return [];
+  const valid=await pool.query("SELECT id FROM employees WHERE id=ANY($1::int[])",[ids]);
+  return valid.rows.map(function(r){return Number(r.id);});
+}
+async function getObjectWithResponsibles(id){
+  const result=await pool.query("SELECT o.*,COALESCE(json_agg(json_build_object('id',e.id,'fio',e.fio) ORDER BY e.fio) FILTER (WHERE e.id IS NOT NULL),'[]'::json) AS responsibles FROM objects o LEFT JOIN object_responsibles r ON r.object_id=o.id LEFT JOIN employees e ON e.id=r.employee_id WHERE o.id=$1 GROUP BY o.id",[id]);
+  return result.rows[0] || null;
+}
+app.get('/api/objects',requireAuth,async(req,res)=>{
+  try{
+    const result=await pool.query("SELECT o.*,COALESCE(json_agg(json_build_object('id',e.id,'fio',e.fio) ORDER BY e.fio) FILTER (WHERE e.id IS NOT NULL),'[]'::json) AS responsibles FROM objects o LEFT JOIN object_responsibles r ON r.object_id=o.id LEFT JOIN employees e ON e.id=r.employee_id GROUP BY o.id ORDER BY o.name");
     res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  }catch(err){res.status(500).json({error:err.message});}
 });
-
-app.post('/api/objects', requireAuth, async (req, res) => {
-  const { name, address, customer, organization, responsible } = req.body;
-  if (!name) return res.status(400).json({ error: 'Наименование обязательно' });
-  try {
-    const result = await pool.query(
-      'INSERT INTO objects (name, address, customer, organization, responsible) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-      [name, address||'', customer||'', organization||'', responsible||'']
-    );
-    res.json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.put('/api/objects/:id', requireAuth, async (req, res) => {
-  const { id } = req.params;
-  const { name, address, customer, organization, responsible } = req.body;
-  try {
-    const result = await pool.query(
-      'UPDATE objects SET name=$1, address=$2, customer=$3, organization=$4, responsible=$5 WHERE id=$6 RETURNING *',
-      [name, address||'', customer||'', organization||'', responsible||'', id]
-    );
-    res.json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.delete('/api/objects/:id', requireAuth, async (req, res) => {
-  try {
-    await pool.query('DELETE FROM objects WHERE id=$1', [req.params.id]);
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+async function saveObject(id,data,res){
+  const name=String(data.name||'').trim();
+  if(!name)return res.status(400).json({error:'Наименование обязательно'});
+  const responsibleIds=await normalizeResponsibleIds(data);
+  const client=await pool.connect();
+  try{
+    await client.query('BEGIN');
+    let result;
+    if(id){
+      result=await client.query('UPDATE objects SET name=$1,address=$2,customer=$3,organization=$4,responsible=$5 WHERE id=$6 RETURNING id',[name,data.address||'',data.customer||'',data.organization||'','',id]);
+      if(!result.rows.length){await client.query('ROLLBACK');return res.status(404).json({error:'Объект не найден'});}
+    }else{
+      result=await client.query('INSERT INTO objects (name,address,customer,organization,responsible) VALUES ($1,$2,$3,$4,$5) RETURNING id',[name,data.address||'',data.customer||'',data.organization||'','']);
+      id=result.rows[0].id;
+    }
+    await client.query('DELETE FROM object_responsibles WHERE object_id=$1',[id]);
+    if(responsibleIds.length)await client.query('INSERT INTO object_responsibles (object_id,employee_id) SELECT $1,unnest($2::int[]) ON CONFLICT DO NOTHING',[id,responsibleIds]);
+    const names=responsibleIds.length ? await client.query('SELECT fio FROM employees WHERE id=ANY($1::int[]) ORDER BY fio',[responsibleIds]) : {rows:[]};
+    const responsibleText=names.rows.map(function(r){return r.fio;}).join(', ');
+    await client.query('UPDATE objects SET responsible=$1 WHERE id=$2',[responsibleText,id]);
+    await client.query('COMMIT');
+    res.json(await getObjectWithResponsibles(id));
+  }catch(err){
+    try{await client.query('ROLLBACK');}catch(e){}
+    res.status(500).json({error:err.message});
+  }finally{client.release();}
+}
+app.post('/api/objects',requireAuth,async(req,res)=>saveObject(null,req.body||{},res));
+app.put('/api/objects/:id',requireAuth,async(req,res)=>saveObject(req.params.id,req.body||{},res));
+app.delete('/api/objects/:id',requireAuth,async(req,res)=>{
+  try{await pool.query('DELETE FROM objects WHERE id=$1',[req.params.id]);res.json({ok:true});}
+  catch(err){res.status(500).json({error:err.message});}
 });
 
 // === ORGANIZATIONS ===
@@ -374,7 +395,7 @@ app.put('/api/salary/:id', requireAuth, async (req, res) => {
   const { employee_fio, object_name, month, year, charge_date, hour_rate, hours, per_diem_days, per_diem_rate, extra_charges, payments, total, paid } = req.body;
   try {
     const result = await pool.query(
-      `UPDATE salary_records SET employee_fio=$1, object_name=$2, month=$3, year=$4, charge_date=$5, hour_rate=$6, hours=$7,, per_diem_days=$8, per_diem_rate=$9, extra_charges=$10, payments=$11, total=$12, paid=$13 WHERE id=$14 RETURNING *`,
+      `UPDATE salary_records SET employee_fio=$1, object_name=$2, month=$3, year=$4, charge_date=$5, hour_rate=$6, hours=$7, per_diem_days=$8, per_diem_rate=$9, extra_charges=$10, payments=$11, total=$12, paid=$13 WHERE id=$14 RETURNING *`,
       [employee_fio||'', object_name||'', month||'', year||'', charge_date||null, hour_rate||0, hours||0, per_diem_days||0, per_diem_rate||0,
        JSON.stringify(extra_charges||[]), JSON.stringify(payments||[]), total||0, paid||0, id]
     );
@@ -415,11 +436,9 @@ app.get('/api/export', requireSiteManager, async (req, res) => {
     const objects = await pool.query('SELECT * FROM objects');
     const orgs = await pool.query('SELECT * FROM organizations');
     const salary = await pool.query('SELECT * FROM salary_records');
+    const objectResponsibles = await pool.query('SELECT object_id, employee_id FROM object_responsibles');
     const log = await pool.query('SELECT * FROM action_log ORDER BY created_at DESC LIMIT 500');
-    res.json({
-      users: users.rows, employees: employees.rows, objects: objects.rows,
-      organizations: orgs.rows, salary: salary.rows, log: log.rows
-    });
+    res.json({users:users.rows, employees:employees.rows, objects:objects.rows, organizations:orgs.rows, salary:salary.rows, object_responsibles:objectResponsibles.rows, log:log.rows});
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -454,9 +473,9 @@ app.post('/api/import', requireSiteManager, async (req, res) => {
       for (const rec of data.salary) {
         await pool.query(
           `INSERT INTO salary_records (employee_fio, object_name, month, year, charge_date, hour_rate, hours, per_diem_days, per_diem_rate, extra_charges, payments, total, paid)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-          [rec.employee_fio||'', rec.object_name||'', rec.month||'', rec.year||'', rec.hour_rate||0, rec.hours||0,
-           rec.per_diem_days||0, rec.per_diem_rate||0, rec.extra_charges||'[]', rec.payments||'[]', rec.total||0, rec.paid||0, rec.charge_date||null]
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+          [rec.employee_fio||'', rec.object_name||'', rec.month||'', rec.year||'', rec.charge_date||null, rec.hour_rate||0, rec.hours||0,
+           rec.per_diem_days||0, rec.per_diem_rate||0, rec.extra_charges||'[]', rec.payments||'[]', rec.total||0, rec.paid||0]
         );
       }
     }
@@ -505,5 +524,6 @@ async function initAdmin() {
 
 app.listen(PORT, '0.0.0.0', async () => {
   console.log('Server running on port ' + PORT);
+  try { await ensureDatabaseSchema(); } catch (err) { console.error('Schema initialization error:', err.message); }
   await initAdmin();
 });
