@@ -110,6 +110,13 @@ header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .salary-card .chevron{transition:transform .2s}
 .salary-card.open .chevron{transform:rotate(180deg)}
 .salary-card .stats{display:flex;gap:20px;flex-wrap:wrap;margin-top:8px}
+.salary-paid-link{font-weight:600;color:#0f3460;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;cursor:pointer}
+.salary-payment-detail{display:none;border-top:1px solid #eef0f2;padding:10px 16px;background:#f8fafc}
+.salary-payment-detail.show{display:block}
+.salary-payment-title{font-size:13px;font-weight:600;margin-bottom:7px;color:#16213e}
+.salary-payment-row{display:flex;justify-content:space-between;gap:16px;padding:5px 0;border-bottom:1px solid #eceff2;font-size:13px}
+.salary-payment-row:last-child{border-bottom:0}
+.salary-payment-empty{font-size:13px;color:#777}
 .salary-detail{border-top:1px solid #eee;padding:12px 16px 16px;margin-top:0}
 .salary-records{display:grid;gap:10px}
 .salary-entry{border:1px solid #e6e8eb;border-radius:8px;padding:12px;background:#fbfcfd}
@@ -723,6 +730,17 @@ function populateEditLists(r){
   normalizeExtraItems(r.extra_charges).forEach(addEditExtraCharge);
   parseJsonArray(r.payments).forEach(addEditPayment);
 }
+function paymentItemsForRecords(recs){
+  const items=[];
+  recs.forEach(function(r){
+    parseJsonArray(r.payments).forEach(function(p){
+      const amount=parseFloat(p && (p.amount != null ? p.amount : p.sum)) || 0;
+      const date=p && (p.date || p.payment_date) ? String(p.date || p.payment_date).slice(0,10) : '';
+      if(amount || date) items.push({date:date,amount:amount});
+    });
+  });
+  return items.sort(function(a,b){return String(a.date||'9999-99-99').localeCompare(String(b.date||'9999-99-99'));});
+}
 function renderSalary(){
   const filter=document.getElementById('salaryMonthFilter').value;
   const search=(document.getElementById('salarySearch').value||'').toLowerCase();
@@ -738,11 +756,22 @@ function renderSalary(){
     const total=recs.reduce(function(s,r){return s+parseFloat(r.total||0);},0);
     const paid=recs.reduce(function(s,r){return s+parseFloat(r.paid||0);},0);
     const debt=total-paid;
+    const paymentItems=paymentItemsForRecords(recs);
     const card=document.createElement('div');
     card.className='salary-card';
     const head=document.createElement('button');
     head.type='button'; head.className='salary-card-head'; head.setAttribute('aria-expanded','false');
-    head.innerHTML='<div class="name"><span class="chevron">▼</span>'+escapeHtml(fio)+' <span style="font-size:12px;color:#777">('+recs.length+' зап.)</span></div><div class="stats"><div class="stat">Начислено: <span>'+formatMoney(total)+' ₽</span></div><div class="stat">Выплачено: <span>'+formatMoney(paid)+' ₽</span></div><div class="stat">Задолженность: <span>'+formatMoney(debt)+' ₽</span></div></div>';
+    head.innerHTML='<div class="name"><span class="chevron">▼</span>'+escapeHtml(fio)+' <span style="font-size:12px;color:#777">('+recs.length+' зап.)</span></div><div class="stats"><div class="stat">Начислено: <span>'+formatMoney(total)+' ₽</span></div><div class="stat">Выплачено: <span class="salary-paid-link" role="button" tabindex="0" title="Показать выплаты">'+formatMoney(paid)+' ₽</span></div><div class="stat">Задолженность: <span>'+formatMoney(debt)+' ₽</span></div></div>';
+    const paymentDetail=document.createElement('div');
+    paymentDetail.className='salary-payment-detail';
+    paymentDetail.innerHTML='<div class="salary-payment-title">История выплат</div>'+(paymentItems.length ? paymentItems.map(function(p){return '<div class="salary-payment-row"><span>'+(p.date?formatDateRu(p.date):'Дата не указана')+'</span><b>'+formatMoney(p.amount)+' ₽</b></div>';}).join('') : '<div class="salary-payment-empty">Выплаты не указаны.</div>');
+    const paidLink=head.querySelector('.salary-paid-link');
+    function togglePayments(event){
+      if(event){event.preventDefault();event.stopPropagation();}
+      paymentDetail.classList.toggle('show');
+    }
+    paidLink.addEventListener('click',togglePayments);
+    paidLink.addEventListener('keydown',function(event){if(event.key==='Enter'||event.key===' '){togglePayments(event);}});
     const detail=document.createElement('div');
     detail.className='salary-detail';
     detail.innerHTML='<div class="salary-records">'+recs.map(function(r){
@@ -754,7 +783,7 @@ function renderSalary(){
       card.classList.toggle('open',open);
       head.setAttribute('aria-expanded',open?'true':'false');
     };
-    card.appendChild(head); card.appendChild(detail); container.appendChild(card);
+    card.appendChild(head); card.appendChild(paymentDetail); card.appendChild(detail); container.appendChild(card);
   });
 }
 async function deleteSalary(id){
