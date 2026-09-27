@@ -654,11 +654,17 @@ function buildLoginFromFio(fio){
   return surname+(initials?' '+initials:'');
 }
 function capitalizeFioWords(value){
-  return String(value||'').replace(/\s+/g,' ').replace(/(^|[\s-])([а-яёa-z])/giu,function(_,sep,ch){return sep+ch.toUpperCase();});
+  return String(value||'').replace(/\s+/g,' ').split(' ').map(function(word){
+    return word.split('-').map(function(part){
+      if(!part)return '';
+      return part.charAt(0).toLocaleUpperCase('ru-RU')+part.slice(1).toLocaleLowerCase('ru-RU');
+    }).join('-');
+  }).join(' ');
 }
 function formatRegistrationFio(input){
-  const caret=input.selectionStart,value=capitalizeFioWords(input.value);
-  input.value=value;try{input.setSelectionRange(caret,caret);}catch(e){}
+  const raw=String(input.value||''),endsWithSpace=/\s$/.test(raw);
+  const value=capitalizeFioWords(raw)+(endsWithSpace?' ':'');
+  input.value=value;
   updateRegistrationLogin();
 }
 function updateRegistrationLogin(){document.getElementById('regLogin').value=buildLoginFromFio(document.getElementById('regFio').value);}
@@ -1574,7 +1580,14 @@ async function init() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', function(){
+  init();
+  const regFio=document.getElementById('regFio');
+  if(regFio){
+    regFio.addEventListener('input',function(){formatRegistrationFio(regFio);});
+    regFio.addEventListener('blur',function(){formatRegistrationFio(regFio);});
+  }
+});
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && document.getElementById('loginScreen').style.display !== 'none') {
     if (document.activeElement.id === 'passwordInput' || document.activeElement.id === 'loginInput') doLogin();
