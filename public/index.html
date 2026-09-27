@@ -270,6 +270,15 @@ button,input,select,textarea{max-width:100%}
   .salary-entry-actions{grid-template-columns:1fr}
 }
 
+
+/* registration form validation + mobile */
+#registerForm input:required:invalid:not(:placeholder-shown){border-color:#d92d20}
+#registerForm #regLogin[readonly]{background:#f2f4f7;color:#475467;cursor:not-allowed}
+@media(max-width:768px){
+  #registerForm{width:100%}
+  #registerForm input,#registerForm button{width:100%;box-sizing:border-box;min-height:46px;font-size:16px}
+  #registerForm #regLogin{overflow:hidden;text-overflow:ellipsis}
+}
 </style>
 </head>
 <body>
@@ -290,10 +299,10 @@ button,input,select,textarea{max-width:100%}
   <div id="registerForm" style="display:none">
     <h2 style="font-size:16px;margin-bottom:10px">Регистрация</h2>
     <div style="font-size:12px;color:#667085;margin:-3px 0 9px">Логин формируется автоматически из ФИО</div>
-    <input type="text" id="regFio" placeholder="ФИО" autocomplete="name" oninput="updateRegistrationLogin()">
-    <input type="tel" id="regPhone" placeholder="7 (900) 900-90-90" inputmode="numeric" autocomplete="tel" maxlength="18" oninput="formatRegistrationPhone(this)">
-    <input type="text" id="regLogin" placeholder="Логин сформируется автоматически" readonly tabindex="-1" title="Логин формируется автоматически из ФИО">
-    <input type="password" id="regPassword" placeholder="Пароль">
+    <input type="text" id="regFio" placeholder="ФИО *" autocomplete="name" required oninput="formatRegistrationFio(this)">
+    <input type="tel" id="regPhone" placeholder="7 (900) 900-90-90 *" inputmode="numeric" autocomplete="tel" maxlength="18" required oninput="formatRegistrationPhone(this)">
+    <input type="text" id="regLogin" placeholder="Логин сформируется автоматически *" readonly required tabindex="-1" title="Логин формируется автоматически из ФИО">
+    <input type="password" id="regPassword" placeholder="Пароль *" autocomplete="new-password" required>
     <button class="btn-primary" onclick="doRegister()">Зарегистрироваться</button>
     <div id="regMsg" class="error"></div>
     <div class="links"><a onclick="showLogin()">← Назад ко входу</a></div>
@@ -644,6 +653,14 @@ function buildLoginFromFio(fio){
   const surname=parts[0],initials=parts.slice(1,3).map(function(x){return x.charAt(0).toUpperCase();}).join('');
   return surname+(initials?' '+initials:'');
 }
+function capitalizeFioWords(value){
+  return String(value||'').replace(/\s+/g,' ').replace(/(^|[\s-])([а-яёa-z])/giu,function(_,sep,ch){return sep+ch.toUpperCase();});
+}
+function formatRegistrationFio(input){
+  const caret=input.selectionStart,value=capitalizeFioWords(input.value);
+  input.value=value;try{input.setSelectionRange(caret,caret);}catch(e){}
+  updateRegistrationLogin();
+}
 function updateRegistrationLogin(){document.getElementById('regLogin').value=buildLoginFromFio(document.getElementById('regFio').value);}
 function formatRegistrationPhone(input){
   let d=String(input.value||'').replace(/\D/g,'');
@@ -666,7 +683,8 @@ async function doRegister() {
   document.getElementById('regLogin').value=login;
   const password = document.getElementById('regPassword').value.trim();
   document.getElementById('regMsg').textContent = '';
-  if (!fio || !login || !password) { document.getElementById('regMsg').textContent = 'Заполните ФИО и пароль'; return; }
+  if (!fio || !phone || !login || !password) { document.getElementById('regMsg').textContent = 'Все поля обязательны для заполнения'; return; }
+  if (fio.split(/\s+/).filter(Boolean).length < 3) { document.getElementById('regMsg').textContent = 'Введите ФИО полностью: Фамилия Имя Отчество'; return; }
   if (!isValidRegistrationPhone(phone)) { document.getElementById('regMsg').textContent = 'Введите номер телефона полностью: 7 (900) 900-90-90'; return; }
   try {
     await api('/api/register', 'POST', { fio, phone, login, password });
