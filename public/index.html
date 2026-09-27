@@ -722,8 +722,16 @@ function initDashboardPeriod(){
 function renderDashboard(){
   initDashboardPeriod();const month=document.getElementById('dashboardMonth').value,year=String(document.getElementById('dashboardYear').value||'');
   const recs=salaryRecords.filter(r=>r.month===month&&String(r.year)===year),total=recs.reduce((s,r)=>s+Number(r.total||0),0),paid=recs.reduce((s,r)=>s+Number(r.paid||0),0);
-  const debtors=new Set(recs.filter(r=>Number(r.total||0)-Number(r.paid||0)>0.005).map(r=>r.employee_fio));
-  document.getElementById('dashTotal').textContent=formatMoney(total)+' ₽';document.getElementById('dashPaid').textContent=formatMoney(paid)+' ₽';document.getElementById('dashDebt').textContent=formatMoney(total-paid)+' ₽';document.getElementById('dashDebtors').textContent=debtors.size;
+  const employeeBalances={};
+  recs.forEach(function(r){
+    const fio=String(r.employee_fio||'').trim();
+    if(!fio)return;
+    if(!employeeBalances[fio])employeeBalances[fio]={total:0,paid:0};
+    employeeBalances[fio].total+=Number(r.total||0);
+    employeeBalances[fio].paid+=Number(r.paid||0);
+  });
+  const debtors=Object.values(employeeBalances).filter(function(x){return x.total-x.paid>0.005;});
+  document.getElementById('dashTotal').textContent=formatMoney(total)+' ₽';document.getElementById('dashPaid').textContent=formatMoney(paid)+' ₽';document.getElementById('dashDebt').textContent=formatMoney(total-paid)+' ₽';document.getElementById('dashDebtors').textContent=debtors.length;
   const payments=[];recs.forEach(r=>parseJsonArray(r.payments).forEach(p=>payments.push({fio:r.employee_fio,date:p.date||p.payment_date||'',amount:Number(p.amount!=null?p.amount:p.sum)||0})));
   payments.sort((a,b)=>String(b.date).localeCompare(String(a.date)));document.getElementById('dashPayments').innerHTML=payments.length?payments.slice(0,8).map(p=>'<div class="archive-row"><span>'+escapeHtml(p.fio)+' · '+(p.date?formatDateRu(p.date):'без даты')+'</span><b>'+formatMoney(p.amount)+' ₽</b></div>').join(''):'<div class="salary-payment-empty">Выплат за период нет.</div>';
 }
