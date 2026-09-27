@@ -5,6 +5,8 @@ const bcrypt = require('bcryptjs');
 const dotenv = require('dotenv');
 const path = require('path');
 const cors = require('cors');
+const nodemailer = require('nodemailer');
+const crypto = require('crypto');
 
 dotenv.config();
 
@@ -38,6 +40,11 @@ async function ensureDatabaseSchema(){
   await pool.query("CREATE INDEX IF NOT EXISTS idx_salary_records_deleted_at ON salary_records(deleted_at)");
   await pool.query("CREATE TABLE IF NOT EXISTS object_responsibles (object_id INTEGER NOT NULL REFERENCES objects(id) ON DELETE CASCADE, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (object_id, employee_id))");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_object_responsibles_employee ON object_responsibles(employee_id)");
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT");
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE");
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(lower(email)) WHERE email IS NOT NULL AND trim(email) <> ''");
+  await pool.query("CREATE TABLE IF NOT EXISTS email_codes (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, email TEXT NOT NULL, purpose TEXT NOT NULL, code_hash TEXT NOT NULL, expires_at TIMESTAMP NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_email_codes_lookup ON email_codes(lower(email), purpose, created_at DESC)");
   await pool.query("INSERT INTO object_responsibles (object_id,employee_id) SELECT o.id,e.id FROM objects o CROSS JOIN LATERAL regexp_split_to_table(COALESCE(o.responsible,''),',') AS part(name) JOIN employees e ON lower(trim(e.fio))=lower(trim(part.name)) WHERE trim(part.name)<>'' ON CONFLICT (object_id,employee_id) DO NOTHING");
 }
 
@@ -63,9 +70,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // === AUTH MIDDLEWARE ===
 function requireAuth(req, res, next) {
-  if (!req.session || !req.session.user) {
-    return res.status(401).json({ error: 'Не авторизован' });
-  }
+  if (!req.session || !req.session.user) return res.status(401).json({ error: 'Не авторизован' });
+  if (!req.session.user.email_verified) return res.status(403).json({ error: 'Сначала подтвердите электронную почту', code: 'EMAIL_VERIFICATION_REQUIRED' });
   next();
 }
 
@@ -77,6 +83,46 @@ function requireSiteManager(req, res, next) {
     return res.status(403).json({ error: 'Доступ только для руководителя сайта' });
   }
   next();
+}
+
+// === EMAIL SECURITY ===
+function normalizeEmail(value){return String(value||'').trim().toLowerCase();}
+function validEmail(value){return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));}
+function codeHash(code){return crypto.createHash('sha256').update(String(code)).digest('hex');}
+function createCode(){return String(crypto.randomInt(100000,1000000));}
+function mailTransport(){
+  if(!process.env.SMTP_USER || !process.env.SMTP_PASSWORD) throw new Error('SMTP не настроен');
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST || 'smtp.yandex.ru',
+    port: Number(process.env.SMTP_PORT || 465),
+    secure: String(process.env.SMTP_SECURE || 'true').toLowerCase() !== 'false',
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD }
+  });
+}
+async function sendSecurityCode(userId,email,purpose){
+  const normalized=normalizeEmail(email);
+  const recent=await pool.query("SELECT created_at FROM email_codes WHERE lower(email)=lower($1) AND purpose=$2 ORDER BY created_at DESC LIMIT 1",[normalized,purpose]);
+  if(recent.rows.length && Date.now()-new Date(recent.rows[0].created_at).getTime()<60000) throw new Error('Повторный код можно запросить через 60 секунд');
+  const code=createCode();
+  await pool.query("DELETE FROM email_codes WHERE user_id=$1 AND purpose=$2",[userId,purpose]);
+  await pool.query("INSERT INTO email_codes(user_id,email,purpose,code_hash,expires_at) VALUES($1,$2,$3,$4,NOW()+INTERVAL '10 minutes')",[userId,normalized,purpose,codeHash(code)]);
+  const subject=purpose==='verify'?'Подтверждение электронной почты':'Восстановление пароля';
+  await mailTransport().sendMail({
+    from: process.env.MAIL_FROM || process.env.SMTP_USER,
+    to: normalized,
+    subject: subject+' — Зарплата: учёт и расчёт',
+    text: 'Код подтверждения: '+code+'\n\nКод действует 10 минут. Если вы не запрашивали этот код, просто проигнорируйте письмо.'
+  });
+}
+async function consumeCode(userId,email,purpose,code){
+  const r=await pool.query("SELECT * FROM email_codes WHERE user_id=$1 AND lower(email)=lower($2) AND purpose=$3 ORDER BY created_at DESC LIMIT 1",[userId,normalizeEmail(email),purpose]);
+  if(!r.rows.length) return {ok:false,error:'Запросите новый код'};
+  const row=r.rows[0];
+  if(new Date(row.expires_at).getTime()<Date.now()){await pool.query("DELETE FROM email_codes WHERE id=$1",[row.id]);return {ok:false,error:'Срок действия кода истёк'};}
+  if(row.attempts>=5){await pool.query("DELETE FROM email_codes WHERE id=$1",[row.id]);return {ok:false,error:'Превышено число попыток. Запросите новый код'};}
+  if(row.code_hash!==codeHash(code)){await pool.query("UPDATE email_codes SET attempts=attempts+1 WHERE id=$1",[row.id]);return {ok:false,error:'Неверный код'};}
+  await pool.query("DELETE FROM email_codes WHERE id=$1",[row.id]);
+  return {ok:true};
 }
 
 // === AUTH ROUTES ===
@@ -104,7 +150,9 @@ app.post('/api/login', async (req, res) => {
       phone: user.phone,
       role: user.role,
       organization: user.organization,
-      object_name: user.object_name
+      object_name: user.object_name,
+      email: user.email || '',
+      email_verified: !!user.email_verified
     };
     await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)', [user.login, 'Вход в систему']);
     res.json(req.session.user);
@@ -129,6 +177,30 @@ app.get('/api/me', (req, res) => {
   res.json(req.session.user);
 });
 
+app.post('/api/email/send-verification', async (req,res)=>{
+  if(!req.session.user)return res.status(401).json({error:'Не авторизован'});
+  const email=normalizeEmail(req.body.email || req.session.user.email);
+  if(!validEmail(email))return res.status(400).json({error:'Введите корректный email'});
+  try{
+    const used=await pool.query("SELECT id FROM users WHERE lower(email)=lower($1) AND id<>$2",[email,req.session.user.id]);
+    if(used.rows.length)return res.status(400).json({error:'Этот email уже используется'});
+    await pool.query("UPDATE users SET email=$1,email_verified=FALSE WHERE id=$2",[email,req.session.user.id]);
+    req.session.user.email=email; req.session.user.email_verified=false;
+    await sendSecurityCode(req.session.user.id,email,'verify');
+    res.json({ok:true,message:'Код отправлен на электронную почту'});
+  }catch(e){console.error('Send verification:',e.message);res.status(400).json({error:e.message});}
+});
+app.post('/api/email/verify', async (req,res)=>{
+  if(!req.session.user)return res.status(401).json({error:'Не авторизован'});
+  const email=normalizeEmail(req.session.user.email);
+  const checked=await consumeCode(req.session.user.id,email,'verify',String(req.body.code||'').trim());
+  if(!checked.ok)return res.status(400).json({error:checked.error});
+  await pool.query("UPDATE users SET email_verified=TRUE WHERE id=$1",[req.session.user.id]);
+  req.session.user.email_verified=true;
+  await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1,$2)',[req.session.user.login,'Подтверждена электронная почта']);
+  res.json({ok:true});
+});
+
 // Register
 function normalizeRegistrationFio(fio) {
   return String(fio||'').trim().replace(/\s+/g,' ').split(' ').map(word=>word.split('-').map(part=>part?part.charAt(0).toLocaleUpperCase('ru-RU')+part.slice(1).toLocaleLowerCase('ru-RU'):'').join('-')).join(' ');
@@ -147,48 +219,58 @@ function normalizePhone(phone) {
 }
 app.post('/api/register', async (req, res) => {
   const { fio, phone, password } = req.body;
+  const email=normalizeEmail(req.body.email);
   const normalizedFio=normalizeRegistrationFio(fio);
   const login=buildLoginFromFio(normalizedFio);
   const normalizedPhone=normalizePhone(phone);
-  if (!normalizedFio || !phone || !login || !password) return res.status(400).json({ error: 'Все поля обязательны для заполнения' });
+  if (!normalizedFio || !phone || !login || !password || !email) return res.status(400).json({ error: 'Все поля обязательны для заполнения' });
+  if (!validEmail(email)) return res.status(400).json({ error: 'Введите корректный email' });
   if (normalizedFio.split(' ').filter(Boolean).length < 3) return res.status(400).json({ error: 'Введите ФИО полностью: Фамилия Имя Отчество' });
   if (!normalizedPhone) return res.status(400).json({ error: 'Некорректный номер телефона. Формат: 7 (900) 900-90-90' });
   try {
-    const existing = await pool.query('SELECT id FROM users WHERE lower(login) = lower($1)', [login]);
+    const existing = await pool.query('SELECT id FROM users WHERE lower(login) = lower($1) OR lower(email)=lower($2)', [login,email]);
     if (existing.rows.length > 0) {
       return res.status(400).json({ error: 'Логин уже занят' });
     }
     const hash = await bcrypt.hash(password, 10);
     await pool.query(
-      'INSERT INTO users (login, password, fio, phone, role) VALUES ($1, $2, $3, $4, $5)',
-      [login, hash, normalizedFio, normalizedPhone, '']
+      'INSERT INTO users (login, password, fio, phone, email, email_verified, role) VALUES ($1,$2,$3,$4,$5,FALSE,$6) RETURNING id',
+      [login, hash, normalizedFio, normalizedPhone, email, '']
     );
-    res.json({ ok: true, message: 'Регистрация успешна. Обратитесь к руководителю сайта для назначения роли.' });
+    const created=await pool.query('SELECT id FROM users WHERE lower(login)=lower($1)',[login]);
+    await sendSecurityCode(created.rows[0].id,email,'verify');
+    res.json({ ok: true, login, email, message: 'Регистрация создана. Код подтверждения отправлен на email.' });
   } catch (err) {
     console.error('Register error:', err);
     res.status(500).json({ error: 'Ошибка сервера: ' + err.message });
   }
 });
 
-// Recover password
-app.post('/api/recover', async (req, res) => {
-  const { login, phone } = req.body;
-  const normalizedPhone=normalizePhone(phone);
-  if(!normalizedPhone)return res.status(400).json({ error: 'Некорректный номер телефона. Формат: 7 (900) 900-90-90' });
-  try {
-    const result = await pool.query('SELECT * FROM users WHERE login = $1 AND phone = $2', [login, normalizedPhone]);
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Пользователь не найден' });
+// Recover password by verified email
+app.post('/api/recover/request', async (req,res)=>{
+  const identifier=normalizeEmail(req.body.identifier);
+  try{
+    const r=await pool.query("SELECT id,email FROM users WHERE lower(login)=lower($1) OR lower(email)=lower($1) LIMIT 1",[identifier]);
+    if(r.rows.length && r.rows[0].email){
+      try{await sendSecurityCode(r.rows[0].id,r.rows[0].email,'recover');}catch(e){if(!String(e.message).includes('60 секунд'))console.error('Recover mail:',e.message);}
     }
-    const user = result.rows[0];
-    const newPass = Math.random().toString(36).slice(-8);
-    const hash = await bcrypt.hash(newPass, 10);
-    await pool.query('UPDATE users SET password = $1 WHERE id = $2', [hash, user.id]);
-    await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)', [login, 'Восстановление пароля']);
-    res.json({ ok: true, newPassword: newPass });
-  } catch (err) {
-    res.status(500).json({ error: 'Ошибка сервера: ' + err.message });
-  }
+    res.json({ok:true,message:'Если аккаунт найден и email подтверждён, код отправлен на привязанную почту.'});
+  }catch(e){res.status(500).json({error:'Ошибка сервера'});}
+});
+app.post('/api/recover/reset', async (req,res)=>{
+  const identifier=normalizeEmail(req.body.identifier), code=String(req.body.code||'').trim(), password=String(req.body.password||'');
+  if(password.length<8)return res.status(400).json({error:'Новый пароль должен содержать не менее 8 символов'});
+  try{
+    const r=await pool.query("SELECT id,login,email,email_verified FROM users WHERE lower(login)=lower($1) OR lower(email)=lower($1) LIMIT 1",[identifier]);
+    if(!r.rows.length || !r.rows[0].email || !r.rows[0].email_verified)return res.status(400).json({error:'Не удалось подтвердить запрос восстановления'});
+    const user=r.rows[0], checked=await consumeCode(user.id,user.email,'recover',code);
+    if(!checked.ok)return res.status(400).json({error:checked.error});
+    const hash=await bcrypt.hash(password,10);
+    await pool.query("UPDATE users SET password=$1 WHERE id=$2",[hash,user.id]);
+    await pool.query("DELETE FROM email_codes WHERE user_id=$1",[user.id]);
+    await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1,$2)',[user.login,'Пароль восстановлен через email']);
+    res.json({ok:true});
+  }catch(e){console.error('Recover reset:',e.message);res.status(500).json({error:'Ошибка сервера'});}
 });
 
 // === USERS ===
