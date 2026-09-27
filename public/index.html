@@ -737,8 +737,8 @@ async function doRegister() {
     document.getElementById('regMsg').className = 'success';
     document.getElementById('regMsg').textContent = created.message;
     document.getElementById('regVerifyBlock').style.display='block';
-    const logged=await api('/api/login','POST',{login:created.login,password:password}).catch(function(){return null;});
-    if(logged)currentUser=logged;
+    document.getElementById('regVerifyBlock').dataset.login=created.login;
+    document.getElementById('regVerifyBlock').dataset.email=created.email;
   } catch (e) {
     document.getElementById('regMsg').textContent = e.message;
   }
@@ -765,8 +765,8 @@ async function verifyRequiredEmail(){
 }
 async function verifyRegistrationEmail(){
   const msg=document.getElementById('regMsg'), code=document.getElementById('regEmailCode').value.trim();
-  if(!currentUser){msg.className='error';msg.textContent='Аккаунт создан. Войдите и подтвердите электронную почту.';return;}
-  try{await api('/api/email/verify','POST',{code});msg.className='success';msg.textContent='Email подтверждён. После назначения роли руководителем сайта вы сможете войти.';setTimeout(showLogin,1800);}
+  const block=document.getElementById('regVerifyBlock'),login=block.dataset.login,email=block.dataset.email;
+  try{await api('/api/register/verify-email','POST',{login,email,code});msg.className='success';msg.textContent='Email подтверждён. После назначения роли руководителем сайта вы сможете войти.';setTimeout(showLogin,1800);}
   catch(e){msg.className='error';msg.textContent=e.message;}
 }
 async function requestRecoveryCode(){
