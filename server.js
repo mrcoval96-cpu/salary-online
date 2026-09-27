@@ -485,6 +485,85 @@ app.post('/api/import', requireSiteManager, async (req, res) => {
   }
 });
 
+// === FULL BACKUP / RESTORE ===
+app.get('/api/backup', requireSiteManager, async (req, res) => {
+  try {
+    const [users, employees, objects, orgs, salary, objectResponsibles, log] = await Promise.all([
+      pool.query('SELECT * FROM users ORDER BY id'),
+      pool.query('SELECT * FROM employees ORDER BY id'),
+      pool.query('SELECT * FROM objects ORDER BY id'),
+      pool.query('SELECT * FROM organizations ORDER BY id'),
+      pool.query('SELECT * FROM salary_records ORDER BY id'),
+      pool.query('SELECT object_id, employee_id, created_at FROM object_responsibles ORDER BY object_id, employee_id'),
+      pool.query('SELECT * FROM action_log ORDER BY id')
+    ]);
+    res.json({
+      format: 'salary-online-backup',
+      version: 1,
+      created_at: new Date().toISOString(),
+      users: users.rows, employees: employees.rows, objects: objects.rows,
+      organizations: orgs.rows, salary: salary.rows,
+      object_responsibles: objectResponsibles.rows, log: log.rows
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/restore', requireSiteManager, async (req, res) => {
+  const data=req.body||{};
+  if(data.format!=='salary-online-backup' || !Array.isArray(data.users) || !Array.isArray(data.salary)){
+    return res.status(400).json({error:'Файл не является резервной копией Salary Online'});
+  }
+  const client=await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM salary_records');
+    await client.query('DELETE FROM object_responsibles');
+    await client.query('DELETE FROM objects');
+    await client.query('DELETE FROM employees');
+    await client.query('DELETE FROM organizations');
+    await client.query('DELETE FROM action_log');
+    await client.query('DELETE FROM users');
+
+    for(const u of data.users){
+      await client.query('INSERT INTO users (id,login,password,fio,phone,role,organization,object_name,role_history) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+        [u.id,u.login||'',u.password||'',u.fio||'',u.phone||'',u.role||'',u.organization||'',u.object_name||'',u.role_history||'[]']);
+    }
+    for(const e of (data.employees||[])){
+      await client.query('INSERT INTO employees (id,fio,organization,position,phone,birth_date,comments) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [e.id,e.fio||'',e.organization||'',e.position||'',e.phone||'',e.birth_date||null,e.comments||'']);
+    }
+    for(const o of (data.objects||[])){
+      await client.query('INSERT INTO objects (id,name,address,customer,organization,responsible) VALUES ($1,$2,$3,$4,$5,$6)',
+        [o.id,o.name||'',o.address||'',o.customer||'',o.organization||'',o.responsible||'']);
+    }
+    for(const o of (data.organizations||[])){
+      await client.query('INSERT INTO organizations (id,name,address,contacts) VALUES ($1,$2,$3,$4)',
+        [o.id,o.name||'',o.address||'',o.contacts||'']);
+    }
+    for(const r of (data.object_responsibles||[])){
+      await client.query('INSERT INTO object_responsibles (object_id,employee_id,created_at) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING',
+        [r.object_id,r.employee_id,r.created_at||new Date()]);
+    }
+    for(const s of data.salary){
+      await client.query('INSERT INTO salary_records (id,employee_fio,object_name,month,year,charge_date,hour_rate,hours,per_diem_days,per_diem_rate,extra_charges,payments,total,paid) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)',
+        [s.id,s.employee_fio||'',s.object_name||'',s.month||'',s.year||'',s.charge_date||null,s.hour_rate||0,s.hours||0,s.per_diem_days||0,s.per_diem_rate||0,
+         typeof s.extra_charges==='string'?s.extra_charges:JSON.stringify(s.extra_charges||[]),typeof s.payments==='string'?s.payments:JSON.stringify(s.payments||[]),s.total||0,s.paid||0]);
+    }
+    for(const l of (data.log||[])){
+      await client.query('INSERT INTO action_log (id,user_login,action,created_at) VALUES ($1,$2,$3,$4)',
+        [l.id,l.user_login||'',l.action||'',l.created_at||new Date()]);
+    }
+    for(const table of ['users','employees','objects','organizations','salary_records','action_log']){
+      await client.query("SELECT setval(pg_get_serial_sequence('"+table+"','id'), COALESCE((SELECT MAX(id) FROM "+table+"),1), (SELECT COUNT(*)>0 FROM "+table+"))");
+    }
+    await client.query('COMMIT');
+    res.json({ok:true,message:'Резервная копия восстановлена'});
+  } catch(err) {
+    try{await client.query('ROLLBACK');}catch(e){}
+    res.status(500).json({error:err.message});
+  } finally { client.release(); }
+});
+
 // Clear all data
 app.post('/api/clear', requireSiteManager, async (req, res) => {
   try {
