@@ -303,6 +303,7 @@ button,input,select,textarea{max-width:100%}
     <input type="tel" id="regPhone" placeholder="7 (900) 900-90-90 *" inputmode="numeric" autocomplete="tel" maxlength="18" required oninput="formatRegistrationPhone(this)">
     <input type="text" id="regLogin" placeholder="Логин сформируется автоматически *" readonly required tabindex="-1" title="Логин формируется автоматически из ФИО">
     <input type="password" id="regPassword" placeholder="Пароль *" autocomplete="new-password" required>
+    <input type="password" id="regPasswordConfirm" placeholder="Повторите пароль *" autocomplete="new-password" required>
     <button class="btn-primary" onclick="doRegister()">Зарегистрироваться</button>
     <div id="regMsg" class="error"></div>
     <div class="links"><a onclick="showLogin()">← Назад ко входу</a></div>
@@ -662,14 +663,21 @@ function capitalizeFioWords(value){
   }).join(' ');
 }
 function formatRegistrationFio(input){
-  const raw=String(input.value||''),endsWithSpace=/\s$/.test(raw);
-  const value=capitalizeFioWords(raw)+(endsWithSpace?' ':'');
-  input.value=value;
+  const raw=String(input.value||'');
+  input.value=raw.split(/(\s+)/).map(function(chunk){
+    if(/^\s+$/.test(chunk))return chunk;
+    return chunk.split('-').map(function(part){
+      if(!part)return '';
+      return part.charAt(0).toLocaleUpperCase('ru-RU')+part.slice(1).toLocaleLowerCase('ru-RU');
+    }).join('-');
+  }).join('');
   updateRegistrationLogin();
 }
 function updateRegistrationLogin(){document.getElementById('regLogin').value=buildLoginFromFio(document.getElementById('regFio').value);}
 function formatRegistrationPhone(input){
-  let d=String(input.value||'').replace(/\D/g,'');
+  const raw=String(input.value||'');
+  let d=raw.replace(/\D/g,'');
+  if(!d){input.value='';return;}
   if(d.charAt(0)==='8')d='7'+d.slice(1);
   if(d.charAt(0)!=='7')d='7'+d;
   d=d.slice(0,11);
@@ -687,9 +695,12 @@ async function doRegister() {
   const phone = document.getElementById('regPhone').value.trim();
   const login = buildLoginFromFio(fio);
   document.getElementById('regLogin').value=login;
-  const password = document.getElementById('regPassword').value.trim();
+  const password = document.getElementById('regPassword').value;
+  const passwordConfirm = document.getElementById('regPasswordConfirm').value;
+  document.getElementById('regMsg').className = 'error';
   document.getElementById('regMsg').textContent = '';
-  if (!fio || !phone || !login || !password) { document.getElementById('regMsg').textContent = 'Все поля обязательны для заполнения'; return; }
+  if (!fio || !phone || !login || !password || !passwordConfirm) { document.getElementById('regMsg').textContent = 'Все поля обязательны для заполнения'; return; }
+  if (password !== passwordConfirm) { document.getElementById('regMsg').textContent = 'Пароли не совпадают'; return; }
   if (fio.split(/\s+/).filter(Boolean).length < 3) { document.getElementById('regMsg').textContent = 'Введите ФИО полностью: Фамилия Имя Отчество'; return; }
   if (!isValidRegistrationPhone(phone)) { document.getElementById('regMsg').textContent = 'Введите номер телефона полностью: 7 (900) 900-90-90'; return; }
   try {
