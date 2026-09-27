@@ -222,7 +222,7 @@ button,input,select,textarea{max-width:100%}
   .dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
   .dashboard-item{padding:11px 9px;min-width:0}
   .dashboard-item b{font-size:16px;word-break:break-word}
-  #tab-dashboard .salary-toolbar-actions{display:grid;grid-template-columns:44px minmax(0,1fr) 90px 44px!important;gap:5px}
+  #tab-dashboard .salary-toolbar-actions{display:grid;grid-template-columns:minmax(82px,1fr) 44px minmax(0,1.2fr) 90px 44px!important;gap:5px}
   #tab-dashboard .salary-toolbar-actions .btn{padding:7px;min-width:0}
   #dashboardYear{width:100%!important}
   .salary-card-head{padding:12px}
@@ -265,7 +265,7 @@ button,input,select,textarea{max-width:100%}
   .salary-summary-item{display:flex;justify-content:space-between;align-items:center}
   .salary-summary-item label{margin:0;font-size:12px}.salary-summary-item b{font-size:15px}
   .dashboard-grid{grid-template-columns:1fr 1fr}
-  #tab-dashboard .salary-toolbar-actions{grid-template-columns:40px minmax(0,1fr) 82px 40px!important}
+  #tab-dashboard .salary-toolbar-actions{grid-template-columns:1fr 40px 1fr 82px 40px!important}
   .salary-entry-grid{grid-template-columns:1fr}
   .salary-entry-actions{grid-template-columns:1fr}
 }
@@ -334,7 +334,7 @@ button,input,select,textarea{max-width:100%}
   <!-- TAB: DASHBOARD -->
   <div id="tab-dashboard" class="tab-content">
     <div class="card">
-      <div class="salary-toolbar"><h2>Главная</h2><div class="salary-toolbar-actions"><button class="btn btn-gray btn-sm" onclick="changeDashboardMonth(-1)">←</button><select id="dashboardMonth" onchange="renderDashboard()"><option>Январь</option><option>Февраль</option><option>Март</option><option>Апрель</option><option>Май</option><option>Июнь</option><option>Июль</option><option>Август</option><option>Сентябрь</option><option>Октябрь</option><option>Ноябрь</option><option>Декабрь</option></select><input id="dashboardYear" type="number" style="width:100px" onchange="renderDashboard()"><button class="btn btn-gray btn-sm" onclick="changeDashboardMonth(1)">→</button></div></div>
+      <div class="salary-toolbar"><h2>Главная</h2><div class="salary-toolbar-actions"><select id="dashboardMode" onchange="setDashboardMode(this.value)"><option value="month">Месяц</option><option value="year">Год</option></select><button class="btn btn-gray btn-sm" onclick="changeDashboardPeriod(-1)">←</button><select id="dashboardMonth" onchange="renderDashboard()"><option>Январь</option><option>Февраль</option><option>Март</option><option>Апрель</option><option>Май</option><option>Июнь</option><option>Июль</option><option>Август</option><option>Сентябрь</option><option>Октябрь</option><option>Ноябрь</option><option>Декабрь</option></select><input id="dashboardYear" type="number" style="width:100px" onchange="renderDashboard()"><button class="btn btn-gray btn-sm" onclick="changeDashboardPeriod(1)">→</button></div></div>
       <div class="dashboard-grid"><div class="dashboard-item"><label>Начислено</label><b id="dashTotal">0,00 ₽</b></div><div class="dashboard-item"><label>Выплачено</label><b id="dashPaid">0,00 ₽</b></div><div class="dashboard-item"><label>Задолженность</label><b id="dashDebt">0,00 ₽</b></div><div class="dashboard-item"><label>Сотрудников с долгом</label><b id="dashDebtors">0</b></div></div>
       <h3 style="margin:12px 0 8px">Последние выплаты</h3><div id="dashPayments"></div>
     </div>
@@ -719,23 +719,41 @@ function initDashboardPeriod(){
   document.getElementById('dashboardMonth').value=months[now.getMonth()];document.getElementById('dashboardYear').value=now.getFullYear();
   if(!document.getElementById('salaryMonthFilter').value)document.getElementById('salaryMonthFilter').value=months[now.getMonth()];
 }
+function setDashboardMode(mode){
+  const month=document.getElementById('dashboardMonth');
+  month.style.display=mode==='year'?'none':'block';
+  renderDashboard();
+}
 function renderDashboard(){
-  initDashboardPeriod();const month=document.getElementById('dashboardMonth').value,year=String(document.getElementById('dashboardYear').value||'');
-  const recs=salaryRecords.filter(r=>r.month===month&&String(r.year)===year),total=recs.reduce((s,r)=>s+Number(r.total||0),0),paid=recs.reduce((s,r)=>s+Number(r.paid||0),0);
+  initDashboardPeriod();
+  const mode=document.getElementById('dashboardMode').value||'month';
+  const month=document.getElementById('dashboardMonth').value,year=String(document.getElementById('dashboardYear').value||'');
+  const recs=salaryRecords.filter(function(r){return String(r.year)===year&&(mode==='year'||r.month===month);});
+  const total=recs.reduce((s,r)=>s+Number(r.total||0),0),paid=recs.reduce((s,r)=>s+Number(r.paid||0),0);
   const employeeBalances={};
   recs.forEach(function(r){
-    const fio=String(r.employee_fio||'').trim();
-    if(!fio)return;
+    const fio=String(r.employee_fio||'').trim();if(!fio)return;
     if(!employeeBalances[fio])employeeBalances[fio]={total:0,paid:0};
-    employeeBalances[fio].total+=Number(r.total||0);
-    employeeBalances[fio].paid+=Number(r.paid||0);
+    employeeBalances[fio].total+=Number(r.total||0);employeeBalances[fio].paid+=Number(r.paid||0);
   });
   const debtors=Object.values(employeeBalances).filter(function(x){return x.total-x.paid>0.005;});
-  document.getElementById('dashTotal').textContent=formatMoney(total)+' ₽';document.getElementById('dashPaid').textContent=formatMoney(paid)+' ₽';document.getElementById('dashDebt').textContent=formatMoney(total-paid)+' ₽';document.getElementById('dashDebtors').textContent=debtors.length;
-  const payments=[];recs.forEach(r=>parseJsonArray(r.payments).forEach(p=>payments.push({fio:r.employee_fio,date:p.date||p.payment_date||'',amount:Number(p.amount!=null?p.amount:p.sum)||0})));
-  payments.sort((a,b)=>String(b.date).localeCompare(String(a.date)));document.getElementById('dashPayments').innerHTML=payments.length?payments.slice(0,8).map(p=>'<div class="archive-row"><span>'+escapeHtml(p.fio)+' · '+(p.date?formatDateRu(p.date):'без даты')+'</span><b>'+formatMoney(p.amount)+' ₽</b></div>').join(''):'<div class="salary-payment-empty">Выплат за период нет.</div>';
+  document.getElementById('dashTotal').textContent=formatMoney(total)+' ₽';
+  document.getElementById('dashPaid').textContent=formatMoney(paid)+' ₽';
+  document.getElementById('dashDebt').textContent=formatMoney(total-paid)+' ₽';
+  document.getElementById('dashDebtors').textContent=debtors.length;
+  const payments=[];
+  recs.forEach(r=>parseJsonArray(r.payments).forEach(p=>payments.push({fio:r.employee_fio,date:p.date||p.payment_date||'',amount:Number(p.amount!=null?p.amount:p.sum)||0,month:r.month,year:r.year})));
+  payments.sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  document.getElementById('dashPayments').innerHTML=payments.length?payments.slice(0,12).map(p=>'<div class="archive-row"><span>'+escapeHtml(p.fio)+' · '+(p.date?formatDateRu(p.date):escapeHtml((p.month||'')+' '+(p.year||'')))+'</span><b>'+formatMoney(p.amount)+' ₽</b></div>').join(''):'<div class="salary-payment-empty">Выплат за период нет.</div>';
 }
-function changeDashboardMonth(delta){const months=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];let i=months.indexOf(document.getElementById('dashboardMonth').value),y=Number(document.getElementById('dashboardYear').value);i+=delta;if(i<0){i=11;y--}if(i>11){i=0;y++}document.getElementById('dashboardMonth').value=months[i];document.getElementById('dashboardYear').value=y;renderDashboard();}
+function changeDashboardPeriod(delta){
+  const mode=document.getElementById('dashboardMode').value||'month',months=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  let y=Number(document.getElementById('dashboardYear').value)||new Date().getFullYear();
+  if(mode==='year'){document.getElementById('dashboardYear').value=y+delta;renderDashboard();return;}
+  let i=months.indexOf(document.getElementById('dashboardMonth').value);i+=delta;if(i<0){i=11;y--}if(i>11){i=0;y++}
+  document.getElementById('dashboardMonth').value=months[i];document.getElementById('dashboardYear').value=y;renderDashboard();
+}
+function changeDashboardMonth(delta){changeDashboardPeriod(delta);}
 function isPeriodClosed(month,year){return closedSalaryPeriods.some(p=>p.month===month&&String(p.year)===String(year));}
 function changeSalaryPeriod(delta){const months=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];const sel=document.getElementById('salaryMonthFilter');let i=months.indexOf(sel.value);if(i<0)i=new Date().getMonth();i=(i+delta+12)%12;sel.value=months[i];renderSalary();}
 async function toggleCurrentPeriod(){const month=document.getElementById('salaryMonthFilter').value;if(!month){toast('Выберите месяц','error');return;}const years=salaryRecords.filter(r=>r.month===month).map(r=>String(r.year)).filter(Boolean).sort();const year=years.length?years[years.length-1]:String(new Date().getFullYear()),closed=isPeriodClosed(month,year);if(!confirm((closed?'Открыть':'Закрыть')+' период '+month+' '+year+'?'))return;try{await api('/api/salary-periods/toggle','POST',{month:month,year:year,closed:!closed});closedSalaryPeriods=await api('/api/salary-periods');renderSalary();toast(closed?'Период открыт':'Период закрыт');}catch(e){toast(e.message,'error');}}
