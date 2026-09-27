@@ -863,7 +863,7 @@ function renderSalary(){
     detail.innerHTML='<div class="salary-records">'+recs.map(function(r){
       const rowDebt=parseFloat(r.total||0)-parseFloat(r.paid||0);
       return '<div class="salary-entry"><div class="salary-entry-top"><div class="salary-entry-date">Дата начисления: '+formatDateRu(r.charge_date)+'</div><div class="salary-entry-month">'+escapeHtml((r.month||'')+(r.year?' '+r.year:''))+'</div></div><div class="salary-entry-grid"><div class="salary-entry-field"><label>Объект</label><div>'+escapeHtml(r.object_name||'—')+'</div></div><div class="salary-entry-field"><label>Ставка / часы</label><div>'+formatMoney(r.hour_rate)+' ₽ × '+escapeHtml(r.hours||0)+'</div></div><div class="salary-entry-field"><label>Суточные</label><div>'+escapeHtml(r.per_diem_days||0)+' × '+formatMoney(r.per_diem_rate)+' ₽</div></div><div class="salary-entry-field"><label>Доп. начисления</label><div>'+formatExtra(r.extra_charges)+'</div></div></div><div class="salary-entry-totals"><span>Итого: <b>'+formatMoney(r.total)+' ₽</b></span><span>Выплачено: <b>'+formatMoney(r.paid)+' ₽</b></span><span>Долг: <b>'+formatMoney(rowDebt)+' ₽</b></span></div><div class="salary-entry-actions"><button class="btn btn-green btn-sm" type="button" onclick="event.stopPropagation();openQuickPayment('+r.id+')">+ Выплата</button><button class="btn btn-blue btn-sm" type="button" onclick="event.stopPropagation();editSalary('+r.id+')">Изменить</button><button class="btn btn-red btn-sm" type="button" onclick="event.stopPropagation();deleteSalary('+r.id+')">Удалить</button></div></div>';
-    }).join('')+'</div><div class="salary-entry-actions"><button class="btn btn-green btn-sm" type="button" onclick="event.stopPropagation();openQuickPaymentForEmployee('+JSON.stringify(fio)+')">+ Выплата сотруднику</button><button class="btn btn-blue btn-sm" type="button" onclick="event.stopPropagation();exportSalaryCSV('+JSON.stringify(fio)+')">Экспорт</button></div>';
+    }).join('')+'</div><div class="salary-entry-actions"><button class="btn btn-green btn-sm" type="button" onclick="event.stopPropagation();openQuickPaymentForEmployee('+JSON.stringify(fio).replace(/"/g,'&quot;')+')">+ Выплата сотруднику</button><button class="btn btn-blue btn-sm" type="button" onclick="event.stopPropagation();exportSalaryCSV('+JSON.stringify(fio).replace(/"/g,'&quot;')+')">Экспорт</button></div>';
     head.onclick=function(){const open=detail.classList.toggle('show');card.classList.toggle('open',open);head.setAttribute('aria-expanded',open?'true':'false');};
     card.appendChild(head);card.appendChild(paymentDetail);card.appendChild(detail);container.appendChild(card);
   });
@@ -1022,7 +1022,7 @@ function editEmp(id) {
   document.getElementById('empOrg').value = e.organization || '';
   document.getElementById('empPos').value = e.position || '';
   document.getElementById('empPhone').value = e.phone || '';
-  document.getElementById('empBirth').value = e.birth_date || '';
+  document.getElementById('empBirth').value = e.birth_date ? isoToRuDate(String(e.birth_date).slice(0,10)) : '';
   document.getElementById('empComments').value = e.comments || '';
   document.getElementById('empModal').classList.add('show');
 }
@@ -1033,7 +1033,7 @@ async function saveEmp() {
     organization: document.getElementById('empOrg').value,
     position: document.getElementById('empPos').value,
     phone: document.getElementById('empPhone').value,
-    birth_date: document.getElementById('empBirth').value,
+    birth_date: validateDateField(document.getElementById('empBirth').value,'Дата рождения',false) || null,
     comments: document.getElementById('empComments').value
   };
   try {
