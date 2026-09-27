@@ -138,7 +138,7 @@ function buildLoginFromFio(fio) {
   if(!parts.length)return '';
   return parts[0]+(parts.length>1?' '+parts.slice(1,3).map(x=>x.charAt(0).toUpperCase()).join(''):'');
 }
-function normalizeRegistrationPhone(phone) {
+function normalizePhone(phone) {
   let d=String(phone||'').replace(/\D/g,'');
   if(d.charAt(0)==='8')d='7'+d.slice(1);
   if(d.charAt(0)!=='7')d='7'+d;
@@ -149,7 +149,7 @@ app.post('/api/register', async (req, res) => {
   const { fio, phone, password } = req.body;
   const normalizedFio=normalizeRegistrationFio(fio);
   const login=buildLoginFromFio(normalizedFio);
-  const normalizedPhone=normalizeRegistrationPhone(phone);
+  const normalizedPhone=normalizePhone(phone);
   if (!normalizedFio || !phone || !login || !password) return res.status(400).json({ error: 'Все поля обязательны для заполнения' });
   if (normalizedFio.split(' ').filter(Boolean).length < 3) return res.status(400).json({ error: 'Введите ФИО полностью: Фамилия Имя Отчество' });
   if (!normalizedPhone) return res.status(400).json({ error: 'Некорректный номер телефона. Формат: 7 (900) 900-90-90' });
@@ -173,8 +173,10 @@ app.post('/api/register', async (req, res) => {
 // Recover password
 app.post('/api/recover', async (req, res) => {
   const { login, phone } = req.body;
+  const normalizedPhone=normalizePhone(phone);
+  if(!normalizedPhone)return res.status(400).json({ error: 'Некорректный номер телефона. Формат: 7 (900) 900-90-90' });
   try {
-    const result = await pool.query('SELECT * FROM users WHERE login = $1 AND phone = $2', [login, phone]);
+    const result = await pool.query('SELECT * FROM users WHERE login = $1 AND phone = $2', [login, normalizedPhone]);
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Пользователь не найден' });
     }
@@ -240,10 +242,12 @@ app.get('/api/employees', requireAuth, async (req, res) => {
 app.post('/api/employees', requireAuth, async (req, res) => {
   const { fio, organization, position, phone, birth_date, comments } = req.body;
   if (!fio) return res.status(400).json({ error: 'ФИО обязательно' });
+  const normalizedPhone=phone ? normalizePhone(phone) : '';
+  if(phone && !normalizedPhone)return res.status(400).json({ error: 'Некорректный номер телефона. Формат: 7 (900) 900-90-90' });
   try {
     const result = await pool.query(
       'INSERT INTO employees (fio, organization, position, phone, birth_date, comments) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-      [fio, organization||'', position||'', phone||'', birth_date||'', comments||'']
+      [fio, organization||'', position||'', normalizedPhone, birth_date||'', comments||'']
     );
     await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)',
       [req.session.user.login, 'Добавлен сотрудник: ' + fio]);
@@ -256,10 +260,12 @@ app.post('/api/employees', requireAuth, async (req, res) => {
 app.put('/api/employees/:id', requireAuth, async (req, res) => {
   const { id } = req.params;
   const { fio, organization, position, phone, birth_date, comments } = req.body;
+  const normalizedPhone=phone ? normalizePhone(phone) : '';
+  if(phone && !normalizedPhone)return res.status(400).json({ error: 'Некорректный номер телефона. Формат: 7 (900) 900-90-90' });
   try {
     const result = await pool.query(
       'UPDATE employees SET fio=$1, organization=$2, position=$3, phone=$4, birth_date=$5, comments=$6 WHERE id=$7 RETURNING *',
-      [fio, organization||'', position||'', phone||'', birth_date||'', comments||'', id]
+      [fio, organization||'', position||'', normalizedPhone, birth_date||'', comments||'', id]
     );
     await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)',
       [req.session.user.login, 'Изменён сотрудник: ' + fio]);
