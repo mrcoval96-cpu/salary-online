@@ -130,20 +130,33 @@ app.get('/api/me', (req, res) => {
 });
 
 // Register
+function buildLoginFromFio(fio) {
+  const parts=String(fio||'').trim().replace(/\s+/g,' ').split(' ').filter(Boolean);
+  if(!parts.length)return '';
+  return parts[0]+(parts.length>1?' '+parts.slice(1,3).map(x=>x.charAt(0).toUpperCase()).join(''):'');
+}
+function normalizeRegistrationPhone(phone) {
+  let d=String(phone||'').replace(/\D/g,'');
+  if(d.charAt(0)==='8')d='7'+d.slice(1);
+  if(d.charAt(0)!=='7')d='7'+d;
+  if(d.length!==11)return '';
+  return '7 ('+d.slice(1,4)+') '+d.slice(4,7)+'-'+d.slice(7,9)+'-'+d.slice(9,11);
+}
 app.post('/api/register', async (req, res) => {
-  const { fio, phone, login, password } = req.body;
-  if (!login || !password || !fio) {
-    return res.status(400).json({ error: 'Заполните все поля' });
-  }
+  const { fio, phone, password } = req.body;
+  const login=buildLoginFromFio(fio);
+  const normalizedPhone=normalizeRegistrationPhone(phone);
+  if (!login || !password || !fio) return res.status(400).json({ error: 'Заполните ФИО и пароль' });
+  if (!normalizedPhone) return res.status(400).json({ error: 'Некорректный номер телефона. Формат: 7 (900) 900-90-90' });
   try {
-    const existing = await pool.query('SELECT id FROM users WHERE login = $1', [login]);
+    const existing = await pool.query('SELECT id FROM users WHERE lower(login) = lower($1)', [login]);
     if (existing.rows.length > 0) {
       return res.status(400).json({ error: 'Логин уже занят' });
     }
     const hash = await bcrypt.hash(password, 10);
     await pool.query(
       'INSERT INTO users (login, password, fio, phone, role) VALUES ($1, $2, $3, $4, $5)',
-      [login, hash, fio, phone || '', '']
+      [login, hash, fio, normalizedPhone, '']
     );
     res.json({ ok: true, message: 'Регистрация успешна. Обратитесь к руководителю сайта для назначения роли.' });
   } catch (err) {
