@@ -178,6 +178,98 @@ header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .salary-card .stats{display:grid;grid-template-columns:1fr;gap:4px}
 }
 
+
+/* smartphone-first refinement */
+html{-webkit-text-size-adjust:100%}
+body{overflow-x:hidden}
+button,input,select,textarea{max-width:100%}
+@media(max-width:768px){
+  body{font-size:14px}
+  .app-wrapper{width:100%;max-width:100%;overflow:hidden}
+  header{position:sticky;top:0;z-index:80}
+  .header-main h1{font-size:15px;line-height:1.25}
+  .tabs{position:sticky;top:64px;z-index:70;background:#fff;border-bottom:1px solid #e5e7eb;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tab-btn{font-size:13px;flex:0 0 auto}
+  .tab-content{padding:10px}
+  .card{padding:12px;border-radius:8px;margin-bottom:10px;overflow:hidden}
+  .card h2{font-size:18px;line-height:1.25}
+  .card h3{font-size:15px}
+  input,select,textarea{width:100%;min-height:46px;font-size:16px!important;padding:10px 11px}
+  textarea{min-height:90px}
+  .btn{min-height:44px;padding:10px 12px;font-size:14px;touch-action:manipulation}
+  .btn-sm{min-height:40px;padding:8px 10px}
+  .form-group{margin-bottom:12px}
+  .form-group label{font-size:13px;margin-bottom:5px}
+  .form-row{grid-template-columns:minmax(0,1fr)!important}
+  #tab-input .card>div[style*="display:flex"],
+  #tab-data .card>div[style*="display:flex"]{display:grid!important;grid-template-columns:1fr!important;width:100%}
+  #tab-input .card>div[style*="display:flex"] .btn,
+  #tab-data .card>div[style*="display:flex"] .btn{width:100%}
+  .salary-toolbar{align-items:stretch}
+  .salary-toolbar h2{width:100%}
+  .salary-toolbar-actions{grid-template-columns:1fr!important}
+  .salary-filter-check{min-height:44px;padding:8px 2px}
+  .salary-filter-check input{width:20px!important;height:20px!important;min-height:20px}
+  .period-bar{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .period-bar #salaryPeriodLabel,.period-bar #salaryPeriodStatus{grid-column:1/-1;text-align:center}
+  .period-bar .btn{width:100%}
+  #periodToggleBtn{grid-column:1/-1}
+  .salary-summary{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+  .salary-summary-item{padding:9px 7px;min-width:0}
+  .salary-summary-item label{font-size:10px}
+  .salary-summary-item b{font-size:13px;word-break:break-word}
+  .dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+  .dashboard-item{padding:11px 9px;min-width:0}
+  .dashboard-item b{font-size:16px;word-break:break-word}
+  #tab-dashboard .salary-toolbar-actions{display:grid;grid-template-columns:44px minmax(0,1fr) 90px 44px!important;gap:5px}
+  #tab-dashboard .salary-toolbar-actions .btn{padding:7px;min-width:0}
+  #dashboardYear{width:100%!important}
+  .salary-card-head{padding:12px}
+  .salary-card .name{font-size:15px;align-items:flex-start}
+  .salary-card .stats{display:grid;grid-template-columns:1fr;gap:5px;margin-top:10px}
+  .salary-card .stat{display:flex;justify-content:space-between;gap:10px;padding:3px 0}
+  .salary-payment-detail,.salary-detail{padding:10px 12px}
+  .salary-payment-row{align-items:center;gap:8px}
+  .salary-payment-actions{flex-wrap:wrap;justify-content:flex-end}
+  .salary-entry{padding:10px}
+  .salary-entry-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .salary-entry-actions{display:grid;grid-template-columns:1fr 1fr}
+  .salary-entry-actions .btn{width:100%}
+  .salary-export{padding:10px}
+  .salary-export-grid{grid-template-columns:1fr!important}
+  .responsible-picker{max-height:200px}
+  .modal-overlay{padding:8px;align-items:flex-start;overflow-y:auto}
+  .modal{width:100%;max-width:100%;max-height:none;margin:8px 0;padding:16px 12px;border-radius:10px}
+  .modal-close{position:sticky;top:0;float:right;z-index:2;font-size:30px;line-height:36px}
+  .archive-row{align-items:flex-start;flex-direction:column}
+  .archive-row .btn{width:100%}
+  .autocomplete-list{max-height:45vh}
+  /* data tables become readable cards instead of horizontal sheets */
+  #employeesTable,#objectsTable,#organizationsTable,#usersTable{display:table;width:100%;white-space:normal;overflow:visible}
+  #employeesTable thead,#objectsTable thead,#organizationsTable thead,#usersTable thead{display:none}
+  #employeesTable tbody,#objectsTable tbody,#organizationsTable tbody,#usersTable tbody{display:grid;gap:9px}
+  #employeesTable tr,#objectsTable tr,#organizationsTable tr,#usersTable tr{display:block;border:1px solid #e3e6ea;border-radius:8px;padding:8px;background:#fff}
+  #employeesTable td,#objectsTable td,#organizationsTable td,#usersTable td{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;width:100%;padding:7px 4px;border:0;border-bottom:1px solid #f0f1f2;white-space:normal;word-break:break-word;text-align:right}
+  #employeesTable td:last-child,#objectsTable td:last-child,#organizationsTable td:last-child,#usersTable td:last-child{border-bottom:0;justify-content:flex-end;flex-wrap:wrap}
+  #employeesTable td:before,#objectsTable td:before,#organizationsTable td:before,#usersTable td:before{font-weight:600;color:#666;text-align:left;flex:0 0 38%}
+  #employeesTable td:nth-child(1):before{content:"ФИО"}#employeesTable td:nth-child(2):before{content:"Организация"}#employeesTable td:nth-child(3):before{content:"Должность"}#employeesTable td:nth-child(4):before{content:"Телефон"}#employeesTable td:nth-child(5):before{content:"Дата рождения"}#employeesTable td:nth-child(6):before{content:"Комментарии"}
+  #objectsTable td:nth-child(1):before{content:"Объект"}#objectsTable td:nth-child(2):before{content:"Адрес"}#objectsTable td:nth-child(3):before{content:"Заказчик"}#objectsTable td:nth-child(4):before{content:"Организация"}#objectsTable td:nth-child(5):before{content:"Ответственные"}
+  #organizationsTable td:nth-child(1):before{content:"Организация"}#organizationsTable td:nth-child(2):before{content:"Адрес"}#organizationsTable td:nth-child(3):before{content:"Контакты"}
+  #usersTable td:nth-child(1):before{content:"ФИО"}#usersTable td:nth-child(2):before{content:"Логин"}#usersTable td:nth-child(3):before{content:"Телефон"}#usersTable td:nth-child(4):before{content:"Роль"}#usersTable td:nth-child(5):before{content:"Организация / объект"}
+}
+@media(max-width:420px){
+  .tab-content{padding:7px}
+  .card{padding:10px}
+  .salary-summary{grid-template-columns:1fr}
+  .salary-summary-item{display:flex;justify-content:space-between;align-items:center}
+  .salary-summary-item label{margin:0;font-size:12px}.salary-summary-item b{font-size:15px}
+  .dashboard-grid{grid-template-columns:1fr 1fr}
+  #tab-dashboard .salary-toolbar-actions{grid-template-columns:40px minmax(0,1fr) 82px 40px!important}
+  .salary-entry-grid{grid-template-columns:1fr}
+  .salary-entry-actions{grid-template-columns:1fr}
+}
+
 </style>
 </head>
 <body>
