@@ -31,6 +31,11 @@ const pool = new pg.Pool({
 
 async function ensureDatabaseSchema(){
   await pool.query("ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS charge_date DATE");
+  await pool.query("ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP");
+  await pool.query("ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS deleted_by TEXT");
+  await pool.query("CREATE TABLE IF NOT EXISTS closed_salary_periods (month TEXT NOT NULL, year TEXT NOT NULL, closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, closed_by TEXT, PRIMARY KEY(month,year))");
+  await pool.query("CREATE TABLE IF NOT EXISTS automatic_backups (id SERIAL PRIMARY KEY, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, data JSONB NOT NULL)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_salary_records_deleted_at ON salary_records(deleted_at)");
   await pool.query("CREATE TABLE IF NOT EXISTS object_responsibles (object_id INTEGER NOT NULL REFERENCES objects(id) ON DELETE CASCADE, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (object_id, employee_id))");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_object_responsibles_employee ON object_responsibles(employee_id)");
   await pool.query("INSERT INTO object_responsibles (object_id,employee_id) SELECT o.id,e.id FROM objects o CROSS JOIN LATERAL regexp_split_to_table(COALESCE(o.responsible,''),',') AS part(name) JOIN employees e ON lower(trim(e.fio))=lower(trim(part.name)) WHERE trim(part.name)<>'' ON CONFLICT (object_id,employee_id) DO NOTHING");
@@ -363,10 +368,45 @@ app.delete('/api/organizations/:id', requireAuth, async (req, res) => {
   }
 });
 
+async function isSalaryPeriodClosed(month,year){
+  if(!month||!year)return false;
+  const r=await pool.query('SELECT 1 FROM closed_salary_periods WHERE month=$1 AND year=$2',[String(month),String(year)]);
+  return r.rows.length>0;
+}
+async function assertSalaryPeriodOpen(month,year){
+  if(await isSalaryPeriodClosed(month,year)){
+    const err=new Error('Расчётный период '+month+' '+year+' закрыт. Сначала откройте период.');err.status=409;throw err;
+  }
+}
+function normalizePayments(value){
+  if(Array.isArray(value))return value;
+  try{return JSON.parse(value||'[]');}catch(e){return [];}
+}
+function paymentSummary(value){
+  return normalizePayments(value).reduce((s,p)=>s+(parseFloat(p&&((p.amount!=null)?p.amount:p.sum))||0),0);
+}
+async function createAutomaticBackup(){
+  const [employees,objects,orgs,salary,responsibles,periods]=await Promise.all([
+    pool.query('SELECT * FROM employees ORDER BY id'),pool.query('SELECT * FROM objects ORDER BY id'),
+    pool.query('SELECT * FROM organizations ORDER BY id'),pool.query('SELECT * FROM salary_records ORDER BY id'),
+    pool.query('SELECT object_id,employee_id,created_at FROM object_responsibles ORDER BY object_id,employee_id'),
+    pool.query('SELECT * FROM closed_salary_periods ORDER BY year,month')
+  ]);
+  const data={format:'salary-online-auto-backup',version:1,created_at:new Date().toISOString(),employees:employees.rows,objects:objects.rows,organizations:orgs.rows,salary:salary.rows,object_responsibles:responsibles.rows,closed_periods:periods.rows};
+  await pool.query('INSERT INTO automatic_backups(data) VALUES($1)',[JSON.stringify(data)]);
+  await pool.query('DELETE FROM automatic_backups WHERE id NOT IN (SELECT id FROM automatic_backups ORDER BY created_at DESC LIMIT 7)');
+}
+let backupTimer=null;
+function startAutomaticBackups(){
+  if(backupTimer)clearInterval(backupTimer);
+  setTimeout(()=>createAutomaticBackup().catch(e=>console.error('Automatic backup error:',e.message)),15000);
+  backupTimer=setInterval(()=>createAutomaticBackup().catch(e=>console.error('Automatic backup error:',e.message)),24*60*60*1000);
+}
+
 // === SALARY RECORDS ===
 app.get('/api/salary', requireAuth, async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM salary_records ORDER BY employee_fio, year, month');
+    const result = await pool.query('SELECT * FROM salary_records WHERE deleted_at IS NULL ORDER BY employee_fio, year, month');
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -376,6 +416,9 @@ app.get('/api/salary', requireAuth, async (req, res) => {
 app.post('/api/salary', requireAuth, async (req, res) => {
   const { employee_fio, object_name, month, year, charge_date, hour_rate, hours, per_diem_days, per_diem_rate, extra_charges, payments, total, paid } = req.body;
   try {
+    await assertSalaryPeriodOpen(month,year);
+    const duplicate=await pool.query('SELECT id FROM salary_records WHERE deleted_at IS NULL AND lower(employee_fio)=lower($1) AND lower(COALESCE(object_name,\'\'))=lower($2) AND month=$3 AND year=$4 LIMIT 1',[employee_fio||'',object_name||'',month||'',String(year||'')]);
+    if(duplicate.rows.length && !req.body.allow_duplicate)return res.status(409).json({error:'За '+month+' '+year+' уже есть начисление для '+employee_fio+(object_name?' по объекту «'+object_name+'»':'')+'.',duplicate:true});
     const result = await pool.query(
       `INSERT INTO salary_records (employee_fio, object_name, month, year, charge_date, hour_rate, hours, per_diem_days, per_diem_rate, extra_charges, payments, total, paid)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
@@ -383,7 +426,7 @@ app.post('/api/salary', requireAuth, async (req, res) => {
        JSON.stringify(extra_charges||[]), JSON.stringify(payments||[]), total||0, paid||0]
     );
     await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)',
-      [req.session.user.login, 'Добавлена запись зарплаты: ' + employee_fio]);
+      [req.session.user.login, 'Добавлено начисление: ' + employee_fio + ', ' + (month||'') + ' ' + (year||'') + ', ' + Number(total||0).toFixed(2) + ' ₽; выплачено ' + Number(paid||0).toFixed(2) + ' ₽']);
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -394,28 +437,68 @@ app.put('/api/salary/:id', requireAuth, async (req, res) => {
   const { id } = req.params;
   const { employee_fio, object_name, month, year, charge_date, hour_rate, hours, per_diem_days, per_diem_rate, extra_charges, payments, total, paid } = req.body;
   try {
+    const beforeRes=await pool.query('SELECT * FROM salary_records WHERE id=$1 AND deleted_at IS NULL',[id]);
+    if(!beforeRes.rows.length)return res.status(404).json({error:'Запись не найдена'});
+    const before=beforeRes.rows[0];
+    await assertSalaryPeriodOpen(before.month,before.year);
+    if(before.month!==month||String(before.year)!==String(year))await assertSalaryPeriodOpen(month,year);
     const result = await pool.query(
-      `UPDATE salary_records SET employee_fio=$1, object_name=$2, month=$3, year=$4, charge_date=$5, hour_rate=$6, hours=$7, per_diem_days=$8, per_diem_rate=$9, extra_charges=$10, payments=$11, total=$12, paid=$13 WHERE id=$14 RETURNING *`,
+      `UPDATE salary_records SET employee_fio=$1, object_name=$2, month=$3, year=$4, charge_date=$5, hour_rate=$6, hours=$7, per_diem_days=$8, per_diem_rate=$9, extra_charges=$10, payments=$11, total=$12, paid=$13 WHERE id=$14 AND deleted_at IS NULL RETURNING *`,
       [employee_fio||'', object_name||'', month||'', year||'', charge_date||null, hour_rate||0, hours||0, per_diem_days||0, per_diem_rate||0,
        JSON.stringify(extra_charges||[]), JSON.stringify(payments||[]), total||0, paid||0, id]
     );
-    await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)',
-      [req.session.user.login, 'Изменена запись зарплаты ID=' + id]);
+    const oldPaid=paymentSummary(before.payments),newPaid=paymentSummary(payments);
+    let action='Изменена запись зарплаты ID='+id+' — '+(employee_fio||before.employee_fio);
+    if(Math.abs(newPaid-oldPaid)>0.005)action+='; выплаты: '+oldPaid.toFixed(2)+' ₽ → '+newPaid.toFixed(2)+' ₽';
+    await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)',[req.session.user.login,action]);
     res.json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(err.status||500).json({ error: err.message }); }
 });
 
 app.delete('/api/salary/:id', requireAuth, async (req, res) => {
   try {
-    await pool.query('DELETE FROM salary_records WHERE id=$1', [req.params.id]);
-    await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)',
-      [req.session.user.login, 'Удалена запись зарплаты ID=' + req.params.id]);
+    const before=await pool.query('SELECT * FROM salary_records WHERE id=$1 AND deleted_at IS NULL',[req.params.id]);
+    if(!before.rows.length)return res.status(404).json({error:'Запись не найдена'});
+    await assertSalaryPeriodOpen(before.rows[0].month,before.rows[0].year);
+    await pool.query('UPDATE salary_records SET deleted_at=CURRENT_TIMESTAMP,deleted_by=$1 WHERE id=$2',[req.session.user.login,req.params.id]);
+    await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)',[req.session.user.login,'Запись зарплаты отправлена в архив ID='+req.params.id+' — '+before.rows[0].employee_fio]);
     res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(err.status||500).json({ error: err.message }); }
+});
+app.get('/api/salary-archive', requireAuth, async (req,res)=>{
+  try{const r=await pool.query('SELECT * FROM salary_records WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC');res.json(r.rows);}catch(e){res.status(500).json({error:e.message});}
+});
+app.post('/api/salary/:id/restore', requireAuth, async (req,res)=>{
+  try{
+    const before=await pool.query('SELECT * FROM salary_records WHERE id=$1 AND deleted_at IS NOT NULL',[req.params.id]);
+    if(!before.rows.length)return res.status(404).json({error:'Архивная запись не найдена'});
+    await assertSalaryPeriodOpen(before.rows[0].month,before.rows[0].year);
+    const r=await pool.query('UPDATE salary_records SET deleted_at=NULL,deleted_by=NULL WHERE id=$1 RETURNING *',[req.params.id]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Восстановлена запись зарплаты ID='+req.params.id+' — '+before.rows[0].employee_fio]);
+    res.json(r.rows[0]);
+  }catch(e){res.status(e.status||500).json({error:e.message});}
+});
+app.get('/api/salary-periods', requireAuth, async(req,res)=>{
+  try{const r=await pool.query('SELECT * FROM closed_salary_periods ORDER BY year DESC,closed_at DESC');res.json(r.rows);}catch(e){res.status(500).json({error:e.message});}
+});
+app.post('/api/salary-periods/toggle', requireSiteManager, async(req,res)=>{
+  const {month,year,closed}=req.body;if(!month||!year)return res.status(400).json({error:'Укажите месяц и год'});
+  try{
+    if(closed){
+      await pool.query('INSERT INTO closed_salary_periods(month,year,closed_by) VALUES($1,$2,$3) ON CONFLICT(month,year) DO UPDATE SET closed_at=CURRENT_TIMESTAMP,closed_by=EXCLUDED.closed_by',[month,String(year),req.session.user.login]);
+      await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Закрыт расчётный период '+month+' '+year]);
+    }else{
+      await pool.query('DELETE FROM closed_salary_periods WHERE month=$1 AND year=$2',[month,String(year)]);
+      await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Открыт расчётный период '+month+' '+year]);
+    }
+    res.json({ok:true});
+  }catch(e){res.status(500).json({error:e.message});}
+});
+app.get('/api/automatic-backups', requireSiteManager, async(req,res)=>{
+  try{const r=await pool.query("SELECT id,created_at,jsonb_array_length(COALESCE(data->'salary','[]'::jsonb)) AS salary_count FROM automatic_backups ORDER BY created_at DESC LIMIT 7");res.json(r.rows);}catch(e){res.status(500).json({error:e.message});}
+});
+app.post('/api/automatic-backups/create', requireSiteManager, async(req,res)=>{
+  try{await createAutomaticBackup();await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Создана резервная копия']);res.json({ok:true});}catch(e){res.status(500).json({error:e.message});}
 });
 
 // === ACTION LOG ===
@@ -605,4 +688,5 @@ app.listen(PORT, '0.0.0.0', async () => {
   console.log('Server running on port ' + PORT);
   try { await ensureDatabaseSchema(); } catch (err) { console.error('Schema initialization error:', err.message); }
   await initAdmin();
+  startAutomaticBackups();
 });
