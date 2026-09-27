@@ -131,7 +131,7 @@ app.get('/api/me', (req, res) => {
 
 // Register
 function normalizeRegistrationFio(fio) {
-  return String(fio||'').trim().replace(/\s+/g,' ').replace(/(^|[\s-])([а-яёa-z])/giu,(_,sep,ch)=>sep+ch.toUpperCase());
+  return String(fio||'').trim().replace(/\s+/g,' ').split(' ').map(word=>word.split('-').map(part=>part?part.charAt(0).toLocaleUpperCase('ru-RU')+part.slice(1).toLocaleLowerCase('ru-RU'):'').join('-')).join(' ');
 }
 function buildLoginFromFio(fio) {
   const parts=normalizeRegistrationFio(fio).split(' ').filter(Boolean);
