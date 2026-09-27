@@ -302,20 +302,42 @@ button,input,select,textarea{max-width:100%}
     <div style="font-size:12px;color:#667085;margin:-3px 0 9px">Логин формируется автоматически из ФИО</div>
     <input type="text" id="regFio" placeholder="ФИО *" autocomplete="name" required oninput="formatRegistrationFio(this)">
     <input type="tel" id="regPhone" placeholder="7 (900) 900-90-90 *" inputmode="numeric" autocomplete="tel" maxlength="18" required oninput="formatRegistrationPhone(this)">
+    <input type="email" id="regEmail" placeholder="Электронная почта *" autocomplete="email" required>
     <input type="text" id="regLogin" placeholder="Логин сформируется автоматически *" readonly required tabindex="-1" title="Логин формируется автоматически из ФИО">
     <input type="password" id="regPassword" placeholder="Пароль *" autocomplete="new-password" required>
     <input type="password" id="regPasswordConfirm" placeholder="Повторите пароль *" autocomplete="new-password" required>
     <button class="btn-primary" onclick="doRegister()">Зарегистрироваться</button>
+    <div id="regVerifyBlock" style="display:none;margin-top:10px">
+      <input type="text" id="regEmailCode" placeholder="Код из письма" inputmode="numeric" maxlength="6">
+      <button class="btn-primary" onclick="verifyRegistrationEmail()">Подтвердить email</button>
+    </div>
     <div id="regMsg" class="error"></div>
     <div class="links"><a onclick="showLogin()">← Назад ко входу</a></div>
   </div>
   <div id="recoverForm" style="display:none">
     <h2 style="font-size:16px;margin-bottom:10px">Восстановление пароля</h2>
-    <input type="text" id="recLogin" placeholder="Логин">
-    <input type="tel" id="recPhone" class="phone-input" placeholder="7 (900) 900-90-90" inputmode="numeric" autocomplete="tel" maxlength="18" oninput="formatPhoneInput(this)">
-    <button class="btn-primary" onclick="doRecover()">Восстановить</button>
+    <input type="text" id="recIdentifier" placeholder="Логин или электронная почта" autocomplete="username">
+    <button class="btn-primary" id="recSendBtn" onclick="requestRecoveryCode()">Получить код</button>
+    <div id="recResetBlock" style="display:none">
+      <input type="text" id="recCode" placeholder="Код из письма" inputmode="numeric" maxlength="6">
+      <input type="password" id="recNewPassword" placeholder="Новый пароль" autocomplete="new-password">
+      <input type="password" id="recNewPasswordConfirm" placeholder="Повторите новый пароль" autocomplete="new-password">
+      <button class="btn-primary" onclick="resetPasswordByEmail()">Сменить пароль</button>
+    </div>
     <div id="recMsg" class="error"></div>
     <div class="links"><a onclick="showLogin()">← Назад ко входу</a></div>
+  </div>
+  <div id="emailRequiredForm" style="display:none">
+    <h2 style="font-size:16px;margin-bottom:10px">Подтвердите электронную почту</h2>
+    <div style="font-size:12px;color:#667085;margin-bottom:9px">Для защиты аккаунта укажите email. На него придёт 6-значный код.</div>
+    <input type="email" id="requiredEmail" placeholder="Электронная почта *" autocomplete="email">
+    <button class="btn-primary" onclick="sendRequiredEmailCode()">Получить код</button>
+    <div id="requiredCodeBlock" style="display:none">
+      <input type="text" id="requiredEmailCode" placeholder="Код из письма" inputmode="numeric" maxlength="6">
+      <button class="btn-primary" onclick="verifyRequiredEmail()">Подтвердить и продолжить</button>
+    </div>
+    <div id="requiredEmailMsg" class="error"></div>
+    <div class="links"><a onclick="doLogout()">Выйти</a></div>
   </div>
 </div>
 
@@ -629,6 +651,7 @@ async function doLogin() {
   try {
     const user = await api('/api/login', 'POST', { login, password });
     currentUser = user;
+    if(!user.email_verified){showEmailRequired(user);return;}
     showApp();
   } catch (e) {
     document.getElementById('loginError').textContent = e.message;
@@ -642,10 +665,12 @@ function showRegister() {
 function showRecover() {
   document.getElementById('loginForm').style.display = 'none';
   document.getElementById('recoverForm').style.display = 'block';
+  document.getElementById('emailRequiredForm').style.display = 'none';
 }
 function showLogin() {
   document.getElementById('registerForm').style.display = 'none';
   document.getElementById('recoverForm').style.display = 'none';
+  document.getElementById('emailRequiredForm').style.display = 'none';
   document.getElementById('loginForm').style.display = 'block';
 }
 
@@ -696,38 +721,70 @@ function isValidRegistrationPhone(value){return isValidPhone(value);}
 async function doRegister() {
   const fio = document.getElementById('regFio').value.trim();
   const phone = document.getElementById('regPhone').value.trim();
+  const email = document.getElementById('regEmail').value.trim().toLowerCase();
   const login = buildLoginFromFio(fio);
   document.getElementById('regLogin').value=login;
   const password = document.getElementById('regPassword').value;
   const passwordConfirm = document.getElementById('regPasswordConfirm').value;
   document.getElementById('regMsg').className = 'error';
   document.getElementById('regMsg').textContent = '';
-  if (!fio || !phone || !login || !password || !passwordConfirm) { document.getElementById('regMsg').textContent = 'Все поля обязательны для заполнения'; return; }
+  if (!fio || !phone || !email || !login || !password || !passwordConfirm) { document.getElementById('regMsg').textContent = 'Все поля обязательны для заполнения'; return; }
   if (password !== passwordConfirm) { document.getElementById('regMsg').textContent = 'Пароли не совпадают'; return; }
   if (fio.split(/\s+/).filter(Boolean).length < 3) { document.getElementById('regMsg').textContent = 'Введите ФИО полностью: Фамилия Имя Отчество'; return; }
   if (!isValidRegistrationPhone(phone)) { document.getElementById('regMsg').textContent = 'Введите номер телефона полностью: 7 (900) 900-90-90'; return; }
   try {
-    await api('/api/register', 'POST', { fio, phone, login, password });
+    const created=await api('/api/register', 'POST', { fio, phone, email, login, password });
     document.getElementById('regMsg').className = 'success';
-    document.getElementById('regMsg').textContent = 'Регистрация успешна! Обратитесь к руководителю сайта для назначения роли.';
-    setTimeout(showLogin, 2000);
+    document.getElementById('regMsg').textContent = created.message;
+    document.getElementById('regVerifyBlock').style.display='block';
+    const logged=await api('/api/login','POST',{login:created.login,password:password}).catch(function(){return null;});
+    if(logged)currentUser=logged;
   } catch (e) {
     document.getElementById('regMsg').textContent = e.message;
   }
 }
 
-async function doRecover() {
-  const login = document.getElementById('recLogin').value.trim();
-  const phone = document.getElementById('recPhone').value.trim();
-  document.getElementById('recMsg').textContent = '';
-  if (!isValidPhone(phone)) { document.getElementById('recMsg').textContent = 'Введите номер телефона полностью: 7 (900) 900-90-90'; return; }
-  try {
-    const res = await api('/api/recover', 'POST', { login, phone });
-    document.getElementById('recMsg').className = 'success';
-    document.getElementById('recMsg').textContent = 'Новый пароль: ' + res.newPassword;
-  } catch (e) {
-    document.getElementById('recMsg').textContent = e.message;
-  }
+function showEmailRequired(user){
+  document.getElementById('loginForm').style.display='none';
+  document.getElementById('registerForm').style.display='none';
+  document.getElementById('recoverForm').style.display='none';
+  document.getElementById('emailRequiredForm').style.display='block';
+  document.getElementById('requiredEmail').value=(user&&user.email)||'';
+}
+async function sendRequiredEmailCode(){
+  const email=document.getElementById('requiredEmail').value.trim().toLowerCase(), msg=document.getElementById('requiredEmailMsg');
+  msg.className='error';msg.textContent='';
+  if(!email){msg.textContent='Введите электронную почту';return;}
+  try{const r=await api('/api/email/send-verification','POST',{email});msg.className='success';msg.textContent=r.message;document.getElementById('requiredCodeBlock').style.display='block';}
+  catch(e){msg.textContent=e.message;}
+}
+async function verifyRequiredEmail(){
+  const code=document.getElementById('requiredEmailCode').value.trim(),msg=document.getElementById('requiredEmailMsg');
+  try{await api('/api/email/verify','POST',{code});currentUser.email_verified=true;currentUser.email=document.getElementById('requiredEmail').value.trim().toLowerCase();document.getElementById('emailRequiredForm').style.display='none';showApp();toast('Электронная почта подтверждена');}
+  catch(e){msg.className='error';msg.textContent=e.message;}
+}
+async function verifyRegistrationEmail(){
+  const msg=document.getElementById('regMsg'), code=document.getElementById('regEmailCode').value.trim();
+  if(!currentUser){msg.className='error';msg.textContent='Аккаунт создан. Войдите и подтвердите электронную почту.';return;}
+  try{await api('/api/email/verify','POST',{code});msg.className='success';msg.textContent='Email подтверждён. После назначения роли руководителем сайта вы сможете войти.';setTimeout(showLogin,1800);}
+  catch(e){msg.className='error';msg.textContent=e.message;}
+}
+async function requestRecoveryCode(){
+  const identifier=document.getElementById('recIdentifier').value.trim(),msg=document.getElementById('recMsg');
+  msg.className='error';msg.textContent='';
+  if(!identifier){msg.textContent='Введите логин или электронную почту';return;}
+  try{const r=await api('/api/recover/request','POST',{identifier});msg.className='success';msg.textContent=r.message;document.getElementById('recResetBlock').style.display='block';}
+  catch(e){msg.textContent=e.message;}
+}
+async function resetPasswordByEmail(){
+  const identifier=document.getElementById('recIdentifier').value.trim(),code=document.getElementById('recCode').value.trim();
+  const password=document.getElementById('recNewPassword').value,confirm=document.getElementById('recNewPasswordConfirm').value,msg=document.getElementById('recMsg');
+  msg.className='error';
+  if(!code||!password||!confirm){msg.textContent='Заполните код и новый пароль';return;}
+  if(password!==confirm){msg.textContent='Пароли не совпадают';return;}
+  if(password.length<8){msg.textContent='Пароль должен содержать не менее 8 символов';return;}
+  try{await api('/api/recover/reset','POST',{identifier,code,password});msg.className='success';msg.textContent='Пароль изменён. Теперь можно войти.';setTimeout(showLogin,1800);}
+  catch(e){msg.textContent=e.message;}
 }
 
 async function doLogout() {
