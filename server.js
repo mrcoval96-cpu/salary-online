@@ -79,6 +79,7 @@ function requireSiteManager(req, res, next) {
   if (!req.session || !req.session.user) {
     return res.status(401).json({ error: 'Не авторизован' });
   }
+  if (!req.session.user.email_verified) return res.status(403).json({ error: 'Сначала подтвердите электронную почту', code: 'EMAIL_VERIFICATION_REQUIRED' });
   if (req.session.user.role !== 'Руководитель сайта') {
     return res.status(403).json({ error: 'Доступ только для руководителя сайта' });
   }
@@ -190,6 +191,18 @@ app.post('/api/email/send-verification', async (req,res)=>{
     res.json({ok:true,message:'Код отправлен на электронную почту'});
   }catch(e){console.error('Send verification:',e.message);res.status(400).json({error:e.message});}
 });
+app.post('/api/register/verify-email', async (req,res)=>{
+  const login=String(req.body.login||'').trim(), email=normalizeEmail(req.body.email), code=String(req.body.code||'').trim();
+  try{
+    const r=await pool.query("SELECT id,email FROM users WHERE lower(login)=lower($1) AND lower(email)=lower($2) LIMIT 1",[login,email]);
+    if(!r.rows.length)return res.status(400).json({error:'Не удалось подтвердить email'});
+    const checked=await consumeCode(r.rows[0].id,email,'verify',code);
+    if(!checked.ok)return res.status(400).json({error:checked.error});
+    await pool.query("UPDATE users SET email_verified=TRUE WHERE id=$1",[r.rows[0].id]);
+    res.json({ok:true});
+  }catch(e){console.error('Registration verify:',e.message);res.status(500).json({error:'Ошибка сервера'});}
+});
+
 app.post('/api/email/verify', async (req,res)=>{
   if(!req.session.user)return res.status(401).json({error:'Не авторизован'});
   const email=normalizeEmail(req.session.user.email);
