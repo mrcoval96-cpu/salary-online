@@ -949,7 +949,7 @@ async function saveEditSalary(){
     const total=hourRate*hours+perDiemDays*perDiemRate+extra.reduce(function(s,e){return s+e.amount;},0);
     const paid=payments.reduce(function(s,e){return s+e.amount;},0);
     validateDateField(document.getElementById('editChargeDate').value,'Дата начисления',false);
-    requireNonNegative(hourRate,'Ставка за час');requireNonNegative(hours,'Часы');requireNonNegative(perDiemDays,'Дни суточных');requireNonNegative(perDiemRate,'Ставка суточных');validatePaymentItems(payments);
+    requireNonNegative(hourRate,'Ставка за час');requireNonNegative(hours,'Часы');requireNonNegative(perDiemDays,'Дни суточных');requireNonNegative(perDiemRate,'Ставка суточных');extra.forEach(function(x){requireNonNegative(x.amount,'Дополнительное начисление');});validatePaymentItems(payments);
     if(paid>total+0.005&&!confirm('Выплаты превышают начисление. Переплата '+formatMoney(paid-total)+' ₽. Всё равно сохранить?'))return;
     document.getElementById('editTotal').value=total.toFixed(2);
     document.getElementById('editPaid').value=paid.toFixed(2);
