@@ -578,19 +578,24 @@ async function prepareBankStatementTransactions(transactions){
   const [employeesResult,bankResult,salaryResult]=await Promise.all([
     pool.query('SELECT id,fio FROM employees ORDER BY id'),
     pool.query('SELECT transaction_key FROM bank_statement_payments'),
-    pool.query('SELECT employee_fio,payments FROM salary_records WHERE deleted_at IS NULL')
+    pool.query('SELECT employee_fio,payments,paid FROM salary_records WHERE deleted_at IS NULL')
   ]);
   const employeeMap=new Map();
   employeesResult.rows.forEach(e=>{const key=normalizeEmployeeMatchName(e.fio);if(key&&!employeeMap.has(key))employeeMap.set(key,e);});
   const existingBankKeys=new Set(bankResult.rows.map(r=>String(r.transaction_key||'')));
-  const manualKeys=new Set();
+  const manualKeys=new Set(),legacyManualAmountKeys=new Set();
   salaryResult.rows.forEach(r=>{
     const fioKey=normalizeEmployeeMatchName(r.employee_fio);
-    normalizePayments(r.payments).forEach(p=>{
+    const items=normalizePayments(r.payments);
+    items.forEach(p=>{
       const date=normalizeBankDate(p&&(p.date||p.payment_date));
       const amount=Number(p&&((p.amount!=null)?p.amount:p.sum));
       if(fioKey&&date&&Number.isFinite(amount))manualKeys.add(fioKey+'|'+date+'|'+amount.toFixed(2));
     });
+    if(fioKey&&!items.length){
+      const legacyPaid=Number(r.paid);
+      if(Number.isFinite(legacyPaid)&&legacyPaid>0)legacyManualAmountKeys.add(fioKey+'|'+legacyPaid.toFixed(2));
+    }
   });
   const requestKeys=new Set();
   return input.map((raw,index)=>{
@@ -619,6 +624,8 @@ async function prepareBankStatementTransactions(transactions){
       status='duplicate_import';message='Уже импортировано';
     }else if(manualKeys.has(fioKey+'|'+tx.transaction_date+'|'+tx.amount.toFixed(2))){
       status='duplicate_manual';message='Такая выплата уже внесена вручную';
+    }else if(legacyManualAmountKeys.has(fioKey+'|'+tx.amount.toFixed(2))){
+      status='possible_manual';message='В базе есть ручная выплата на такую сумму без даты';
     }
     requestKeys.add(key);
     return {...tx,index,employee_id:employee?employee.id:null,employee_fio:employee?employee.fio:'',transaction_key:key,status,message};
