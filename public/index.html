@@ -934,22 +934,32 @@ function renderDashboard(){
   const mode=document.getElementById('dashboardMode').value||'month';
   const month=document.getElementById('dashboardMonth').value,year=String(document.getElementById('dashboardYear').value||'');
   const recs=salaryRecords.filter(function(r){return String(r.year)===year&&(mode==='year'||r.month===month);});
-  const total=recs.reduce((s,r)=>s+Number(r.total||0),0),paid=recs.reduce((s,r)=>s+Number(r.paid||0),0);
+  const monthIndex=monthNumber(month),from=mode==='year'?(year+'-01-01'):(year+'-'+String(monthIndex).padStart(2,'0')+'-01');
+  const to=mode==='year'?(year+'-12-31'):salaryCutoffDate(month,year);
+  const bankRows=bankStatementPayments.filter(function(p){const d=String(p.transaction_date||'').slice(0,10);return d>=from&&d<=to;});
+  const total=recs.reduce((s,r)=>s+Number(r.total||0),0);
+  const manualPaid=recs.reduce((s,r)=>s+Number(r.paid||0),0),bankPaid=bankRows.reduce((s,p)=>s+Number(p.amount||0),0),paid=manualPaid+bankPaid;
   const employeeBalances={};
   recs.forEach(function(r){
     const fio=String(r.employee_fio||'').trim();if(!fio)return;
     if(!employeeBalances[fio])employeeBalances[fio]={total:0,paid:0};
     employeeBalances[fio].total+=Number(r.total||0);employeeBalances[fio].paid+=Number(r.paid||0);
   });
-  const debtors=Object.values(employeeBalances).filter(function(x){return x.total-x.paid>0.005;});
+  bankRows.forEach(function(p){
+    const fio=String(p.employee_fio||'').trim();if(!fio)return;
+    if(!employeeBalances[fio])employeeBalances[fio]={total:0,paid:0};
+    employeeBalances[fio].paid+=Number(p.amount||0);
+  });
+  const debtors=Object.values(employeeBalances).filter(function(x){return Math.abs(x.total-x.paid)>0.005;});
   document.getElementById('dashTotal').textContent=formatMoney(total)+' ₽';
   document.getElementById('dashPaid').textContent=formatMoney(paid)+' ₽';
   document.getElementById('dashDebt').textContent=formatMoney(total-paid)+' ₽';
   document.getElementById('dashDebtors').textContent=debtors.length;
   const payments=[];
-  recs.forEach(r=>parseJsonArray(r.payments).forEach(p=>payments.push({fio:r.employee_fio,date:p.date||p.payment_date||'',amount:Number(p.amount!=null?p.amount:p.sum)||0,month:r.month,year:r.year})));
+  recs.forEach(r=>parseJsonArray(r.payments).forEach(p=>payments.push({fio:r.employee_fio,date:p.date||p.payment_date||'',amount:Number(p.amount!=null?p.amount:p.sum)||0,month:r.month,year:r.year,source:'manual'})));
+  bankRows.forEach(function(p){payments.push({fio:p.employee_fio,date:p.transaction_date,amount:Number(p.amount||0),source:'bank',bank:p.bank||''});});
   payments.sort((a,b)=>String(b.date).localeCompare(String(a.date)));
-  document.getElementById('dashPayments').innerHTML=payments.length?payments.slice(0,12).map(p=>'<div class="archive-row"><span>'+escapeHtml(p.fio)+' · '+(p.date?formatDateRu(p.date):escapeHtml((p.month||'')+' '+(p.year||'')))+'</span><b>'+formatMoney(p.amount)+' ₽</b></div>').join(''):'<div class="salary-payment-empty">Выплат за период нет.</div>';
+  document.getElementById('dashPayments').innerHTML=payments.length?payments.slice(0,12).map(function(p){return '<div class="archive-row"><span>'+escapeHtml(p.fio)+' · '+(p.date?formatDateRu(p.date):escapeHtml((p.month||'')+' '+(p.year||'')))+(p.source==='bank'?'<div style="font-size:11px;color:#667085">Из выписки · '+escapeHtml(p.bank||'Банк')+'</div>':'')+'</span><b>'+formatMoney(p.amount)+' ₽</b></div>';}).join(''):'<div class="salary-payment-empty">Выплат за период нет.</div>';
 }
 function changeDashboardPeriod(delta){
   const mode=document.getElementById('dashboardMode').value||'month',months=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
