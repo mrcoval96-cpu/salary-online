@@ -71,6 +71,9 @@ async function ensureDatabaseSchema(){
   await pool.query("CREATE INDEX IF NOT EXISTS idx_object_responsibles_employee ON object_responsibles(employee_id)");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE");
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS permission_overrides JSONB NOT NULL DEFAULT '{}'::jsonb");
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP");
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS login_count INTEGER NOT NULL DEFAULT 0");
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(lower(email)) WHERE email IS NOT NULL AND trim(email) <> ''");
   await pool.query("CREATE TABLE IF NOT EXISTS email_codes (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, email TEXT NOT NULL, purpose TEXT NOT NULL, code_hash TEXT NOT NULL, expires_at TIMESTAMP NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_email_codes_lookup ON email_codes(lower(email), purpose, created_at DESC)");
@@ -209,6 +212,127 @@ function isTechnicalAdmin(userOrLogin){
   const login=typeof userOrLogin==='string'?userOrLogin:(userOrLogin&&userOrLogin.login);
   return String(login||'').trim().toUpperCase()==='ADMIN';
 }
+
+const PERMISSION_DEFINITIONS=[
+  {key:'employees.view',group:'Сотрудники',label:'Просмотр сотрудников'},
+  {key:'employees.manage',group:'Сотрудники',label:'Добавление, изменение и удаление сотрудников'},
+  {key:'objects.view',group:'Объекты',label:'Просмотр объектов'},
+  {key:'objects.manage',group:'Объекты',label:'Создание, изменение и удаление объектов'},
+  {key:'organizations.view',group:'Организации',label:'Просмотр организации'},
+  {key:'organizations.manage',group:'Организации',label:'Создание, изменение и удаление организаций',siteOnly:true},
+  {key:'salary.view',group:'Зарплата',label:'Просмотр зарплаты и общего сальдо'},
+  {key:'salary.create',group:'Зарплата',label:'Создание начислений'},
+  {key:'salary.edit',group:'Зарплата',label:'Изменение начислений и ручных выплат'},
+  {key:'salary.delete',group:'Зарплата',label:'Удаление и восстановление начислений'},
+  {key:'balances.manage',group:'Выплаты и остатки',label:'Ввод и изменение начальных остатков'},
+  {key:'bank.view',group:'Банк',label:'Просмотр банковских выплат'},
+  {key:'bank.import',group:'Банк',label:'Импорт банковской выписки'},
+  {key:'bank.allocate',group:'Банк',label:'Распределение банковских выплат по месяцам'},
+  {key:'bank.delete',group:'Банк',label:'Удаление банковских выплат'},
+  {key:'periods.close',group:'Периоды',label:'Закрытие зарплатного периода'},
+  {key:'periods.reopen',group:'Периоды',label:'Повторное открытие периода'},
+  {key:'reports.export',group:'Отчёты',label:'Экспорт доступных данных'},
+  {key:'users.manage',group:'Пользователи',label:'Просмотр пользователей и назначение ролей'},
+  {key:'users.customize',group:'Пользователи',label:'Индивидуальная настройка прав пользователей'},
+  {key:'users.delete',group:'Пользователи',label:'Удаление аккаунтов'},
+  {key:'logs.view',group:'Журналы',label:'Просмотр журнала действий'},
+  {key:'security.view',group:'Администрирование',label:'Журнал безопасности',siteOnly:true},
+  {key:'backups.manage',group:'Администрирование',label:'Резервные копии, восстановление и полная очистка',siteOnly:true}
+];
+const PERMISSION_KEYS=new Set(PERMISSION_DEFINITIONS.map(x=>x.key));
+const SITE_ONLY_PERMISSIONS=new Set(PERMISSION_DEFINITIONS.filter(x=>x.siteOnly).map(x=>x.key));
+const ROLE_PERMISSION_DEFAULTS={
+  'Руководитель сайта':Object.fromEntries(PERMISSION_DEFINITIONS.map(x=>[x.key,true])),
+  'Руководитель организации':{
+    'employees.view':true,'employees.manage':true,'objects.view':true,'objects.manage':true,
+    'organizations.view':true,'organizations.manage':false,'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':true,
+    'balances.manage':true,'bank.view':true,'bank.import':true,'bank.allocate':true,'bank.delete':true,
+    'periods.close':true,'periods.reopen':true,'reports.export':true,
+    'users.manage':true,'users.customize':true,'users.delete':true,'logs.view':true,'security.view':false,'backups.manage':false
+  },
+  'Бухгалтер':{
+    'employees.view':true,'employees.manage':false,'objects.view':true,'objects.manage':false,
+    'organizations.view':true,'organizations.manage':false,'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':true,
+    'balances.manage':true,'bank.view':true,'bank.import':true,'bank.allocate':true,'bank.delete':true,
+    'periods.close':true,'periods.reopen':false,'reports.export':true,
+    'users.manage':false,'users.customize':false,'users.delete':false,'logs.view':false,'security.view':false,'backups.manage':false
+  },
+  'Руководитель':{
+    'employees.view':true,'employees.manage':true,'objects.view':true,'objects.manage':false,
+    'organizations.view':true,'organizations.manage':false,'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':false,
+    'balances.manage':false,'bank.view':false,'bank.import':false,'bank.allocate':false,'bank.delete':false,
+    'periods.close':false,'periods.reopen':false,'reports.export':true,
+    'users.manage':false,'users.customize':false,'users.delete':false,'logs.view':false,'security.view':false,'backups.manage':false
+  },
+  'Руководитель проекта':{
+    'employees.view':true,'employees.manage':false,'objects.view':true,'objects.manage':false,
+    'organizations.view':false,'organizations.manage':false,'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':false,
+    'balances.manage':false,'bank.view':false,'bank.import':false,'bank.allocate':false,'bank.delete':false,
+    'periods.close':false,'periods.reopen':false,'reports.export':true,
+    'users.manage':false,'users.customize':false,'users.delete':false,'logs.view':false,'security.view':false,'backups.manage':false
+  }
+};
+function normalizePermissionOverrides(value){
+  if(value&&typeof value==='object'&&!Array.isArray(value))return value;
+  try{const parsed=JSON.parse(value||'{}');return parsed&&typeof parsed==='object'&&!Array.isArray(parsed)?parsed:{};}catch(e){return {};}
+}
+function effectivePermissions(user){
+  const base={};
+  PERMISSION_DEFINITIONS.forEach(x=>{base[x.key]=false;});
+  const defaults=ROLE_PERMISSION_DEFAULTS[String(user&&user.role||'')]||{};
+  Object.keys(defaults).forEach(k=>{if(PERMISSION_KEYS.has(k))base[k]=!!defaults[k];});
+  if(isTechnicalAdmin(user))PERMISSION_DEFINITIONS.forEach(x=>{base[x.key]=true;});
+  const overrides=normalizePermissionOverrides(user&&user.permission_overrides);
+  Object.keys(overrides).forEach(k=>{
+    if(PERMISSION_KEYS.has(k)&&typeof overrides[k]==='boolean')base[k]=overrides[k];
+  });
+  if(!isTechnicalAdmin(user)&&String(user&&user.role||'')!=='Руководитель сайта'){
+    SITE_ONLY_PERMISSIONS.forEach(k=>{base[k]=false;});
+  }
+  return base;
+}
+function buildSessionUser(user){
+  const technicalAdmin=isTechnicalAdmin(user);
+  return {
+    id:user.id,login:user.login,fio:user.fio,phone:user.phone,role:user.role,
+    organization:user.organization||'',object_name:user.object_name||'',email:user.email||'',
+    email_verified:technicalAdmin?true:(EMAIL_VERIFY_ENABLED?!!user.email_verified:true),
+    email_verification_enabled:technicalAdmin?false:EMAIL_VERIFY_ENABLED,
+    permission_overrides:normalizePermissionOverrides(user.permission_overrides),
+    permissions:effectivePermissions(user),
+    last_login_at:user.last_login_at||null,
+    login_count:Number(user.login_count||0)
+  };
+}
+async function refreshAccessUser(req){
+  if(req.accessUser)return req.accessUser;
+  if(!req.session||!req.session.user||!req.session.user.id)return null;
+  const r=await pool.query('SELECT * FROM users WHERE id=$1',[req.session.user.id]);
+  if(!r.rows.length)return null;
+  req.accessUser=r.rows[0];
+  req.session.user=buildSessionUser(req.accessUser);
+  return req.accessUser;
+}
+function requirePermission(key){
+  return async function(req,res,next){
+    if(!req.session||!req.session.user)return res.status(401).json({error:'Не авторизован'});
+    try{
+      const user=await refreshAccessUser(req);
+      if(!user){req.session.destroy(()=>{});return res.status(401).json({error:'Аккаунт не найден'});}
+      if(EMAIL_VERIFY_ENABLED&&!isTechnicalAdmin(user)&&!user.email_verified)return res.status(403).json({error:'Сначала подтвердите электронную почту',code:'EMAIL_VERIFICATION_REQUIRED'});
+      const permissions=effectivePermissions(user);
+      if(!permissions[key]){
+        await logSecurityEvent(req,'permission_denied',false,key,user.login);
+        return res.status(403).json({error:'Недостаточно прав для этого действия',permission:key});
+      }
+      next();
+    }catch(err){res.status(500).json({error:'Ошибка проверки прав'});}
+  };
+}
+function isSiteWideUser(user){return isTechnicalAdmin(user)||String(user&&user.role||'')==='Руководитель сайта';}
+function normAccess(value){return String(value||'').trim().toLocaleLowerCase('ru-RU');}
+function sameAccessValue(a,b){return normAccess(a)===normAccess(b);}
+
 function requireAuth(req, res, next) {
   if (!req.session || !req.session.user) {
     logSecurityEvent(req,'unauthorized_api',false,req.method+' '+req.originalUrl);
@@ -230,15 +354,7 @@ function requireSiteManager(req, res, next) {
   next();
 }
 
-function requireUserManager(req,res,next){
-  if(!req.session || !req.session.user)return res.status(401).json({error:'Не авторизован'});
-  if(EMAIL_VERIFY_ENABLED && !isTechnicalAdmin(req.session.user) && !req.session.user.email_verified)return res.status(403).json({error:'Сначала подтвердите электронную почту',code:'EMAIL_VERIFICATION_REQUIRED'});
-  if(!['Руководитель сайта','Руководитель организации'].includes(req.session.user.role)){
-    logSecurityEvent(req,'forbidden_user_management',false,req.method+' '+req.originalUrl);
-    return res.status(403).json({error:'Недостаточно прав для управления пользователями'});
-  }
-  next();
-}
+function requireUserManager(req,res,next){return requirePermission('users.manage')(req,res,next);}
 
 // === EMAIL SECURITY ===
 function normalizeEmail(value){return String(value||'').trim().toLowerCase();}
@@ -326,19 +442,9 @@ app.post('/api/login', authRateLimit, async (req, res) => {
     if (!user.role) {
       return res.status(403).json({ error: 'Роль не назначена. Обратитесь к руководителю сайта.' });
     }
-    const technicalAdmin=isTechnicalAdmin(user);
-    req.session.user = {
-      id: user.id,
-      login: user.login,
-      fio: user.fio,
-      phone: user.phone,
-      role: user.role,
-      organization: user.organization,
-      object_name: user.object_name,
-      email: user.email || '',
-      email_verified: technicalAdmin ? true : (EMAIL_VERIFY_ENABLED ? !!user.email_verified : true),
-      email_verification_enabled: technicalAdmin ? false : EMAIL_VERIFY_ENABLED
-    };
+    const loginUpdate=await pool.query('UPDATE users SET last_login_at=NOW(), login_count=COALESCE(login_count,0)+1 WHERE id=$1 RETURNING *',[user.id]);
+    const loginUser=loginUpdate.rows[0]||user;
+    req.session.user=buildSessionUser(loginUser);
     await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)', [user.login, 'Вход в систему']);
     await logSecurityEvent(req,'login_success',true,'Authenticated',user.login);
     res.json(req.session.user);
@@ -359,15 +465,14 @@ app.post('/api/logout', async (req, res) => {
 });
 
 // Check session
-app.get('/api/me', (req, res) => {
+app.get('/api/me', async (req, res) => {
   if (!req.session.user) return res.status(401).json({ error: 'Не авторизован' });
-  if(isTechnicalAdmin(req.session.user)){
-    req.session.user.email_verified=true;
-    req.session.user.email_verification_enabled=false;
-    return res.json({ ...req.session.user, email_verified:true, email_verification_enabled:false });
-  }
-  if (!EMAIL_VERIFY_ENABLED) return res.json({ ...req.session.user, email_verified: true, email_verification_enabled: false });
-  res.json({ ...req.session.user, email_verification_enabled: true });
+  try{
+    req.accessUser=null;
+    const user=await refreshAccessUser(req);
+    if(!user){req.session.destroy(()=>{});return res.status(401).json({error:'Аккаунт не найден'});}
+    res.json(req.session.user);
+  }catch(err){res.status(500).json({error:'Ошибка сервера'});}
 });
 
 app.post('/api/email/send-verification', authRateLimit, async (req,res)=>{
@@ -501,17 +606,28 @@ app.post('/api/recover/reset', authRateLimit, async (req,res)=>{
 });
 
 // === USERS ===
+app.get('/api/permissions/catalog', requireUserManager, async (req,res)=>{
+  const actor=req.accessUser||await refreshAccessUser(req);
+  res.json({
+    definitions:PERMISSION_DEFINITIONS,
+    role_defaults:ROLE_PERMISSION_DEFAULTS,
+    actor_permissions:effectivePermissions(actor)
+  });
+});
+
 app.get('/api/users', requireUserManager, async (req, res) => {
   try {
+    const actor=req.accessUser||await refreshAccessUser(req);
     let result;
-    if(req.session.user.role==='Руководитель сайта'){
-      result=await pool.query('SELECT id, login, fio, phone, role, organization, object_name, role_history, email_verified FROM users ORDER BY id');
+    const fields='id, login, fio, phone, email, email_verified, role, organization, object_name, role_history, permission_overrides, last_login_at, login_count';
+    if(isSiteWideUser(actor)){
+      result=await pool.query('SELECT '+fields+' FROM users ORDER BY id');
     }else{
-      const ownOrg=String(req.session.user.organization||'').trim();
+      const ownOrg=String(actor.organization||'').trim();
       if(!ownOrg)return res.json([]);
-      result=await pool.query("SELECT id, login, fio, phone, role, organization, object_name, role_history, email_verified FROM users WHERE lower(trim(organization))=lower(trim($1)) ORDER BY id",[ownOrg]);
+      result=await pool.query('SELECT '+fields+' FROM users WHERE lower(trim(organization))=lower(trim($1)) ORDER BY id',[ownOrg]);
     }
-    res.json(result.rows);
+    res.json(result.rows.map(u=>({...u,permissions:effectivePermissions(u)})));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -523,27 +639,24 @@ app.post('/api/users/role', requireUserManager, async (req, res) => {
   const requestedOrg=String(req.body.organization||'').trim();
   const requestedObject=String(req.body.object_name||'').trim();
   if(!Number.isInteger(userId)||userId<=0)return res.status(400).json({error:'Некорректный пользователь'});
-  const allRoles=new Set(['','Руководитель сайта','Руководитель организации','Руководитель','Руководитель проекта']);
+  const allRoles=new Set(['','Руководитель сайта','Руководитель организации','Бухгалтер','Руководитель','Руководитель проекта']);
   if(!allRoles.has(requestedRole))return res.status(400).json({error:'Некорректная роль'});
   try {
     const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
     if (userRes.rows.length === 0) return res.status(404).json({ error: 'Пользователь не найден' });
     const user = userRes.rows[0];
-    const actor=req.session.user;
-    let organization=requestedOrg;
-    let role=requestedRole;
-    let objectName=requestedObject;
+    const actor=req.accessUser||await refreshAccessUser(req);
+    if(isTechnicalAdmin(user))return res.status(403).json({error:'Технический аккаунт ADMIN нельзя изменять'});
+    let organization=requestedOrg,role=requestedRole,objectName=requestedObject;
 
-    if(actor.role==='Руководитель организации'){
+    if(!isSiteWideUser(actor)){
       const ownOrg=String(actor.organization||'').trim();
-      if(!ownOrg)return res.status(403).json({error:'У руководителя организации не указана организация'});
-      if(String(user.organization||'').trim().toLocaleLowerCase('ru-RU')!==ownOrg.toLocaleLowerCase('ru-RU')){
+      if(!ownOrg)return res.status(403).json({error:'У пользователя, управляющего ролями, не указана организация'});
+      if(!sameAccessValue(user.organization,ownOrg)){
         await logSecurityEvent(req,'cross_org_role_change',false,'Target user ID='+userId+'; target org='+String(user.organization||''),actor.login);
         return res.status(403).json({error:'Можно управлять только пользователями своей организации'});
       }
-      if(user.role==='Руководитель сайта' || role==='Руководитель сайта'){
-        return res.status(403).json({error:'Роль руководителя сайта может назначать только руководитель сайта'});
-      }
+      if(user.role==='Руководитель сайта'||role==='Руководитель сайта')return res.status(403).json({error:'Роль руководителя сайта может назначать только руководитель сайта'});
       organization=ownOrg;
     }
 
@@ -565,25 +678,85 @@ app.post('/api/users/role', requireUserManager, async (req, res) => {
 
     let history = [];
     try { history = JSON.parse(user.role_history || '[]'); } catch(e) {}
-    history.push({
-      date: new Date().toISOString(),
-      oldRole: user.role,
-      newRole: role,
-      oldOrg: user.organization,
-      newOrg: organization,
-      by: actor.login
-    });
-    await pool.query(
-      'UPDATE users SET role = $1, organization = $2, object_name = $3, role_history = $4 WHERE id = $5',
-      [role, organization, objectName, JSON.stringify(history), userId]
-    );
-    await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)',
-      [actor.login, 'Изменение роли пользователя ID=' + userId + ': '+(user.role||'без роли')+' → '+(role||'без роли')+', организация '+organization]);
+    history.push({date:new Date().toISOString(),oldRole:user.role,newRole:role,oldOrg:user.organization,newOrg:organization,by:actor.login});
+    await pool.query('UPDATE users SET role=$1, organization=$2, object_name=$3, role_history=$4 WHERE id=$5',[role,organization,objectName,JSON.stringify(history),userId]);
+    await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)',[actor.login,'Изменение роли пользователя ID='+userId+': '+(user.role||'без роли')+' → '+(role||'без роли')+', организация '+organization]);
     await logSecurityEvent(req,'role_changed',true,'Target user ID='+userId+'; role='+(role||'none')+'; organization='+organization,actor.login);
     res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/users/:id/access', requirePermission('users.customize'), async (req,res)=>{
+  const userId=Number(req.params.id);
+  const incoming=req.body&&req.body.overrides&&typeof req.body.overrides==='object'?req.body.overrides:{};
+  if(!Number.isInteger(userId)||userId<=0)return res.status(400).json({error:'Некорректный пользователь'});
+  try{
+    const [targetRes]=await Promise.all([pool.query('SELECT * FROM users WHERE id=$1',[userId])]);
+    if(!targetRes.rows.length)return res.status(404).json({error:'Пользователь не найден'});
+    const target=targetRes.rows[0],actor=req.accessUser||await refreshAccessUser(req);
+    if(isTechnicalAdmin(target))return res.status(403).json({error:'Права технического аккаунта ADMIN фиксированы'});
+    if(!isSiteWideUser(actor)&&!sameAccessValue(target.organization,actor.organization))return res.status(403).json({error:'Можно изменять права только пользователей своей организации'});
+    const actorPermissions=effectivePermissions(actor),clean={};
+    for(const [key,value] of Object.entries(incoming)){
+      if(!PERMISSION_KEYS.has(key))continue;
+      if(value!==true&&value!==false)continue;
+      if(!isSiteWideUser(actor)&&value===true&&(!actorPermissions[key]||SITE_ONLY_PERMISSIONS.has(key))){
+        return res.status(403).json({error:'Нельзя выдать право, которого нет у вас: '+key});
+      }
+      clean[key]=value;
+    }
+    await pool.query('UPDATE users SET permission_overrides=$1::jsonb WHERE id=$2',[JSON.stringify(clean),userId]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[actor.login,'Изменены индивидуальные права пользователя '+(target.login||('ID='+userId))]);
+    await logSecurityEvent(req,'permissions_changed',true,'Target user ID='+userId+'; overrides='+JSON.stringify(clean),actor.login);
+    res.json({ok:true,overrides:clean});
+  }catch(err){res.status(500).json({error:err.message});}
+});
+
+app.put('/api/users/:id/organization', requireSiteManager, async (req,res)=>{
+  const userId=Number(req.params.id),organization=String(req.body.organization||'').trim();
+  if(!Number.isInteger(userId)||userId<=0)return res.status(400).json({error:'Некорректный пользователь'});
+  try{
+    const targetRes=await pool.query('SELECT * FROM users WHERE id=$1',[userId]);
+    if(!targetRes.rows.length)return res.status(404).json({error:'Пользователь не найден'});
+    const target=targetRes.rows[0];
+    if(isTechnicalAdmin(target))return res.status(403).json({error:'Организация технического аккаунта ADMIN не изменяется'});
+    let canonical='';
+    if(organization){
+      const org=await pool.query('SELECT name FROM organizations WHERE lower(trim(name))=lower(trim($1)) LIMIT 1',[organization]);
+      if(!org.rows.length)return res.status(400).json({error:'Организация не найдена'});
+      canonical=org.rows[0].name;
+    }else if(target.role!=='Руководитель сайта'){
+      return res.status(400).json({error:'Для пользователя должна быть выбрана организация'});
+    }
+    let objectName=String(target.object_name||'');
+    if(objectName&&canonical){
+      const obj=await pool.query("SELECT 1 FROM objects WHERE lower(trim(name))=lower(trim($1)) AND lower(trim(organization))=lower(trim($2)) LIMIT 1",[objectName,canonical]);
+      if(!obj.rows.length)objectName='';
+    }else if(!canonical)objectName='';
+    await pool.query('UPDATE users SET organization=$1, object_name=$2 WHERE id=$3',[canonical,objectName,userId]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Изменена организация пользователя '+target.login+': '+(target.organization||'—')+' → '+(canonical||'—')]);
+    res.json({ok:true});
+  }catch(err){res.status(500).json({error:err.message});}
+});
+
+app.delete('/api/users/:id', requirePermission('users.delete'), async (req,res)=>{
+  const userId=Number(req.params.id);
+  if(!Number.isInteger(userId)||userId<=0)return res.status(400).json({error:'Некорректный пользователь'});
+  try{
+    const targetRes=await pool.query('SELECT * FROM users WHERE id=$1',[userId]);
+    if(!targetRes.rows.length)return res.status(404).json({error:'Пользователь не найден'});
+    const target=targetRes.rows[0],actor=req.accessUser||await refreshAccessUser(req);
+    if(isTechnicalAdmin(target))return res.status(403).json({error:'Технический аккаунт ADMIN удалить нельзя'});
+    if(Number(actor.id)===userId)return res.status(403).json({error:'Нельзя удалить собственный аккаунт'});
+    if(!isSiteWideUser(actor)){
+      if(!sameAccessValue(target.organization,actor.organization))return res.status(403).json({error:'Можно удалять только пользователей своей организации'});
+      if(target.role==='Руководитель сайта')return res.status(403).json({error:'Руководителя сайта может удалить только руководитель сайта'});
+    }
+    await pool.query('DELETE FROM users WHERE id=$1',[userId]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[actor.login,'Удалён аккаунт пользователя '+target.login+' ('+(target.fio||'')+')']);
+    await logSecurityEvent(req,'user_deleted',true,'Deleted user ID='+userId+'; login='+target.login,actor.login);
+    res.json({ok:true});
+  }catch(err){res.status(500).json({error:err.message});}
 });
 
 // === EMPLOYEES ===
@@ -1279,8 +1452,8 @@ app.post('/api/restore', requireSiteManager, async (req, res) => {
     await client.query('DELETE FROM users');
 
     for(const u of data.users){
-      await client.query('INSERT INTO users (id,login,password,fio,phone,role,organization,object_name,role_history) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
-        [u.id,u.login||'',u.password||'',u.fio||'',u.phone||'',u.role||'',u.organization||'',u.object_name||'',u.role_history||'[]']);
+      await client.query('INSERT INTO users (id,login,password,fio,phone,email,email_verified,role,organization,object_name,role_history,permission_overrides,last_login_at,login_count) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14)',
+        [u.id,u.login||'',u.password||'',u.fio||'',u.phone||'',u.email||'',!!u.email_verified,u.role||'',u.organization||'',u.object_name||'',u.role_history||'[]',JSON.stringify(normalizePermissionOverrides(u.permission_overrides)),u.last_login_at||null,Number(u.login_count||0)]);
     }
     for(const e of (data.employees||[])){
       await client.query('INSERT INTO employees (id,fio,organization,position,phone,birth_date,comments,employment_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
