@@ -359,6 +359,7 @@ button,input,select,textarea{max-width:100%}
     </div>
     <div class="user-info" id="headerUserInfo">
       <button onclick="showLog()">Журнал действий</button>
+      <button id="securityLogBtn" style="display:none" onclick="showSecurityLog()">Безопасность</button>
       <span>Пользователь: <b id="userFio"></b> (<span id="userRole"></span>)</span>
       <button onclick="doLogout()">Выйти</button>
     </div>
@@ -564,6 +565,7 @@ button,input,select,textarea{max-width:100%}
 <div class="modal-overlay" id="bankAllocationModal"><div class="modal" style="max-width:760px"><span class="modal-close" onclick="closeModal('bankAllocationModal')">&times;</span><h2>Распределение банковской выплаты по месяцам</h2><div id="bankAllocationInfo" class="balance-help" style="margin-bottom:12px"></div><div id="bankAllocationRows"></div><button class="btn btn-blue btn-sm" type="button" onclick="addBankAllocationRow()">+ Добавить месяц</button><div id="bankAllocationRemaining" style="font-size:13px;font-weight:600;margin:12px 0"></div><div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-gray" type="button" onclick="closeModal('bankAllocationModal')">Отмена</button><button class="btn btn-green" type="button" onclick="saveBankAllocations()">Сохранить распределение</button></div></div></div>
 <div class="modal-overlay" id="balanceModal"><div class="modal"><span class="modal-close" onclick="closeModal('balanceModal')">&times;</span><h2 id="balanceModalTitle">Ввод остатка</h2><div class="balance-help">Остаток фиксирует взаиморасчёт с сотрудником на указанную дату. Если галочка не отмечена — компания должна сотруднику. Если отмечена — сотрудник должен компании. Дальнейшие начисления и выплаты считаются от этого сальдо.</div><div class="form-group"><label>Сотрудник</label><select id="balanceEmployee" onchange="renderBalanceHistory()"></select></div><div class="form-row"><div class="form-group"><label>Дата остатка</label><input type="text" id="balanceDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div><div class="form-group"><label>Сумма остатка</label><input type="number" id="balanceAmount" min="0" step="0.01" placeholder="0,00"></div></div><div class="form-group"><label>Кто кому должен</label><label style="display:flex;align-items:center;gap:8px;padding:9px 10px;border:1px solid #ddd;border-radius:6px;cursor:pointer"><input type="checkbox" id="balanceEmployeeOwes" style="width:18px;height:18px;min-height:0" onchange="updateBalanceDirectionHint()"> <span>Сотрудник должен компании</span></label><div id="balanceDirectionHint" style="font-size:12px;color:#667085;margin-top:5px">Компания должна сотруднику</div></div><div class="form-group"><label>Комментарий</label><textarea id="balanceComment" rows="2" placeholder="Например: остаток на начало ведения учёта"></textarea></div><button class="btn btn-green" id="balanceSaveBtn" onclick="saveEmployeeBalance()">Сохранить остаток</button><h3 style="font-size:15px;margin:20px 0 8px">История остатков</h3><div id="balanceHistory"></div></div></div>
 <div class="modal-overlay" id="logModal"><div class="modal"><span class="modal-close" onclick="closeModal('logModal')">&times;</span><h2>Журнал действий</h2><table><thead><tr><th>Дата</th><th>Пользователь</th><th>Действие</th></tr></thead><tbody id="logBody"></tbody></table></div></div>
+<div class="modal-overlay" id="securityLogModal"><div class="modal" style="max-width:1050px"><span class="modal-close" onclick="closeModal('securityLogModal')">&times;</span><h2>Журнал безопасности</h2><div class="balance-help" style="margin-bottom:12px">Фиксируются успешные и неуспешные входы, блокировки по частоте запросов, отклонённые CSRF/CORS-запросы и попытки доступа без необходимых прав.</div><div style="overflow:auto;max-height:580px"><table style="min-width:900px"><thead><tr><th>Дата</th><th>Событие</th><th>Пользователь</th><th>IP</th><th>Результат</th><th>Подробности</th></tr></thead><tbody id="securityLogBody"></tbody></table></div></div></div>
 <div class="modal-overlay" id="roleModal"><div class="modal"><span class="modal-close" onclick="closeModal('roleModal')">&times;</span><h2>Назначить роль</h2><div class="form-group"><label>Роль</label><select id="roleSelect"><option value="">—</option><option>Руководитель сайта</option><option>Руководитель организации</option><option>Руководитель</option><option>Руководитель проекта</option></select></div><div class="form-group"><label>Организация</label><input type="text" id="roleOrg"></div><div class="form-group"><label>Объект</label><input type="text" id="roleObj"></div><button class="btn btn-green" onclick="saveRole()">Сохранить</button></div></div>
 <div class="modal-overlay" id="importStmtModal"><div class="modal" style="max-width:1100px"><span class="modal-close" onclick="closeModal('importStmtModal')">&times;</span><h2>Импорт банковской выписки</h2><div class="balance-help">Поддерживаются выписки ВТБ и Т‑Банка в Excel. Импортируются все исходящие выплаты сотрудникам, найденным по полному ФИО: зарплата, аванс, подотчёт, отпускные, больничные, материальная помощь и другие выплаты. Существующие записи не изменяются, повторные операции пропускаются.</div><div class="form-group"><label>Файл выписки (.xlsx / .xls)</label><input type="file" id="bankStatementFile" accept=".xlsx,.xls" onchange="handleBankStatementFile(event)"></div><div id="bankStatementSummary" style="font-size:13px;color:#475467;margin:8px 0"></div><div style="overflow:auto;max-height:430px;border:1px solid #e5e7eb;border-radius:8px"><table style="min-width:900px"><thead><tr><th>Дата</th><th>Сотрудник</th><th>Сумма</th><th>Банк</th><th>Назначение</th><th>Статус</th></tr></thead><tbody id="bankStatementPreviewBody"><tr><td colspan="6" style="color:#777">Выберите файл выписки для предварительного просмотра.</td></tr></tbody></table></div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button class="btn btn-gray" type="button" onclick="closeModal('importStmtModal')">Отмена</button><button class="btn btn-green" id="bankStatementImportBtn" type="button" onclick="importBankStatementPreview()" disabled>Импортировать выплаты</button></div></div></div>
 
@@ -911,6 +913,7 @@ async function showApp(){
   document.getElementById('userFio').textContent=currentUser.fio;
   document.getElementById('userRole').textContent=currentUser.role || 'без роли';
   document.getElementById('usersTab').style.display=currentUser.role==='Руководитель сайта'?'inline-block':'none';
+  document.getElementById('securityLogBtn').style.display=currentUser.role==='Руководитель сайта'?'inline-block':'none';
   await loadAll();
   fillSalaryExportEmployees();
   initDashboardPeriod();
@@ -2024,6 +2027,15 @@ async function showLog() {
     ).join('');
     document.getElementById('logModal').classList.add('show');
   } catch (e) { toast(e.message, 'error'); }
+}
+async function showSecurityLog(){
+  try{
+    const rows=await api('/api/security-log');
+    document.getElementById('securityLogBody').innerHTML=rows.length?rows.map(function(l){
+      return '<tr><td>'+new Date(l.created_at).toLocaleString('ru')+'</td><td>'+escapeHtml(l.event||'')+'</td><td>'+escapeHtml(l.user_login||'')+'</td><td>'+escapeHtml(l.ip||'')+'</td><td>'+(l.success?'<span class="badge badge-green">Успешно</span>':'<span class="badge badge-orange">Отклонено</span>')+'</td><td>'+escapeHtml(l.details||'')+'</td></tr>';
+    }).join(''):'<tr><td colspan="6" style="color:#777">Событий безопасности пока нет.</td></tr>';
+    document.getElementById('securityLogModal').classList.add('show');
+  }catch(e){toast(e.message,'error');}
 }
 
 // === BANK STATEMENT IMPORT ===
