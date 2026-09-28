@@ -54,6 +54,9 @@ async function ensureDatabaseSchema(){
   await pool.query("ALTER TABLE employee_balances ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'company_to_employee'");
   await pool.query("UPDATE employee_balances SET direction='employee_to_company' WHERE amount < 0 AND direction <> 'employee_to_company'");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_employee_balances_employee_date ON employee_balances(lower(employee_fio), balance_date DESC, id DESC)");
+  await pool.query("CREATE TABLE IF NOT EXISTS bank_statement_payments (id SERIAL PRIMARY KEY, employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL, employee_fio TEXT NOT NULL, bank TEXT NOT NULL, company_account TEXT NOT NULL DEFAULT '', transaction_date DATE NOT NULL, amount NUMERIC(14,2) NOT NULL, document_number TEXT NOT NULL DEFAULT '', recipient_account TEXT NOT NULL DEFAULT '', counterparty TEXT NOT NULL DEFAULT '', purpose TEXT NOT NULL DEFAULT '', transaction_key TEXT NOT NULL UNIQUE, source_filename TEXT NOT NULL DEFAULT '', imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, imported_by TEXT)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_bank_statement_payments_employee_date ON bank_statement_payments(lower(employee_fio), transaction_date, id)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_bank_statement_payments_transaction_key ON bank_statement_payments(transaction_key)");
   await pool.query("INSERT INTO object_responsibles (object_id,employee_id) SELECT o.id,e.id FROM objects o CROSS JOIN LATERAL regexp_split_to_table(COALESCE(o.responsible,''),',') AS part(name) JOIN employees e ON lower(trim(e.fio))=lower(trim(part.name)) WHERE trim(part.name)<>'' ON CONFLICT (object_id,employee_id) DO NOTHING");
 }
 
@@ -547,15 +550,91 @@ function normalizePayments(value){
 function paymentSummary(value){
   return normalizePayments(value).reduce((s,p)=>s+(parseFloat(p&&((p.amount!=null)?p.amount:p.sum))||0),0);
 }
+function normalizeEmployeeMatchName(value){
+  return String(value||'').trim().replace(/\s+/g,' ').toLocaleLowerCase('ru-RU').replace(/ё/g,'е');
+}
+function normalizeBankDate(value){
+  const s=String(value||'').trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
+  const m=s.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  return m?m[3]+'-'+m[2]+'-'+m[1]:'';
+}
+function normalizeBankText(value){return String(value||'').trim().replace(/\s+/g,' ');}
+function bankTransactionKey(tx){
+  const amount=Number(tx.amount);
+  const parts=[
+    normalizeBankText(tx.bank).toLocaleLowerCase('ru-RU'),
+    normalizeBankText(tx.company_account),
+    normalizeBankDate(tx.transaction_date),
+    normalizeBankText(tx.document_number),
+    Number.isFinite(amount)?amount.toFixed(2):'',
+    normalizeBankText(tx.recipient_account),
+    normalizeBankText(tx.counterparty).toLocaleLowerCase('ru-RU').replace(/ё/g,'е'),
+    normalizeBankText(tx.purpose)
+  ];
+  return crypto.createHash('sha256').update(parts.join('|')).digest('hex');
+}
+async function prepareBankStatementTransactions(transactions){
+  const input=Array.isArray(transactions)?transactions:[];
+  const [employeesResult,bankResult,salaryResult]=await Promise.all([
+    pool.query('SELECT id,fio FROM employees ORDER BY id'),
+    pool.query('SELECT transaction_key FROM bank_statement_payments'),
+    pool.query('SELECT employee_fio,payments FROM salary_records WHERE deleted_at IS NULL')
+  ]);
+  const employeeMap=new Map();
+  employeesResult.rows.forEach(e=>{const key=normalizeEmployeeMatchName(e.fio);if(key&&!employeeMap.has(key))employeeMap.set(key,e);});
+  const existingBankKeys=new Set(bankResult.rows.map(r=>String(r.transaction_key||'')));
+  const manualKeys=new Set();
+  salaryResult.rows.forEach(r=>{
+    const fioKey=normalizeEmployeeMatchName(r.employee_fio);
+    normalizePayments(r.payments).forEach(p=>{
+      const date=normalizeBankDate(p&&(p.date||p.payment_date));
+      const amount=Number(p&&((p.amount!=null)?p.amount:p.sum));
+      if(fioKey&&date&&Number.isFinite(amount))manualKeys.add(fioKey+'|'+date+'|'+amount.toFixed(2));
+    });
+  });
+  const requestKeys=new Set();
+  return input.map((raw,index)=>{
+    const tx={
+      bank:normalizeBankText(raw&&raw.bank),
+      company_account:normalizeBankText(raw&&raw.company_account),
+      transaction_date:normalizeBankDate(raw&&raw.transaction_date),
+      amount:Number(raw&&raw.amount),
+      document_number:normalizeBankText(raw&&raw.document_number),
+      recipient_account:normalizeBankText(raw&&raw.recipient_account),
+      counterparty:normalizeBankText(raw&&raw.counterparty),
+      purpose:normalizeBankText(raw&&raw.purpose),
+      source_filename:normalizeBankText(raw&&raw.source_filename)
+    };
+    const fioKey=normalizeEmployeeMatchName(tx.counterparty);
+    const employee=employeeMap.get(fioKey);
+    const key=bankTransactionKey(tx);
+    let status='ready',message='Готово к импорту';
+    if(!tx.transaction_date||!Number.isFinite(tx.amount)||tx.amount<=0||!tx.counterparty){
+      status='invalid';message='Некорректная строка выписки';
+    }else if(!employee){
+      status='employee_not_found';message='Сотрудник не найден';
+    }else if(requestKeys.has(key)){
+      status='duplicate_file';message='Дубликат внутри файла';
+    }else if(existingBankKeys.has(key)){
+      status='duplicate_import';message='Уже импортировано';
+    }else if(manualKeys.has(fioKey+'|'+tx.transaction_date+'|'+tx.amount.toFixed(2))){
+      status='duplicate_manual';message='Такая выплата уже внесена вручную';
+    }
+    requestKeys.add(key);
+    return {...tx,index,employee_id:employee?employee.id:null,employee_fio:employee?employee.fio:'',transaction_key:key,status,message};
+  });
+}
 async function createAutomaticBackup(){
-  const [employees,objects,orgs,salary,responsibles,periods,balances]=await Promise.all([
+  const [employees,objects,orgs,salary,responsibles,periods,balances,bankPayments]=await Promise.all([
     pool.query('SELECT * FROM employees ORDER BY id'),pool.query('SELECT * FROM objects ORDER BY id'),
     pool.query('SELECT * FROM organizations ORDER BY id'),pool.query('SELECT * FROM salary_records ORDER BY id'),
     pool.query('SELECT object_id,employee_id,created_at FROM object_responsibles ORDER BY object_id,employee_id'),
     pool.query('SELECT * FROM closed_salary_periods ORDER BY year,month'),
-    pool.query('SELECT * FROM employee_balances ORDER BY id')
+    pool.query('SELECT * FROM employee_balances ORDER BY id'),
+    pool.query('SELECT * FROM bank_statement_payments ORDER BY id')
   ]);
-  const data={format:'salary-online-auto-backup',version:1,created_at:new Date().toISOString(),employees:employees.rows,objects:objects.rows,organizations:orgs.rows,salary:salary.rows,employee_balances:balances.rows,object_responsibles:responsibles.rows,closed_periods:periods.rows};
+  const data={format:'salary-online-auto-backup',version:2,created_at:new Date().toISOString(),employees:employees.rows,objects:objects.rows,organizations:orgs.rows,salary:salary.rows,employee_balances:balances.rows,bank_statement_payments:bankPayments.rows,object_responsibles:responsibles.rows,closed_periods:periods.rows};
   await pool.query('INSERT INTO automatic_backups(data) VALUES($1)',[JSON.stringify(data)]);
   await pool.query('DELETE FROM automatic_backups WHERE id NOT IN (SELECT id FROM automatic_backups ORDER BY created_at DESC LIMIT 7)');
 }
@@ -574,6 +653,47 @@ app.get('/api/salary', requireAuth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// === BANK STATEMENT PAYMENTS ===
+app.get('/api/bank-payments', requireAuth, async (req,res)=>{
+  try{
+    const result=await pool.query('SELECT * FROM bank_statement_payments ORDER BY transaction_date, id');
+    res.json(result.rows);
+  }catch(err){res.status(500).json({error:err.message});}
+});
+app.post('/api/bank-payments/preview', requireAuth, async (req,res)=>{
+  try{
+    const items=await prepareBankStatementTransactions(req.body&&req.body.transactions);
+    const summary=items.reduce((acc,item)=>{acc[item.status]=(acc[item.status]||0)+1;return acc;},{});
+    res.json({items,summary});
+  }catch(err){console.error('Bank statement preview error:',err);res.status(500).json({error:err.message});}
+});
+app.post('/api/bank-payments/import', requireAuth, async (req,res)=>{
+  const client=await pool.connect();
+  try{
+    const items=await prepareBankStatementTransactions(req.body&&req.body.transactions);
+    const ready=items.filter(item=>item.status==='ready');
+    let imported=0;
+    await client.query('BEGIN');
+    for(const item of ready){
+      const result=await client.query(
+        'INSERT INTO bank_statement_payments(employee_id,employee_fio,bank,company_account,transaction_date,amount,document_number,recipient_account,counterparty,purpose,transaction_key,source_filename,imported_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(transaction_key) DO NOTHING RETURNING id',
+        [item.employee_id,item.employee_fio,item.bank,item.company_account,item.transaction_date,item.amount,item.document_number,item.recipient_account,item.counterparty,item.purpose,item.transaction_key,item.source_filename,req.session.user.login]
+      );
+      if(result.rows.length)imported++;
+    }
+    if(imported){
+      await client.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Импортировано выплат из банковской выписки: '+imported]);
+    }
+    await client.query('COMMIT');
+    const summary=items.reduce((acc,item)=>{acc[item.status]=(acc[item.status]||0)+1;return acc;},{});
+    res.json({ok:true,imported,summary});
+  }catch(err){
+    try{await client.query('ROLLBACK');}catch(e){}
+    console.error('Bank statement import error:',err);
+    res.status(500).json({error:err.message});
+  }finally{client.release();}
 });
 
 // === EMPLOYEE OPENING BALANCES ===
@@ -738,9 +858,10 @@ app.get('/api/export', requireSiteManager, async (req, res) => {
     const orgs = await pool.query('SELECT * FROM organizations');
     const salary = await pool.query('SELECT * FROM salary_records');
     const balances = await pool.query('SELECT * FROM employee_balances');
+    const bankPayments = await pool.query('SELECT * FROM bank_statement_payments');
     const objectResponsibles = await pool.query('SELECT object_id, employee_id FROM object_responsibles');
     const log = await pool.query('SELECT * FROM action_log ORDER BY created_at DESC LIMIT 500');
-    res.json({users:users.rows, employees:employees.rows, objects:objects.rows, organizations:orgs.rows, salary:salary.rows, employee_balances:balances.rows, object_responsibles:objectResponsibles.rows, log:log.rows});
+    res.json({users:users.rows, employees:employees.rows, objects:objects.rows, organizations:orgs.rows, salary:salary.rows, employee_balances:balances.rows, bank_statement_payments:bankPayments.rows, object_responsibles:objectResponsibles.rows, log:log.rows});
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -789,6 +910,13 @@ app.post('/api/import', requireSiteManager, async (req, res) => {
         await pool.query('INSERT INTO employee_balances(employee_id,employee_fio,balance_date,amount,direction,comment,created_by) VALUES($1,$2,$3,$4,$5,$6,$7)',[emp.rows[0]?emp.rows[0].id:null,b.employee_fio||'',b.balance_date||null,signedAmount,direction,b.comment||'',b.created_by||req.session.user.login]);
       }
     }
+    if(data.bank_statement_payments){
+      for(const p of data.bank_statement_payments){
+        const emp=await pool.query('SELECT id,fio FROM employees WHERE lower(fio)=lower($1) LIMIT 1',[p.employee_fio||'']);
+        const tx={bank:p.bank,company_account:p.company_account,transaction_date:p.transaction_date,amount:p.amount,document_number:p.document_number,recipient_account:p.recipient_account,counterparty:p.counterparty||p.employee_fio,purpose:p.purpose};
+        await pool.query('INSERT INTO bank_statement_payments(employee_id,employee_fio,bank,company_account,transaction_date,amount,document_number,recipient_account,counterparty,purpose,transaction_key,source_filename,imported_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(transaction_key) DO NOTHING',[emp.rows[0]?emp.rows[0].id:null,p.employee_fio||'',p.bank||'',p.company_account||'',p.transaction_date||null,p.amount||0,p.document_number||'',p.recipient_account||'',p.counterparty||p.employee_fio||'',p.purpose||'',p.transaction_key||bankTransactionKey(tx),p.source_filename||'',p.imported_by||req.session.user.login]);
+      }
+    }
     res.json({ ok: true, message: 'Импорт завершён' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -798,22 +926,24 @@ app.post('/api/import', requireSiteManager, async (req, res) => {
 // === FULL BACKUP / RESTORE ===
 app.get('/api/backup', requireSiteManager, async (req, res) => {
   try {
-    const [users, employees, objects, orgs, salary, balances, objectResponsibles, log] = await Promise.all([
+    const [users, employees, objects, orgs, salary, balances, bankPayments, objectResponsibles, log] = await Promise.all([
       pool.query('SELECT * FROM users ORDER BY id'),
       pool.query('SELECT * FROM employees ORDER BY id'),
       pool.query('SELECT * FROM objects ORDER BY id'),
       pool.query('SELECT * FROM organizations ORDER BY id'),
       pool.query('SELECT * FROM salary_records ORDER BY id'),
       pool.query('SELECT * FROM employee_balances ORDER BY id'),
+      pool.query('SELECT * FROM bank_statement_payments ORDER BY id'),
       pool.query('SELECT object_id, employee_id, created_at FROM object_responsibles ORDER BY object_id, employee_id'),
       pool.query('SELECT * FROM action_log ORDER BY id')
     ]);
     res.json({
       format: 'salary-online-backup',
-      version: 1,
+      version: 2,
       created_at: new Date().toISOString(),
       users: users.rows, employees: employees.rows, objects: objects.rows,
       organizations: orgs.rows, salary: salary.rows, employee_balances: balances.rows,
+      bank_statement_payments: bankPayments.rows,
       object_responsibles: objectResponsibles.rows, log: log.rows
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -829,6 +959,7 @@ app.post('/api/restore', requireSiteManager, async (req, res) => {
     await client.query('BEGIN');
     await client.query('DELETE FROM salary_records');
     await client.query('DELETE FROM employee_balances');
+    await client.query('DELETE FROM bank_statement_payments');
     await client.query('DELETE FROM object_responsibles');
     await client.query('DELETE FROM objects');
     await client.query('DELETE FROM employees');
@@ -866,11 +997,15 @@ app.post('/api/restore', requireSiteManager, async (req, res) => {
       const signedAmount=(direction==='employee_to_company'?-1:1)*Math.abs(Number(b.amount)||0);
       await client.query('INSERT INTO employee_balances (id,employee_id,employee_fio,balance_date,amount,direction,comment,created_by,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[b.id,b.employee_id||null,b.employee_fio||'',b.balance_date||null,signedAmount,direction,b.comment||'',b.created_by||'',b.created_at||new Date(),b.updated_at||b.created_at||new Date()]);
     }
+    for(const p of (data.bank_statement_payments||[])){
+      const tx={bank:p.bank,company_account:p.company_account,transaction_date:p.transaction_date,amount:p.amount,document_number:p.document_number,recipient_account:p.recipient_account,counterparty:p.counterparty||p.employee_fio,purpose:p.purpose};
+      await client.query('INSERT INTO bank_statement_payments (id,employee_id,employee_fio,bank,company_account,transaction_date,amount,document_number,recipient_account,counterparty,purpose,transaction_key,source_filename,imported_at,imported_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)',[p.id,p.employee_id||null,p.employee_fio||'',p.bank||'',p.company_account||'',p.transaction_date||null,p.amount||0,p.document_number||'',p.recipient_account||'',p.counterparty||p.employee_fio||'',p.purpose||'',p.transaction_key||bankTransactionKey(tx),p.source_filename||'',p.imported_at||new Date(),p.imported_by||'']);
+    }
     for(const l of (data.log||[])){
       await client.query('INSERT INTO action_log (id,user_login,action,created_at) VALUES ($1,$2,$3,$4)',
         [l.id,l.user_login||'',l.action||'',l.created_at||new Date()]);
     }
-    for(const table of ['users','employees','objects','organizations','salary_records','employee_balances','action_log']){
+    for(const table of ['users','employees','objects','organizations','salary_records','employee_balances','bank_statement_payments','action_log']){
       await client.query("SELECT setval(pg_get_serial_sequence('"+table+"','id'), COALESCE((SELECT MAX(id) FROM "+table+"),1), (SELECT COUNT(*)>0 FROM "+table+"))");
     }
     await client.query('COMMIT');
@@ -886,6 +1021,7 @@ app.post('/api/clear', requireSiteManager, async (req, res) => {
   try {
     await pool.query('DELETE FROM salary_records');
     await pool.query('DELETE FROM employee_balances');
+    await pool.query('DELETE FROM bank_statement_payments');
     await pool.query('DELETE FROM action_log');
     await pool.query('DELETE FROM employees');
     await pool.query('DELETE FROM objects');
