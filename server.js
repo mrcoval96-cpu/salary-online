@@ -14,6 +14,7 @@ const app = express();
 app.get('/health', (req, res) => res.status(200).send('OK'));
 
 const PORT = process.env.PORT || 3000;
+const EMAIL_VERIFY_ENABLED = String(process.env.EMAIL_VERIFY_ENABLED || 'false').toLowerCase() === 'true';
 
 // PostgreSQL pool
 const fs = require('fs');
@@ -45,6 +46,8 @@ async function ensureDatabaseSchema(){
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(lower(email)) WHERE email IS NOT NULL AND trim(email) <> ''");
   await pool.query("CREATE TABLE IF NOT EXISTS email_codes (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, email TEXT NOT NULL, purpose TEXT NOT NULL, code_hash TEXT NOT NULL, expires_at TIMESTAMP NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_email_codes_lookup ON email_codes(lower(email), purpose, created_at DESC)");
+  await pool.query("CREATE TABLE IF NOT EXISTS employee_balances (id SERIAL PRIMARY KEY, employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL, employee_fio TEXT NOT NULL, balance_date DATE NOT NULL, amount NUMERIC(14,2) NOT NULL DEFAULT 0, comment TEXT NOT NULL DEFAULT '', created_by TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_employee_balances_employee_date ON employee_balances(lower(employee_fio), balance_date DESC, id DESC)");
   await pool.query("INSERT INTO object_responsibles (object_id,employee_id) SELECT o.id,e.id FROM objects o CROSS JOIN LATERAL regexp_split_to_table(COALESCE(o.responsible,''),',') AS part(name) JOIN employees e ON lower(trim(e.fio))=lower(trim(part.name)) WHERE trim(part.name)<>'' ON CONFLICT (object_id,employee_id) DO NOTHING");
 }
 
@@ -71,7 +74,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // === AUTH MIDDLEWARE ===
 function requireAuth(req, res, next) {
   if (!req.session || !req.session.user) return res.status(401).json({ error: 'Не авторизован' });
-  if (!req.session.user.email_verified) return res.status(403).json({ error: 'Сначала подтвердите электронную почту', code: 'EMAIL_VERIFICATION_REQUIRED' });
+  if (EMAIL_VERIFY_ENABLED && !req.session.user.email_verified) return res.status(403).json({ error: 'Сначала подтвердите электронную почту', code: 'EMAIL_VERIFICATION_REQUIRED' });
   next();
 }
 
@@ -79,7 +82,7 @@ function requireSiteManager(req, res, next) {
   if (!req.session || !req.session.user) {
     return res.status(401).json({ error: 'Не авторизован' });
   }
-  if (!req.session.user.email_verified) return res.status(403).json({ error: 'Сначала подтвердите электронную почту', code: 'EMAIL_VERIFICATION_REQUIRED' });
+  if (EMAIL_VERIFY_ENABLED && !req.session.user.email_verified) return res.status(403).json({ error: 'Сначала подтвердите электронную почту', code: 'EMAIL_VERIFICATION_REQUIRED' });
   if (req.session.user.role !== 'Руководитель сайта') {
     return res.status(403).json({ error: 'Доступ только для руководителя сайта' });
   }
@@ -153,7 +156,8 @@ app.post('/api/login', async (req, res) => {
       organization: user.organization,
       object_name: user.object_name,
       email: user.email || '',
-      email_verified: !!user.email_verified
+      email_verified: EMAIL_VERIFY_ENABLED ? !!user.email_verified : true,
+      email_verification_enabled: EMAIL_VERIFY_ENABLED
     };
     await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)', [user.login, 'Вход в систему']);
     res.json(req.session.user);
@@ -180,6 +184,7 @@ app.get('/api/me', (req, res) => {
 
 app.post('/api/email/send-verification', async (req,res)=>{
   if(!req.session.user)return res.status(401).json({error:'Не авторизован'});
+  if(!EMAIL_VERIFY_ENABLED)return res.json({ok:true,disabled:true,message:'Подтверждение электронной почты временно отключено'});
   const email=normalizeEmail(req.body.email || req.session.user.email);
   if(!validEmail(email))return res.status(400).json({error:'Введите корректный email'});
   try{
@@ -192,6 +197,7 @@ app.post('/api/email/send-verification', async (req,res)=>{
   }catch(e){console.error('Send verification:',e.message);res.status(400).json({error:e.message});}
 });
 app.post('/api/register/verify-email', async (req,res)=>{
+  if(!EMAIL_VERIFY_ENABLED)return res.json({ok:true,disabled:true});
   const login=String(req.body.login||'').trim(), email=normalizeEmail(req.body.email), code=String(req.body.code||'').trim();
   try{
     const r=await pool.query("SELECT id,email FROM users WHERE lower(login)=lower($1) AND lower(email)=lower($2) LIMIT 1",[login,email]);
@@ -205,6 +211,7 @@ app.post('/api/register/verify-email', async (req,res)=>{
 
 app.post('/api/email/verify', async (req,res)=>{
   if(!req.session.user)return res.status(401).json({error:'Не авторизован'});
+  if(!EMAIL_VERIFY_ENABLED){req.session.user.email_verified=true;return res.json({ok:true,disabled:true});}
   const email=normalizeEmail(req.session.user.email);
   const checked=await consumeCode(req.session.user.id,email,'verify',String(req.body.code||'').trim());
   if(!checked.ok)return res.status(400).json({error:checked.error});
@@ -251,8 +258,12 @@ app.post('/api/register', async (req, res) => {
       [login, hash, normalizedFio, normalizedPhone, email, '']
     );
     const created=await pool.query('SELECT id FROM users WHERE lower(login)=lower($1)',[login]);
-    await sendSecurityCode(created.rows[0].id,email,'verify');
-    res.json({ ok: true, login, email, message: 'Регистрация создана. Код подтверждения отправлен на email.' });
+    if(EMAIL_VERIFY_ENABLED){
+      await sendSecurityCode(created.rows[0].id,email,'verify');
+      res.json({ ok: true, login, email, email_verification_required:true, message: 'Регистрация создана. Код подтверждения отправлен на email.' });
+    }else{
+      res.json({ ok: true, login, email, email_verification_required:false, message: 'Регистрация создана. Подтверждение email временно отключено. После назначения роли руководителем сайта можно войти.' });
+    }
   } catch (err) {
     console.error('Register error:', err);
     res.status(500).json({ error: 'Ошибка сервера: ' + err.message });
@@ -261,6 +272,7 @@ app.post('/api/register', async (req, res) => {
 
 // Recover password by verified email
 app.post('/api/recover/request', async (req,res)=>{
+  if(!EMAIL_VERIFY_ENABLED)return res.status(503).json({error:'Восстановление пароля по email временно отключено. Обратитесь к руководителю сайта.'});
   const identifier=normalizeEmail(req.body.identifier);
   try{
     const r=await pool.query("SELECT id,email FROM users WHERE lower(login)=lower($1) OR lower(email)=lower($1) LIMIT 1",[identifier]);
@@ -505,13 +517,14 @@ function paymentSummary(value){
   return normalizePayments(value).reduce((s,p)=>s+(parseFloat(p&&((p.amount!=null)?p.amount:p.sum))||0),0);
 }
 async function createAutomaticBackup(){
-  const [employees,objects,orgs,salary,responsibles,periods]=await Promise.all([
+  const [employees,objects,orgs,salary,responsibles,periods,balances]=await Promise.all([
     pool.query('SELECT * FROM employees ORDER BY id'),pool.query('SELECT * FROM objects ORDER BY id'),
     pool.query('SELECT * FROM organizations ORDER BY id'),pool.query('SELECT * FROM salary_records ORDER BY id'),
     pool.query('SELECT object_id,employee_id,created_at FROM object_responsibles ORDER BY object_id,employee_id'),
-    pool.query('SELECT * FROM closed_salary_periods ORDER BY year,month')
+    pool.query('SELECT * FROM closed_salary_periods ORDER BY year,month'),
+    pool.query('SELECT * FROM employee_balances ORDER BY id')
   ]);
-  const data={format:'salary-online-auto-backup',version:1,created_at:new Date().toISOString(),employees:employees.rows,objects:objects.rows,organizations:orgs.rows,salary:salary.rows,object_responsibles:responsibles.rows,closed_periods:periods.rows};
+  const data={format:'salary-online-auto-backup',version:1,created_at:new Date().toISOString(),employees:employees.rows,objects:objects.rows,organizations:orgs.rows,salary:salary.rows,employee_balances:balances.rows,object_responsibles:responsibles.rows,closed_periods:periods.rows};
   await pool.query('INSERT INTO automatic_backups(data) VALUES($1)',[JSON.stringify(data)]);
   await pool.query('DELETE FROM automatic_backups WHERE id NOT IN (SELECT id FROM automatic_backups ORDER BY created_at DESC LIMIT 7)');
 }
@@ -530,6 +543,56 @@ app.get('/api/salary', requireAuth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// === EMPLOYEE OPENING BALANCES ===
+app.get('/api/employee-balances', requireAuth, async (req,res)=>{
+  try{
+    const result=await pool.query('SELECT * FROM employee_balances ORDER BY employee_fio, balance_date, id');
+    res.json(result.rows);
+  }catch(err){res.status(500).json({error:err.message});}
+});
+app.post('/api/employee-balances', requireAuth, async (req,res)=>{
+  const employee_fio=String(req.body.employee_fio||'').trim();
+  const balance_date=String(req.body.balance_date||'').slice(0,10);
+  const amount=Number(req.body.amount);
+  const comment=String(req.body.comment||'').trim();
+  if(!employee_fio)return res.status(400).json({error:'Выберите сотрудника'});
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(balance_date))return res.status(400).json({error:'Укажите корректную дату остатка'});
+  if(!Number.isFinite(amount))return res.status(400).json({error:'Укажите сумму остатка'});
+  try{
+    const emp=await pool.query('SELECT id,fio FROM employees WHERE lower(fio)=lower($1) LIMIT 1',[employee_fio]);
+    if(!emp.rows.length)return res.status(400).json({error:'Сотрудник не найден'});
+    const result=await pool.query('INSERT INTO employee_balances(employee_id,employee_fio,balance_date,amount,comment,created_by) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',[emp.rows[0].id,emp.rows[0].fio,balance_date,amount,comment,req.session.user.login]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Введён остаток: '+emp.rows[0].fio+', '+balance_date+', '+amount.toFixed(2)+' ₽']);
+    res.json(result.rows[0]);
+  }catch(err){res.status(500).json({error:err.message});}
+});
+app.put('/api/employee-balances/:id', requireAuth, async (req,res)=>{
+  const employee_fio=String(req.body.employee_fio||'').trim();
+  const balance_date=String(req.body.balance_date||'').slice(0,10);
+  const amount=Number(req.body.amount);
+  const comment=String(req.body.comment||'').trim();
+  if(!employee_fio)return res.status(400).json({error:'Выберите сотрудника'});
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(balance_date))return res.status(400).json({error:'Укажите корректную дату остатка'});
+  if(!Number.isFinite(amount))return res.status(400).json({error:'Укажите сумму остатка'});
+  try{
+    const emp=await pool.query('SELECT id,fio FROM employees WHERE lower(fio)=lower($1) LIMIT 1',[employee_fio]);
+    if(!emp.rows.length)return res.status(400).json({error:'Сотрудник не найден'});
+    const result=await pool.query('UPDATE employee_balances SET employee_id=$1,employee_fio=$2,balance_date=$3,amount=$4,comment=$5,updated_at=CURRENT_TIMESTAMP WHERE id=$6 RETURNING *',[emp.rows[0].id,emp.rows[0].fio,balance_date,amount,comment,req.params.id]);
+    if(!result.rows.length)return res.status(404).json({error:'Остаток не найден'});
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Изменён остаток ID='+req.params.id+' — '+emp.rows[0].fio]);
+    res.json(result.rows[0]);
+  }catch(err){res.status(500).json({error:err.message});}
+});
+app.delete('/api/employee-balances/:id', requireAuth, async (req,res)=>{
+  try{
+    const before=await pool.query('SELECT * FROM employee_balances WHERE id=$1',[req.params.id]);
+    if(!before.rows.length)return res.status(404).json({error:'Остаток не найден'});
+    await pool.query('DELETE FROM employee_balances WHERE id=$1',[req.params.id]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Удалён остаток ID='+req.params.id+' — '+before.rows[0].employee_fio]);
+    res.json({ok:true});
+  }catch(err){res.status(500).json({error:err.message});}
 });
 
 app.post('/api/salary', requireAuth, async (req, res) => {
@@ -638,9 +701,10 @@ app.get('/api/export', requireSiteManager, async (req, res) => {
     const objects = await pool.query('SELECT * FROM objects');
     const orgs = await pool.query('SELECT * FROM organizations');
     const salary = await pool.query('SELECT * FROM salary_records');
+    const balances = await pool.query('SELECT * FROM employee_balances');
     const objectResponsibles = await pool.query('SELECT object_id, employee_id FROM object_responsibles');
     const log = await pool.query('SELECT * FROM action_log ORDER BY created_at DESC LIMIT 500');
-    res.json({users:users.rows, employees:employees.rows, objects:objects.rows, organizations:orgs.rows, salary:salary.rows, object_responsibles:objectResponsibles.rows, log:log.rows});
+    res.json({users:users.rows, employees:employees.rows, objects:objects.rows, organizations:orgs.rows, salary:salary.rows, employee_balances:balances.rows, object_responsibles:objectResponsibles.rows, log:log.rows});
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -681,6 +745,12 @@ app.post('/api/import', requireSiteManager, async (req, res) => {
         );
       }
     }
+    if(data.employee_balances){
+      for(const b of data.employee_balances){
+        const emp=await pool.query('SELECT id,fio FROM employees WHERE lower(fio)=lower($1) LIMIT 1',[b.employee_fio||'']);
+        await pool.query('INSERT INTO employee_balances(employee_id,employee_fio,balance_date,amount,comment,created_by) VALUES($1,$2,$3,$4,$5,$6)',[emp.rows[0]?emp.rows[0].id:null,b.employee_fio||'',b.balance_date||null,b.amount||0,b.comment||'',b.created_by||req.session.user.login]);
+      }
+    }
     res.json({ ok: true, message: 'Импорт завершён' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -690,12 +760,13 @@ app.post('/api/import', requireSiteManager, async (req, res) => {
 // === FULL BACKUP / RESTORE ===
 app.get('/api/backup', requireSiteManager, async (req, res) => {
   try {
-    const [users, employees, objects, orgs, salary, objectResponsibles, log] = await Promise.all([
+    const [users, employees, objects, orgs, salary, balances, objectResponsibles, log] = await Promise.all([
       pool.query('SELECT * FROM users ORDER BY id'),
       pool.query('SELECT * FROM employees ORDER BY id'),
       pool.query('SELECT * FROM objects ORDER BY id'),
       pool.query('SELECT * FROM organizations ORDER BY id'),
       pool.query('SELECT * FROM salary_records ORDER BY id'),
+      pool.query('SELECT * FROM employee_balances ORDER BY id'),
       pool.query('SELECT object_id, employee_id, created_at FROM object_responsibles ORDER BY object_id, employee_id'),
       pool.query('SELECT * FROM action_log ORDER BY id')
     ]);
@@ -704,7 +775,7 @@ app.get('/api/backup', requireSiteManager, async (req, res) => {
       version: 1,
       created_at: new Date().toISOString(),
       users: users.rows, employees: employees.rows, objects: objects.rows,
-      organizations: orgs.rows, salary: salary.rows,
+      organizations: orgs.rows, salary: salary.rows, employee_balances: balances.rows,
       object_responsibles: objectResponsibles.rows, log: log.rows
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -719,6 +790,7 @@ app.post('/api/restore', requireSiteManager, async (req, res) => {
   try {
     await client.query('BEGIN');
     await client.query('DELETE FROM salary_records');
+    await client.query('DELETE FROM employee_balances');
     await client.query('DELETE FROM object_responsibles');
     await client.query('DELETE FROM objects');
     await client.query('DELETE FROM employees');
@@ -751,11 +823,14 @@ app.post('/api/restore', requireSiteManager, async (req, res) => {
         [s.id,s.employee_fio||'',s.object_name||'',s.month||'',s.year||'',s.charge_date||null,s.hour_rate||0,s.hours||0,s.per_diem_days||0,s.per_diem_rate||0,
          typeof s.extra_charges==='string'?s.extra_charges:JSON.stringify(s.extra_charges||[]),typeof s.payments==='string'?s.payments:JSON.stringify(s.payments||[]),s.total||0,s.paid||0]);
     }
+    for(const b of (data.employee_balances||[])){
+      await client.query('INSERT INTO employee_balances (id,employee_id,employee_fio,balance_date,amount,comment,created_by,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',[b.id,b.employee_id||null,b.employee_fio||'',b.balance_date||null,b.amount||0,b.comment||'',b.created_by||'',b.created_at||new Date(),b.updated_at||b.created_at||new Date()]);
+    }
     for(const l of (data.log||[])){
       await client.query('INSERT INTO action_log (id,user_login,action,created_at) VALUES ($1,$2,$3,$4)',
         [l.id,l.user_login||'',l.action||'',l.created_at||new Date()]);
     }
-    for(const table of ['users','employees','objects','organizations','salary_records','action_log']){
+    for(const table of ['users','employees','objects','organizations','salary_records','employee_balances','action_log']){
       await client.query("SELECT setval(pg_get_serial_sequence('"+table+"','id'), COALESCE((SELECT MAX(id) FROM "+table+"),1), (SELECT COUNT(*)>0 FROM "+table+"))");
     }
     await client.query('COMMIT');
@@ -770,6 +845,7 @@ app.post('/api/restore', requireSiteManager, async (req, res) => {
 app.post('/api/clear', requireSiteManager, async (req, res) => {
   try {
     await pool.query('DELETE FROM salary_records');
+    await pool.query('DELETE FROM employee_balances');
     await pool.query('DELETE FROM action_log');
     await pool.query('DELETE FROM employees');
     await pool.query('DELETE FROM objects');
