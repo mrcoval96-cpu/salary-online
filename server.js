@@ -60,7 +60,10 @@ async function ensureDatabaseSchema(){
   await pool.query("ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS charge_date DATE");
   await pool.query("ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP");
   await pool.query("ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS deleted_by TEXT");
-  await pool.query("CREATE TABLE IF NOT EXISTS closed_salary_periods (month TEXT NOT NULL, year TEXT NOT NULL, closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, closed_by TEXT, PRIMARY KEY(month,year))");
+  await pool.query("CREATE TABLE IF NOT EXISTS closed_salary_periods (month TEXT NOT NULL, year TEXT NOT NULL, organization TEXT NOT NULL DEFAULT '', closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, closed_by TEXT)");
+  await pool.query("ALTER TABLE closed_salary_periods ADD COLUMN IF NOT EXISTS organization TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE closed_salary_periods DROP CONSTRAINT IF EXISTS closed_salary_periods_pkey");
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_closed_salary_periods_scope ON closed_salary_periods(month,year,organization)");
   await pool.query("CREATE TABLE IF NOT EXISTS automatic_backups (id SERIAL PRIMARY KEY, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, data JSONB NOT NULL)");
   await pool.query("CREATE TABLE IF NOT EXISTS security_log (id SERIAL PRIMARY KEY, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, event TEXT NOT NULL, user_login TEXT NOT NULL DEFAULT '', ip TEXT NOT NULL DEFAULT '', user_agent TEXT NOT NULL DEFAULT '', success BOOLEAN NOT NULL DEFAULT FALSE, details TEXT NOT NULL DEFAULT '')");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_security_log_created_at ON security_log(created_at DESC)");
@@ -332,6 +335,73 @@ function requirePermission(key){
 function isSiteWideUser(user){return isTechnicalAdmin(user)||String(user&&user.role||'')==='Руководитель сайта';}
 function normAccess(value){return String(value||'').trim().toLocaleLowerCase('ru-RU');}
 function sameAccessValue(a,b){return normAccess(a)===normAccess(b);}
+function accessOrganization(user){return String(user&&user.organization||'').trim();}
+function accessObject(user){return String(user&&user.object_name||'').trim();}
+function isProjectScoped(user){return String(user&&user.role||'')==='Руководитель проекта'&&!isSiteWideUser(user);}
+async function ensureOrganizationAccess(user,organization){
+  if(isSiteWideUser(user))return true;
+  const own=accessOrganization(user);
+  if(!own||!sameAccessValue(own,organization)){const err=new Error('Нет доступа к этой организации');err.status=403;throw err;}
+  return true;
+}
+async function ensureEmployeeAccess(user,employee){
+  if(isSiteWideUser(user))return true;
+  let row=null;
+  if(typeof employee==='number'){
+    const r=await pool.query('SELECT id,fio,organization FROM employees WHERE id=$1',[employee]);row=r.rows[0];
+  }else{
+    const r=await pool.query('SELECT id,fio,organization FROM employees WHERE lower(trim(fio))=lower(trim($1)) LIMIT 1',[String(employee||'')]);row=r.rows[0];
+  }
+  if(!row){const err=new Error('Сотрудник не найден');err.status=404;throw err;}
+  await ensureOrganizationAccess(user,row.organization);
+  if(isProjectScoped(user)){
+    const obj=accessObject(user);
+    if(!obj){const err=new Error('Для пользователя не назначен объект');err.status=403;throw err;}
+    const linked=await pool.query("SELECT 1 FROM object_responsibles r JOIN objects o ON o.id=r.object_id WHERE r.employee_id=$1 AND lower(trim(o.name))=lower(trim($2)) UNION SELECT 1 FROM salary_records s WHERE lower(trim(s.employee_fio))=lower(trim($3)) AND lower(trim(COALESCE(s.object_name,'')))=lower(trim($2)) LIMIT 1",[row.id,obj,row.fio]);
+    if(!linked.rows.length){const err=new Error('Нет доступа к этому сотруднику в рамках назначенного объекта');err.status=403;throw err;}
+  }
+  return row;
+}
+async function ensureObjectAccess(user,objectValue){
+  if(isSiteWideUser(user))return true;
+  let row=null;
+  if(Number.isInteger(Number(objectValue))&&String(objectValue).trim()!==''){
+    const r=await pool.query('SELECT id,name,organization FROM objects WHERE id=$1',[Number(objectValue)]);row=r.rows[0];
+  }else{
+    const r=await pool.query('SELECT id,name,organization FROM objects WHERE lower(trim(name))=lower(trim($1)) LIMIT 1',[String(objectValue||'')]);row=r.rows[0];
+  }
+  if(!row){const err=new Error('Объект не найден');err.status=404;throw err;}
+  await ensureOrganizationAccess(user,row.organization);
+  if(isProjectScoped(user)&&!sameAccessValue(row.name,accessObject(user))){const err=new Error('Нет доступа к этому объекту');err.status=403;throw err;}
+  return row;
+}
+async function salaryOrganization(employeeFio,objectName){
+  const object=String(objectName||'').trim();
+  if(object){
+    const o=await pool.query('SELECT organization FROM objects WHERE lower(trim(name))=lower(trim($1)) LIMIT 1',[object]);
+    if(o.rows.length)return String(o.rows[0].organization||'').trim();
+  }
+  const e=await pool.query('SELECT organization FROM employees WHERE lower(trim(fio))=lower(trim($1)) LIMIT 1',[String(employeeFio||'')]);
+  return e.rows.length?String(e.rows[0].organization||'').trim():'';
+}
+async function ensureSalaryAccess(user,employeeFio,objectName){
+  if(isSiteWideUser(user))return true;
+  if(isProjectScoped(user)){
+    if(!sameAccessValue(objectName,accessObject(user))){const err=new Error('Нет доступа к начислению другого объекта');err.status=403;throw err;}
+    await ensureObjectAccess(user,objectName);
+    return true;
+  }
+  const org=await salaryOrganization(employeeFio,objectName);
+  if(!org){const err=new Error('Не удалось определить организацию начисления');err.status=400;throw err;}
+  await ensureOrganizationAccess(user,org);
+  return true;
+}
+async function ensureFinancialEmployeeAccess(user,fio){
+  if(isSiteWideUser(user))return true;
+  const emp=await ensureEmployeeAccess(user,String(fio||''));
+  return emp;
+}
+
 
 function requireAuth(req, res, next) {
   if (!req.session || !req.session.user) {
@@ -760,25 +830,37 @@ app.delete('/api/users/:id', requirePermission('users.delete'), async (req,res)=
 });
 
 // === EMPLOYEES ===
-app.get('/api/employees', requireAuth, async (req, res) => {
+app.get('/api/employees', requirePermission('employees.view'), async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM employees ORDER BY fio');
+    const user=req.accessUser||await refreshAccessUser(req);
+    let result;
+    if(isSiteWideUser(user)){
+      result=await pool.query('SELECT * FROM employees ORDER BY fio');
+    }else if(isProjectScoped(user)){
+      result=await pool.query("SELECT DISTINCT e.* FROM employees e WHERE lower(trim(e.organization))=lower(trim($1)) AND (EXISTS(SELECT 1 FROM object_responsibles r JOIN objects o ON o.id=r.object_id WHERE r.employee_id=e.id AND lower(trim(o.name))=lower(trim($2))) OR EXISTS(SELECT 1 FROM salary_records s WHERE lower(trim(s.employee_fio))=lower(trim(e.fio)) AND lower(trim(COALESCE(s.object_name,'')))=lower(trim($2)))) ORDER BY e.fio",[accessOrganization(user),accessObject(user)]);
+    }else{
+      result=await pool.query('SELECT * FROM employees WHERE lower(trim(organization))=lower(trim($1)) ORDER BY fio',[accessOrganization(user)]);
+    }
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/employees', requireAuth, async (req, res) => {
+app.post('/api/employees', requirePermission('employees.manage'), async (req, res) => {
   const { fio, organization, position, phone, birth_date, comments } = req.body;
   const employment_status=req.body.employment_status==='dismissed'?'dismissed':'working';
   if (!fio) return res.status(400).json({ error: 'ФИО обязательно' });
   const normalizedPhone=phone ? normalizePhone(phone) : '';
   if(phone && !normalizedPhone)return res.status(400).json({ error: 'Некорректный номер телефона. Формат: 7 (900) 900-90-90' });
   try {
+    const user=req.accessUser||await refreshAccessUser(req);
+    const targetOrg=isSiteWideUser(user)?String(organization||'').trim():accessOrganization(user);
+    if(!targetOrg)return res.status(400).json({error:'Укажите организацию'});
+    await ensureOrganizationAccess(user,targetOrg);
     const result = await pool.query(
       'INSERT INTO employees (fio, organization, position, phone, birth_date, comments, employment_status) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
-      [fio, organization||'', position||'', normalizedPhone, birth_date||'', comments||'', employment_status]
+      [fio, targetOrg, position||'', normalizedPhone, birth_date||'', comments||'', employment_status]
     );
     await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)',
       [req.session.user.login, 'Добавлен сотрудник: ' + fio]);
@@ -788,16 +870,20 @@ app.post('/api/employees', requireAuth, async (req, res) => {
   }
 });
 
-app.put('/api/employees/:id', requireAuth, async (req, res) => {
+app.put('/api/employees/:id', requirePermission('employees.manage'), async (req, res) => {
   const { id } = req.params;
   const { fio, organization, position, phone, birth_date, comments } = req.body;
   const employment_status=req.body.employment_status==='dismissed'?'dismissed':'working';
   const normalizedPhone=phone ? normalizePhone(phone) : '';
   if(phone && !normalizedPhone)return res.status(400).json({ error: 'Некорректный номер телефона. Формат: 7 (900) 900-90-90' });
   try {
+    const user=req.accessUser||await refreshAccessUser(req);
+    await ensureEmployeeAccess(user,Number(id));
+    const targetOrg=isSiteWideUser(user)?String(organization||'').trim():accessOrganization(user);
+    await ensureOrganizationAccess(user,targetOrg);
     const result = await pool.query(
       'UPDATE employees SET fio=$1, organization=$2, position=$3, phone=$4, birth_date=$5, comments=$6, employment_status=$7 WHERE id=$8 RETURNING *',
-      [fio, organization||'', position||'', normalizedPhone, birth_date||'', comments||'', employment_status, id]
+      [fio, targetOrg, position||'', normalizedPhone, birth_date||'', comments||'', employment_status, id]
     );
     await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)',
       [req.session.user.login, 'Изменён сотрудник: ' + fio]);
@@ -807,9 +893,11 @@ app.put('/api/employees/:id', requireAuth, async (req, res) => {
   }
 });
 
-app.delete('/api/employees/:id', requireAuth, async (req, res) => {
+app.delete('/api/employees/:id', requirePermission('employees.manage'), async (req, res) => {
   const { id } = req.params;
   try {
+    const user=req.accessUser||await refreshAccessUser(req);
+    await ensureEmployeeAccess(user,Number(id));
     await pool.query('DELETE FROM employees WHERE id=$1', [id]);
     await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)',
       [req.session.user.login, 'Удалён сотрудник ID=' + id]);
@@ -819,13 +907,15 @@ app.delete('/api/employees/:id', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/employees/bulk-delete', requireAuth, async (req, res) => {
+app.post('/api/employees/bulk-delete', requirePermission('employees.manage'), async (req, res) => {
   const ids = Array.isArray(req.body.ids)
     ? Array.from(new Set(req.body.ids.map(Number).filter(id => Number.isInteger(id) && id > 0)))
     : [];
   if (!ids.length) return res.status(400).json({ error: 'Не выбраны сотрудники для удаления' });
   const client = await pool.connect();
   try {
+    const user=req.accessUser||await refreshAccessUser(req);
+    for(const id of ids)await ensureEmployeeAccess(user,id);
     await client.query('BEGIN');
     const result = await client.query('DELETE FROM employees WHERE id = ANY($1::int[]) RETURNING id, fio', [ids]);
     await client.query(
@@ -861,25 +951,35 @@ async function getObjectWithResponsibles(id){
   const result=await pool.query("SELECT o.*,COALESCE(json_agg(json_build_object('id',e.id,'fio',e.fio) ORDER BY e.fio) FILTER (WHERE e.id IS NOT NULL),'[]'::json) AS responsibles FROM objects o LEFT JOIN object_responsibles r ON r.object_id=o.id LEFT JOIN employees e ON e.id=r.employee_id WHERE o.id=$1 GROUP BY o.id",[id]);
   return result.rows[0] || null;
 }
-app.get('/api/objects',requireAuth,async(req,res)=>{
+app.get('/api/objects',requirePermission('objects.view'),async(req,res)=>{
   try{
-    const result=await pool.query("SELECT o.*,COALESCE(json_agg(json_build_object('id',e.id,'fio',e.fio) ORDER BY e.fio) FILTER (WHERE e.id IS NOT NULL),'[]'::json) AS responsibles FROM objects o LEFT JOIN object_responsibles r ON r.object_id=o.id LEFT JOIN employees e ON e.id=r.employee_id GROUP BY o.id ORDER BY o.name");
+    const user=req.accessUser||await refreshAccessUser(req);
+    let result;
+    const base="SELECT o.*,COALESCE(json_agg(json_build_object('id',e.id,'fio',e.fio) ORDER BY e.fio) FILTER (WHERE e.id IS NOT NULL),'[]'::json) AS responsibles FROM objects o LEFT JOIN object_responsibles r ON r.object_id=o.id LEFT JOIN employees e ON e.id=r.employee_id";
+    if(isSiteWideUser(user))result=await pool.query(base+" GROUP BY o.id ORDER BY o.name");
+    else if(isProjectScoped(user))result=await pool.query(base+" WHERE lower(trim(o.organization))=lower(trim($1)) AND lower(trim(o.name))=lower(trim($2)) GROUP BY o.id ORDER BY o.name",[accessOrganization(user),accessObject(user)]);
+    else result=await pool.query(base+" WHERE lower(trim(o.organization))=lower(trim($1)) GROUP BY o.id ORDER BY o.name",[accessOrganization(user)]);
     res.json(result.rows);
   }catch(err){res.status(500).json({error:err.message});}
 });
-async function saveObject(id,data,res){
+async function saveObject(id,data,res,req){
   const name=String(data.name||'').trim();
   if(!name)return res.status(400).json({error:'Наименование обязательно'});
   const responsibleIds=await normalizeResponsibleIds(data);
+  const user=req.accessUser||await refreshAccessUser(req);
+  const targetOrg=isSiteWideUser(user)?String(data.organization||'').trim():accessOrganization(user);
+  await ensureOrganizationAccess(user,targetOrg);
+  if(id)await ensureObjectAccess(user,Number(id));
+  if(isProjectScoped(user)&&!sameAccessValue(name,accessObject(user))){const err=new Error('Руководитель проекта может изменять только назначенный объект');err.status=403;throw err;}
   const client=await pool.connect();
   try{
     await client.query('BEGIN');
     let result;
     if(id){
-      result=await client.query('UPDATE objects SET name=$1,address=$2,customer=$3,organization=$4,responsible=$5 WHERE id=$6 RETURNING id',[name,data.address||'',data.customer||'',data.organization||'','',id]);
+      result=await client.query('UPDATE objects SET name=$1,address=$2,customer=$3,organization=$4,responsible=$5 WHERE id=$6 RETURNING id',[name,data.address||'',data.customer||'',targetOrg,'',id]);
       if(!result.rows.length){await client.query('ROLLBACK');return res.status(404).json({error:'Объект не найден'});}
     }else{
-      result=await client.query('INSERT INTO objects (name,address,customer,organization,responsible) VALUES ($1,$2,$3,$4,$5) RETURNING id',[name,data.address||'',data.customer||'',data.organization||'','']);
+      result=await client.query('INSERT INTO objects (name,address,customer,organization,responsible) VALUES ($1,$2,$3,$4,$5) RETURNING id',[name,data.address||'',data.customer||'',targetOrg,'']);
       id=result.rows[0].id;
     }
     await client.query('DELETE FROM object_responsibles WHERE object_id=$1',[id]);
@@ -894,17 +994,20 @@ async function saveObject(id,data,res){
     res.status(500).json({error:err.message});
   }finally{client.release();}
 }
-app.post('/api/objects',requireAuth,async(req,res)=>saveObject(null,req.body||{},res));
-app.put('/api/objects/:id',requireAuth,async(req,res)=>saveObject(req.params.id,req.body||{},res));
-app.delete('/api/objects/:id',requireAuth,async(req,res)=>{
-  try{await pool.query('DELETE FROM objects WHERE id=$1',[req.params.id]);res.json({ok:true});}
+app.post('/api/objects',requirePermission('objects.manage'),async(req,res)=>saveObject(null,req.body||{},res,req));
+app.put('/api/objects/:id',requirePermission('objects.manage'),async(req,res)=>saveObject(req.params.id,req.body||{},res,req));
+app.delete('/api/objects/:id',requirePermission('objects.manage'),async(req,res)=>{
+  try{const user=req.accessUser||await refreshAccessUser(req);await ensureObjectAccess(user,Number(req.params.id));await pool.query('DELETE FROM objects WHERE id=$1',[req.params.id]);res.json({ok:true});}
   catch(err){res.status(500).json({error:err.message});}
 });
 
 // === ORGANIZATIONS ===
-app.get('/api/organizations', requireAuth, async (req, res) => {
+app.get('/api/organizations', requirePermission('organizations.view'), async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM organizations ORDER BY name');
+    const user=req.accessUser||await refreshAccessUser(req);
+    const result=isSiteWideUser(user)
+      ? await pool.query('SELECT * FROM organizations ORDER BY name')
+      : await pool.query('SELECT * FROM organizations WHERE lower(trim(name))=lower(trim($1)) ORDER BY name',[accessOrganization(user)]);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1069,7 +1172,7 @@ function startAutomaticBackups(){
 }
 
 // === SALARY RECORDS ===
-app.get('/api/salary', requireAuth, async (req, res) => {
+app.get('/api/salary', requirePermission('salary.view'), async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM salary_records WHERE deleted_at IS NULL ORDER BY employee_fio, year, month');
     res.json(result.rows);
@@ -1079,20 +1182,20 @@ app.get('/api/salary', requireAuth, async (req, res) => {
 });
 
 // === BANK STATEMENT PAYMENTS ===
-app.get('/api/bank-payments', requireAuth, async (req,res)=>{
+app.get('/api/bank-payments', requirePermission('bank.view'), async (req,res)=>{
   try{
     const result=await pool.query('SELECT * FROM bank_statement_payments ORDER BY transaction_date, id');
     res.json(result.rows);
   }catch(err){res.status(500).json({error:err.message});}
 });
-app.post('/api/bank-payments/preview', requireAuth, async (req,res)=>{
+app.post('/api/bank-payments/preview', requirePermission('bank.import'), async (req,res)=>{
   try{
     const items=await prepareBankStatementTransactions(req.body&&req.body.transactions);
     const summary=items.reduce((acc,item)=>{acc[item.status]=(acc[item.status]||0)+1;return acc;},{});
     res.json({items,summary});
   }catch(err){console.error('Bank statement preview error:',err);res.status(500).json({error:err.message});}
 });
-app.post('/api/bank-payments/import', requireAuth, async (req,res)=>{
+app.post('/api/bank-payments/import', requirePermission('bank.import'), async (req,res)=>{
   const client=await pool.connect();
   try{
     const items=await prepareBankStatementTransactions(req.body&&req.body.transactions);
@@ -1118,7 +1221,7 @@ app.post('/api/bank-payments/import', requireAuth, async (req,res)=>{
     res.status(500).json({error:err.message});
   }finally{client.release();}
 });
-app.put('/api/bank-payments/:id/allocations', requireAuth, async (req,res)=>{
+app.put('/api/bank-payments/:id/allocations', requirePermission('bank.allocate'), async (req,res)=>{
   const id=Number(req.params.id);
   if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректный ID банковской выплаты'});
   const monthNames=new Set(['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']);
@@ -1153,7 +1256,7 @@ app.put('/api/bank-payments/:id/allocations', requireAuth, async (req,res)=>{
   }
 });
 
-app.delete('/api/bank-payments/:id', requireAuth, async (req,res)=>{
+app.delete('/api/bank-payments/:id', requirePermission('bank.delete'), async (req,res)=>{
   const id=Number(req.params.id);
   if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректный ID банковской выплаты'});
   try{
@@ -1172,13 +1275,13 @@ app.delete('/api/bank-payments/:id', requireAuth, async (req,res)=>{
 });
 
 // === EMPLOYEE OPENING BALANCES ===
-app.get('/api/employee-balances', requireAuth, async (req,res)=>{
+app.get('/api/employee-balances', requirePermission('salary.view'), async (req,res)=>{
   try{
     const result=await pool.query('SELECT * FROM employee_balances ORDER BY employee_fio, balance_date, id');
     res.json(result.rows);
   }catch(err){res.status(500).json({error:err.message});}
 });
-app.post('/api/employee-balances', requireAuth, async (req,res)=>{
+app.post('/api/employee-balances', requirePermission('balances.manage'), async (req,res)=>{
   const employee_fio=String(req.body.employee_fio||'').trim();
   const balance_date=String(req.body.balance_date||'').slice(0,10);
   const amount=Number(req.body.amount);
@@ -1197,7 +1300,7 @@ app.post('/api/employee-balances', requireAuth, async (req,res)=>{
     res.json(result.rows[0]);
   }catch(err){res.status(500).json({error:err.message});}
 });
-app.put('/api/employee-balances/:id', requireAuth, async (req,res)=>{
+app.put('/api/employee-balances/:id', requirePermission('balances.manage'), async (req,res)=>{
   const employee_fio=String(req.body.employee_fio||'').trim();
   const balance_date=String(req.body.balance_date||'').slice(0,10);
   const amount=Number(req.body.amount);
@@ -1216,7 +1319,7 @@ app.put('/api/employee-balances/:id', requireAuth, async (req,res)=>{
     res.json(result.rows[0]);
   }catch(err){res.status(500).json({error:err.message});}
 });
-app.delete('/api/employee-balances/:id', requireAuth, async (req,res)=>{
+app.delete('/api/employee-balances/:id', requirePermission('balances.manage'), async (req,res)=>{
   try{
     const before=await pool.query('SELECT * FROM employee_balances WHERE id=$1',[req.params.id]);
     if(!before.rows.length)return res.status(404).json({error:'Остаток не найден'});
@@ -1226,7 +1329,7 @@ app.delete('/api/employee-balances/:id', requireAuth, async (req,res)=>{
   }catch(err){res.status(500).json({error:err.message});}
 });
 
-app.post('/api/salary', requireAuth, async (req, res) => {
+app.post('/api/salary', requirePermission('salary.create'), async (req, res) => {
   const { employee_fio, object_name, month, year, charge_date, hour_rate, hours, per_diem_days, per_diem_rate, extra_charges, payments, total, paid } = req.body;
   try {
     await assertSalaryPeriodOpen(month,year);
@@ -1246,7 +1349,7 @@ app.post('/api/salary', requireAuth, async (req, res) => {
   }
 });
 
-app.put('/api/salary/:id', requireAuth, async (req, res) => {
+app.put('/api/salary/:id', requirePermission('salary.edit'), async (req, res) => {
   const { id } = req.params;
   const { employee_fio, object_name, month, year, charge_date, hour_rate, hours, per_diem_days, per_diem_rate, extra_charges, payments, total, paid } = req.body;
   try {
@@ -1268,7 +1371,7 @@ app.put('/api/salary/:id', requireAuth, async (req, res) => {
   } catch (err) { res.status(err.status||500).json({ error: err.message }); }
 });
 
-app.delete('/api/salary/:id', requireAuth, async (req, res) => {
+app.delete('/api/salary/:id', requirePermission('salary.delete'), async (req, res) => {
   try {
     const before=await pool.query('SELECT * FROM salary_records WHERE id=$1 AND deleted_at IS NULL',[req.params.id]);
     if(!before.rows.length)return res.status(404).json({error:'Запись не найдена'});
@@ -1278,10 +1381,10 @@ app.delete('/api/salary/:id', requireAuth, async (req, res) => {
     res.json({ ok: true });
   } catch (err) { res.status(err.status||500).json({ error: err.message }); }
 });
-app.get('/api/salary-archive', requireAuth, async (req,res)=>{
+app.get('/api/salary-archive', requirePermission('salary.delete'), async (req,res)=>{
   try{const r=await pool.query('SELECT * FROM salary_records WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC');res.json(r.rows);}catch(e){res.status(500).json({error:e.message});}
 });
-app.post('/api/salary/:id/restore', requireAuth, async (req,res)=>{
+app.post('/api/salary/:id/restore', requirePermission('salary.delete'), async (req,res)=>{
   try{
     const before=await pool.query('SELECT * FROM salary_records WHERE id=$1 AND deleted_at IS NOT NULL',[req.params.id]);
     if(!before.rows.length)return res.status(404).json({error:'Архивная запись не найдена'});
@@ -1291,7 +1394,7 @@ app.post('/api/salary/:id/restore', requireAuth, async (req,res)=>{
     res.json(r.rows[0]);
   }catch(e){res.status(e.status||500).json({error:e.message});}
 });
-app.get('/api/salary-periods', requireAuth, async(req,res)=>{
+app.get('/api/salary-periods', requirePermission('salary.view'), async(req,res)=>{
   try{const r=await pool.query('SELECT * FROM closed_salary_periods ORDER BY year DESC,closed_at DESC');res.json(r.rows);}catch(e){res.status(500).json({error:e.message});}
 });
 app.post('/api/salary-periods/toggle', requireSiteManager, async(req,res)=>{
@@ -1315,7 +1418,7 @@ app.post('/api/automatic-backups/create', requireSiteManager, async(req,res)=>{
 });
 
 // === ACTION LOG ===
-app.get('/api/log', requireAuth, async (req, res) => {
+app.get('/api/log', requirePermission('logs.view'), async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM action_log ORDER BY created_at DESC LIMIT 200');
     res.json(result.rows);
