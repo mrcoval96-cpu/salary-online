@@ -359,7 +359,7 @@ button,input,select,textarea{max-width:100%}
       <button class="mobile-menu-toggle" type="button" onclick="toggleMobileMenu()" aria-label="Меню" aria-expanded="false">☰</button>
     </div>
     <div class="user-info" id="headerUserInfo">
-      <button onclick="showLog()">Журнал действий</button>
+      <button id="actionLogBtn" onclick="showLog()">Журнал действий</button>
       <button id="securityLogBtn" style="display:none" onclick="showSecurityLog()">Безопасность</button>
       <span>Пользователь: <b id="userFio"></b> (<span id="userRole"></span>)</span>
       <button onclick="doLogout()">Выйти</button>
@@ -429,13 +429,13 @@ button,input,select,textarea{max-width:100%}
       <div class="form-group">
         <label>Выплаты</label>
         <div id="paymentsContainer"></div>
-        <button class="btn btn-blue btn-sm" onclick="addPayment()">+ Выплата</button>
+        <button class="btn btn-blue btn-sm" id="manualPaymentBtn" onclick="addPayment()">+ Выплата</button>
       </div>
       <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
-        <button class="btn btn-green" onclick="calculateAndSave()">Рассчитать и сохранить</button>
+        <button class="btn btn-green" id="salaryCreateBtn" onclick="calculateAndSave()">Рассчитать и сохранить</button>
         <button class="btn btn-gray" onclick="clearInputForm()">Очистить</button>
-        <button class="btn btn-blue" onclick="openBalanceModal()">Ввод остатков</button>
-        <button class="btn btn-blue" onclick="showImportStatement()">Импорт из выписки</button>
+        <button class="btn btn-blue" id="balanceManageBtn" onclick="openBalanceModal()">Ввод остатков</button>
+        <button class="btn btn-blue" id="bankImportBtn" onclick="showImportStatement()">Импорт из выписки</button>
       </div>
       <div id="calcResult" style="margin-top:16px;padding:12px;background:#f8f9fa;border-radius:6px;display:none"></div>
     </div>
@@ -458,14 +458,14 @@ button,input,select,textarea{max-width:100%}
           <input type="text" id="salarySearch" placeholder="Поиск по ФИО" oninput="renderSalary()">
         </div>
       </div>
-      <div class="period-bar"><button class="btn btn-gray btn-sm" onclick="changeSalaryPeriod(-1)">← месяц</button><span id="salaryPeriodLabel">Период</span><button class="btn btn-gray btn-sm" onclick="changeSalaryPeriod(1)">месяц →</button><span id="salaryPeriodStatus" class="period-status"></span><button id="periodToggleBtn" class="btn btn-red btn-sm" style="display:none" onclick="toggleCurrentPeriod()">Закрыть период</button><button class="btn btn-gray btn-sm" onclick="showSalaryArchive()">Архив удалённых</button></div>
+      <div class="period-bar"><button class="btn btn-gray btn-sm" onclick="changeSalaryPeriod(-1)">← месяц</button><span id="salaryPeriodLabel">Период</span><button class="btn btn-gray btn-sm" onclick="changeSalaryPeriod(1)">месяц →</button><span id="salaryPeriodStatus" class="period-status"></span><button id="periodToggleBtn" class="btn btn-red btn-sm" style="display:none" onclick="toggleCurrentPeriod()">Закрыть период</button><button class="btn btn-gray btn-sm" id="salaryArchiveBtn" onclick="showSalaryArchive()">Архив удалённых</button></div>
       <div class="salary-summary" id="salarySummary">
         <div class="salary-summary-item"><label>Остатки</label><b id="salarySummaryBalance">0,00 ₽</b></div>
         <div class="salary-summary-item"><label>Начислено</label><b id="salarySummaryTotal">0,00 ₽</b></div>
         <div class="salary-summary-item"><label>Выплачено</label><b id="salarySummaryPaid">0,00 ₽</b></div>
         <div class="salary-summary-item"><label>Задолженность</label><b id="salarySummaryDebt">0,00 ₽</b></div>
       </div>
-      <div class="salary-export">
+      <div class="salary-export" id="salaryExportBlock">
         <div class="salary-export-title">Выгрузка в Excel</div>
         <div class="salary-export-grid">
           <div class="form-group"><label>Сотрудник</label><select id="salaryExportEmployee"><option value="">Все сотрудники</option></select></div>
@@ -486,10 +486,10 @@ button,input,select,textarea{max-width:100%}
         <h2>Список сотрудников</h2>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <input type="text" id="empSearch" placeholder="Поиск" oninput="renderEmployees()">
-          <button class="btn btn-green btn-sm" onclick="showEmpModal()">+ Добавить</button>
+          <button class="btn btn-green btn-sm" id="employeeAddBtn" onclick="showEmpModal()">+ Добавить</button>
           <button class="btn btn-red btn-sm" id="deleteSelectedEmployeesBtn" onclick="deleteSelectedEmployees()" disabled>Удалить выбранных (0)</button>
-          <button class="btn btn-blue btn-sm" onclick="exportEmployeesExcel()">Экспорт Excel</button>
-          <label class="btn btn-blue btn-sm" style="cursor:pointer">Импорт Excel<input type="file" accept=".xlsx,.xls" onchange="importEmployeesExcel(event)" style="display:none"></label>
+          <button class="btn btn-blue btn-sm" id="employeeExportBtn" onclick="exportEmployeesExcel()">Экспорт Excel</button>
+          <label class="btn btn-blue btn-sm" id="employeeImportBtn" style="cursor:pointer">Импорт Excel<input type="file" accept=".xlsx,.xls" onchange="importEmployeesExcel(event)" style="display:none"></label>
         </div>
       </div>
       <table id="employeesTable">
@@ -507,7 +507,7 @@ button,input,select,textarea{max-width:100%}
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <select id="objectsMonth" onchange="renderObjects()"><option>Январь</option><option>Февраль</option><option>Март</option><option>Апрель</option><option>Май</option><option>Июнь</option><option>Июль</option><option>Август</option><option>Сентябрь</option><option>Октябрь</option><option>Ноябрь</option><option>Декабрь</option></select>
           <input id="objectsYear" type="number" min="2000" max="2100" style="width:96px" onchange="renderObjects()">
-          <button class="btn btn-green btn-sm" onclick="showObjModal()">+ Добавить объект</button>
+          <button class="btn btn-green btn-sm" id="objectAddBtn" onclick="showObjModal()">+ Добавить объект</button>
         </div>
       </div>
       <table id="objectsTable"><thead><tr><th>Наименование</th><th>Адрес</th><th>Заказчик</th><th>Организация</th><th>Ответственные</th><th>Зарплата за месяц</th><th>Действия</th></tr></thead>
@@ -532,7 +532,7 @@ button,input,select,textarea{max-width:100%}
     <div class="card">
       <h2 style="margin-bottom:16px">Пользователи и роли</h2>
       <p id="usersScopeHint" style="color:#666;margin-bottom:12px;font-size:13px">После регистрации назначьте пользователю роль и при необходимости объект.</p>
-      <table><thead><tr><th>ФИО</th><th>Логин</th><th>Телефон</th><th>Роль</th><th>Организация / объект</th><th>Действия</th></tr></thead>
+      <table><thead><tr><th>ФИО</th><th>Логин</th><th>Email</th><th>Телефон</th><th>Роль</th><th>Организация / объект</th><th>Последний вход</th><th>Действия</th></tr></thead>
       <tbody id="usersBody"></tbody></table>
     </div>
   </div>
@@ -568,6 +568,8 @@ button,input,select,textarea{max-width:100%}
 <div class="modal-overlay" id="logModal"><div class="modal"><span class="modal-close" onclick="closeModal('logModal')">&times;</span><h2>Журнал действий</h2><table><thead><tr><th>Дата</th><th>Пользователь</th><th>Действие</th></tr></thead><tbody id="logBody"></tbody></table></div></div>
 <div class="modal-overlay" id="securityLogModal"><div class="modal" style="max-width:1050px"><span class="modal-close" onclick="closeModal('securityLogModal')">&times;</span><h2>Журнал безопасности</h2><div class="balance-help" style="margin-bottom:12px">Фиксируются успешные и неуспешные входы, блокировки по частоте запросов, отклонённые CSRF/CORS-запросы и попытки доступа без необходимых прав.</div><div style="overflow:auto;max-height:580px"><table style="min-width:900px"><thead><tr><th>Дата</th><th>Событие</th><th>Пользователь</th><th>IP</th><th>Результат</th><th>Подробности</th></tr></thead><tbody id="securityLogBody"></tbody></table></div></div></div>
 <div class="modal-overlay" id="roleModal"><div class="modal"><span class="modal-close" onclick="closeModal('roleModal')">&times;</span><h2>Назначить роль</h2><div class="form-group"><label>Роль</label><select id="roleSelect"></select></div><div class="form-group"><label>Организация</label><select id="roleOrg" onchange="fillRoleObjectOptions(this.value)"></select></div><div class="form-group"><label>Объект</label><select id="roleObj"><option value="">— Без объекта —</option></select></div><button class="btn btn-green" onclick="saveRole()">Сохранить</button></div></div>
+<div class="modal-overlay" id="accessModal"><div class="modal" style="max-width:850px"><span class="modal-close" onclick="closeModal('accessModal')">&times;</span><h2 id="accessModalTitle">Индивидуальный доступ</h2><div class="balance-help" style="margin-bottom:12px">Роль задаёт стандартные права. Для каждой функции можно оставить значение «По роли», либо индивидуально разрешить или запретить доступ этому пользователю.</div><div id="accessPermissionList" style="max-height:560px;overflow:auto"></div><div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn btn-green" onclick="saveUserAccess()">Сохранить права</button></div></div></div>
+<div class="modal-overlay" id="userOrganizationModal"><div class="modal"><span class="modal-close" onclick="closeModal('userOrganizationModal')">&times;</span><h2>Организация пользователя</h2><div id="userOrganizationName" style="font-weight:600;margin-bottom:12px"></div><div class="form-group"><label>Организация</label><select id="userOrganizationSelect"></select></div><button class="btn btn-green" onclick="saveUserOrganization()">Сохранить</button></div></div>
 <div class="modal-overlay" id="importStmtModal"><div class="modal" style="max-width:1100px"><span class="modal-close" onclick="closeModal('importStmtModal')">&times;</span><h2>Импорт банковской выписки</h2><div class="balance-help">Поддерживаются выписки ВТБ и Т‑Банка в Excel. Импортируются все исходящие выплаты сотрудникам, найденным по полному ФИО: зарплата, аванс, подотчёт, отпускные, больничные, материальная помощь и другие выплаты. Существующие записи не изменяются, повторные операции пропускаются.</div><div class="form-group"><label>Файл выписки (.xlsx / .xls)</label><input type="file" id="bankStatementFile" accept=".xlsx,.xls" onchange="handleBankStatementFile(event)"></div><div id="bankStatementSummary" style="font-size:13px;color:#475467;margin:8px 0"></div><div style="overflow:auto;max-height:430px;border:1px solid #e5e7eb;border-radius:8px"><table style="min-width:900px"><thead><tr><th>Дата</th><th>Сотрудник</th><th>Сумма</th><th>Банк</th><th>Назначение</th><th>Статус</th></tr></thead><tbody id="bankStatementPreviewBody"><tr><td colspan="6" style="color:#777">Выберите файл выписки для предварительного просмотра.</td></tr></tbody></table></div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button class="btn btn-gray" type="button" onclick="closeModal('importStmtModal')">Отмена</button><button class="btn btn-green" id="bankStatementImportBtn" type="button" onclick="importBankStatementPreview()" disabled>Импортировать выплаты</button></div></div></div>
 
 <script>
@@ -585,6 +587,9 @@ let dashboardInitialized = false;
 let objectsPeriodInitialized = false;
 let editingBankAllocationId = null;
 let users = [];
+let permissionCatalog = null;
+let editingAccessUserId = null;
+let editingOrganizationUserId = null;
 let editingEmpId = null;
 const selectedEmployeeIds = new Set();
 let editingObjId = null;
@@ -603,6 +608,56 @@ function parseJsonArray(value){
   if(Array.isArray(value)) return value;
   try { const parsed=JSON.parse(value || '[]'); return Array.isArray(parsed) ? parsed : []; } catch(e){ return []; }
 }
+function can(permission){
+  return !!(currentUser&&currentUser.permissions&&currentUser.permissions[permission]);
+}
+function canAny(){
+  for(let i=0;i<arguments.length;i++)if(can(arguments[i]))return true;
+  return false;
+}
+function setVisibleById(id,visible){
+  const el=document.getElementById(id);if(el)el.style.display=visible?'':'none';
+}
+function applyPermissionsToUi(){
+  if(!currentUser)return;
+  const tabRules={
+    dashboard:can('salary.view'),
+    input:canAny('salary.create','balances.manage','bank.import'),
+    salary:can('salary.view'),
+    employees:can('employees.view'),
+    objects:can('objects.view'),
+    organizations:can('organizations.view'),
+    users:can('users.manage'),
+    data:can('backups.manage')
+  };
+  Object.keys(tabRules).forEach(function(tab){
+    const btn=document.querySelector('.tab-btn[data-tab="'+tab+'"]');
+    if(btn)btn.style.display=tabRules[tab]?'inline-block':'none';
+  });
+  setVisibleById('actionLogBtn',can('logs.view'));
+  setVisibleById('securityLogBtn',can('security.view'));
+  setVisibleById('salaryCreateBtn',can('salary.create'));
+  setVisibleById('manualPaymentBtn',can('salary.edit'));
+  setVisibleById('balanceManageBtn',can('balances.manage'));
+  setVisibleById('bankImportBtn',can('bank.import'));
+  setVisibleById('salaryArchiveBtn',can('salary.delete'));
+  setVisibleById('salaryExportBlock',can('reports.export'));
+  setVisibleById('employeeAddBtn',can('employees.manage'));
+  setVisibleById('deleteSelectedEmployeesBtn',can('employees.manage'));
+  setVisibleById('employeeImportBtn',can('employees.manage'));
+  setVisibleById('employeeExportBtn',can('reports.export'));
+  setVisibleById('objectAddBtn',can('objects.manage'));
+  setVisibleById('orgAddBtn',can('organizations.manage'));
+}
+function firstAccessibleTab(){
+  const order=['dashboard','input','salary','employees','objects','organizations','users','data'];
+  for(const tab of order){
+    const btn=document.querySelector('.tab-btn[data-tab="'+tab+'"]');
+    if(btn&&btn.style.display!=='none')return tab;
+  }
+  return 'dashboard';
+}
+
 function normalizeExtraItems(value){
   return parseJsonArray(value).map(function(item){
     return {description:String(item.description || item.name || '').trim(), amount:parseFloat(item.amount != null ? item.amount : item.sum) || 0};
