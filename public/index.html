@@ -1927,13 +1927,13 @@ async function handleBankStatementFile(event){
   }
 }
 function bankPreviewStatusHtml(item){
-  const map={ready:['Готово','#067647'],duplicate_import:['Уже импортировано','#667085'],duplicate_manual:['Уже внесено вручную','#667085'],duplicate_file:['Дубликат в файле','#667085'],employee_not_found:['Сотрудник не найден','#b42318'],invalid:['Ошибка','#b42318']};
+  const map={ready:['Готово','#067647'],duplicate_import:['Уже импортировано','#667085'],duplicate_manual:['Уже внесено вручную','#667085'],possible_manual:['Возможный дубль ручной выплаты','#b54708'],duplicate_file:['Дубликат в файле','#667085'],employee_not_found:['Сотрудник не найден','#b42318'],invalid:['Ошибка','#b42318']};
   const x=map[item.status]||[item.message||item.status,'#667085'];
   return '<span style="font-weight:600;color:'+x[1]+'">'+escapeHtml(x[0])+'</span>';
 }
 function renderBankStatementPreview(){
   const ready=bankStatementPreview.filter(function(x){return x.status==='ready';}).length;
-  const duplicates=bankStatementPreview.filter(function(x){return x.status==='duplicate_import'||x.status==='duplicate_manual'||x.status==='duplicate_file';}).length;
+  const duplicates=bankStatementPreview.filter(function(x){return x.status==='duplicate_import'||x.status==='duplicate_manual'||x.status==='possible_manual'||x.status==='duplicate_file';}).length;
   const total=bankStatementPreview.length;
   document.getElementById('bankStatementSummary').textContent='Найдено выплат сотрудникам: '+total+'. К импорту: '+ready+'. Пропущено повторов: '+duplicates+'.';
   document.getElementById('bankStatementPreviewBody').innerHTML=bankStatementPreview.map(function(item){
