@@ -226,6 +226,16 @@ function requireSiteManager(req, res, next) {
   next();
 }
 
+function requireUserManager(req,res,next){
+  if(!req.session || !req.session.user)return res.status(401).json({error:'Не авторизован'});
+  if(EMAIL_VERIFY_ENABLED && !req.session.user.email_verified)return res.status(403).json({error:'Сначала подтвердите электронную почту',code:'EMAIL_VERIFICATION_REQUIRED'});
+  if(!['Руководитель сайта','Руководитель организации'].includes(req.session.user.role)){
+    logSecurityEvent(req,'forbidden_user_management',false,req.method+' '+req.originalUrl);
+    return res.status(403).json({error:'Недостаточно прав для управления пользователями'});
+  }
+  next();
+}
+
 // === EMAIL SECURITY ===
 function normalizeEmail(value){return String(value||'').trim().toLowerCase();}
 function validEmail(value){return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));}
@@ -406,32 +416,44 @@ function normalizePhone(phone) {
   if(d.length!==11)return '';
   return '7 ('+d.slice(1,4)+') '+d.slice(4,7)+'-'+d.slice(7,9)+'-'+d.slice(9,11);
 }
+app.get('/api/public/organizations', async (req,res)=>{
+  try{
+    const result=await pool.query("SELECT id,name FROM organizations WHERE trim(name)<>'' ORDER BY name");
+    res.setHeader('Cache-Control','no-store');
+    res.json(result.rows);
+  }catch(err){res.status(500).json({error:'Не удалось загрузить список организаций'});}
+});
+
 app.post('/api/register', authRateLimit, async (req, res) => {
   const { fio, phone, password } = req.body;
   const email=normalizeEmail(req.body.email);
+  const organizationId=Number(req.body.organization_id);
   const normalizedFio=normalizeRegistrationFio(fio);
   const login=buildLoginFromFio(normalizedFio);
   const normalizedPhone=normalizePhone(phone);
-  if (!normalizedFio || !phone || !login || !password || !email) return res.status(400).json({ error: 'Все поля обязательны для заполнения' });
+  if (!normalizedFio || !phone || !login || !password || !email || !Number.isInteger(organizationId) || organizationId<=0) return res.status(400).json({ error: 'Все поля обязательны для заполнения, включая организацию' });
   if (!validEmail(email)) return res.status(400).json({ error: 'Введите корректный email' });
   if (normalizedFio.split(' ').filter(Boolean).length < 3) return res.status(400).json({ error: 'Введите ФИО полностью: Фамилия Имя Отчество' });
   if (!normalizedPhone) return res.status(400).json({ error: 'Некорректный номер телефона. Формат: 7 (900) 900-90-90' });
   try {
+    const orgRes=await pool.query('SELECT id,name FROM organizations WHERE id=$1',[organizationId]);
+    if(!orgRes.rows.length)return res.status(400).json({error:'Выбранная организация не найдена'});
+    const organization=String(orgRes.rows[0].name||'').trim();
     const existing = await pool.query('SELECT id FROM users WHERE lower(login) = lower($1) OR lower(email)=lower($2)', [login,email]);
     if (existing.rows.length > 0) {
       return res.status(400).json({ error: 'Логин уже занят' });
     }
     const hash = await bcrypt.hash(password, 10);
     await pool.query(
-      'INSERT INTO users (login, password, fio, phone, email, email_verified, role) VALUES ($1,$2,$3,$4,$5,FALSE,$6) RETURNING id',
-      [login, hash, normalizedFio, normalizedPhone, email, '']
+      'INSERT INTO users (login, password, fio, phone, email, email_verified, role, organization) VALUES ($1,$2,$3,$4,$5,FALSE,$6,$7) RETURNING id',
+      [login, hash, normalizedFio, normalizedPhone, email, '', organization]
     );
     const created=await pool.query('SELECT id FROM users WHERE lower(login)=lower($1)',[login]);
     if(EMAIL_VERIFY_ENABLED){
       await sendSecurityCode(created.rows[0].id,email,'verify');
-      res.json({ ok: true, login, email, email_verification_required:true, message: 'Регистрация создана. Код подтверждения отправлен на email.' });
+      res.json({ ok: true, login, email, organization, email_verification_required:true, message: 'Регистрация создана. Код подтверждения отправлен на email. После подтверждения руководитель вашей организации сможет назначить вам роль.' });
     }else{
-      res.json({ ok: true, login, email, email_verification_required:false, message: 'Регистрация создана. Подтверждение email временно отключено. После назначения роли руководителем сайта можно войти.' });
+      res.json({ ok: true, login, email, organization, email_verification_required:false, message: 'Регистрация создана. После назначения роли руководителем вашей организации можно войти.' });
     }
   } catch (err) {
     console.error('Register error:', err);
@@ -468,21 +490,68 @@ app.post('/api/recover/reset', authRateLimit, async (req,res)=>{
 });
 
 // === USERS ===
-app.get('/api/users', requireSiteManager, async (req, res) => {
+app.get('/api/users', requireUserManager, async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, login, fio, phone, role, organization, object_name, role_history FROM users ORDER BY id');
+    let result;
+    if(req.session.user.role==='Руководитель сайта'){
+      result=await pool.query('SELECT id, login, fio, phone, role, organization, object_name, role_history, email_verified FROM users ORDER BY id');
+    }else{
+      const ownOrg=String(req.session.user.organization||'').trim();
+      if(!ownOrg)return res.json([]);
+      result=await pool.query("SELECT id, login, fio, phone, role, organization, object_name, role_history, email_verified FROM users WHERE lower(trim(organization))=lower(trim($1)) ORDER BY id",[ownOrg]);
+    }
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/users/role', requireSiteManager, async (req, res) => {
-  const { userId, role, organization, object_name } = req.body;
+app.post('/api/users/role', requireUserManager, async (req, res) => {
+  const userId=Number(req.body.userId);
+  const requestedRole=String(req.body.role||'').trim();
+  const requestedOrg=String(req.body.organization||'').trim();
+  const requestedObject=String(req.body.object_name||'').trim();
+  if(!Number.isInteger(userId)||userId<=0)return res.status(400).json({error:'Некорректный пользователь'});
+  const allRoles=new Set(['','Руководитель сайта','Руководитель организации','Руководитель','Руководитель проекта']);
+  if(!allRoles.has(requestedRole))return res.status(400).json({error:'Некорректная роль'});
   try {
     const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
     if (userRes.rows.length === 0) return res.status(404).json({ error: 'Пользователь не найден' });
     const user = userRes.rows[0];
+    const actor=req.session.user;
+    let organization=requestedOrg;
+    let role=requestedRole;
+    let objectName=requestedObject;
+
+    if(actor.role==='Руководитель организации'){
+      const ownOrg=String(actor.organization||'').trim();
+      if(!ownOrg)return res.status(403).json({error:'У руководителя организации не указана организация'});
+      if(String(user.organization||'').trim().toLocaleLowerCase('ru-RU')!==ownOrg.toLocaleLowerCase('ru-RU')){
+        await logSecurityEvent(req,'cross_org_role_change',false,'Target user ID='+userId+'; target org='+String(user.organization||''),actor.login);
+        return res.status(403).json({error:'Можно управлять только пользователями своей организации'});
+      }
+      if(user.role==='Руководитель сайта' || role==='Руководитель сайта'){
+        return res.status(403).json({error:'Роль руководителя сайта может назначать только руководитель сайта'});
+      }
+      organization=ownOrg;
+    }
+
+    if(role!=='Руководитель сайта'){
+      if(!organization)return res.status(400).json({error:'Для этой роли должна быть указана организация'});
+      const orgCheck=await pool.query('SELECT name FROM organizations WHERE lower(trim(name))=lower(trim($1)) LIMIT 1',[organization]);
+      if(!orgCheck.rows.length)return res.status(400).json({error:'Организация не найдена'});
+      organization=orgCheck.rows[0].name;
+    }else{
+      organization='';
+      objectName='';
+    }
+
+    if(objectName){
+      const objCheck=await pool.query("SELECT name FROM objects WHERE lower(trim(name))=lower(trim($1)) AND ($2='' OR lower(trim(organization))=lower(trim($2))) LIMIT 1",[objectName,organization]);
+      if(!objCheck.rows.length)return res.status(400).json({error:'Объект не найден в выбранной организации'});
+      objectName=objCheck.rows[0].name;
+    }
+
     let history = [];
     try { history = JSON.parse(user.role_history || '[]'); } catch(e) {}
     history.push({
@@ -491,14 +560,15 @@ app.post('/api/users/role', requireSiteManager, async (req, res) => {
       newRole: role,
       oldOrg: user.organization,
       newOrg: organization,
-      by: req.session.user.login
+      by: actor.login
     });
     await pool.query(
       'UPDATE users SET role = $1, organization = $2, object_name = $3, role_history = $4 WHERE id = $5',
-      [role, organization || '', object_name || '', JSON.stringify(history), userId]
+      [role, organization, objectName, JSON.stringify(history), userId]
     );
     await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)',
-      [req.session.user.login, 'Изменение роли пользователя ID=' + userId]);
+      [actor.login, 'Изменение роли пользователя ID=' + userId + ': '+(user.role||'без роли')+' → '+(role||'без роли')+', организация '+organization]);
+    await logSecurityEvent(req,'role_changed',true,'Target user ID='+userId+'; role='+(role||'none')+'; organization='+organization,actor.login);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -657,7 +727,7 @@ app.get('/api/organizations', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/organizations', requireAuth, async (req, res) => {
+app.post('/api/organizations', requireSiteManager, async (req, res) => {
   const { name, address, contacts } = req.body;
   if (!name) return res.status(400).json({ error: 'Наименование обязательно' });
   try {
@@ -665,26 +735,29 @@ app.post('/api/organizations', requireAuth, async (req, res) => {
       'INSERT INTO organizations (name, address, contacts) VALUES ($1,$2,$3) RETURNING *',
       [name, address||'', contacts||'']
     );
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Добавлена организация: '+name]);
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put('/api/organizations/:id', requireAuth, async (req, res) => {
+app.put('/api/organizations/:id', requireSiteManager, async (req, res) => {
   const { name, address, contacts } = req.body;
   try {
     const result = await pool.query(
       'UPDATE organizations SET name=$1, address=$2, contacts=$3 WHERE id=$4 RETURNING *',
       [name, address||'', contacts||'', req.params.id]
     );
+    if(!result.rows.length)return res.status(404).json({error:'Организация не найдена'});
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Изменена организация: '+name]);
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/organizations/:id', requireAuth, async (req, res) => {
+app.delete('/api/organizations/:id', requireSiteManager, async (req, res) => {
   try {
     await pool.query('DELETE FROM organizations WHERE id=$1', [req.params.id]);
     res.json({ ok: true });
