@@ -14,6 +14,7 @@ const app = express();
 app.get('/health', (req, res) => res.status(200).send('OK'));
 
 const PORT = process.env.PORT || 3000;
+// Email verification is temporarily disabled by default until SMTP is restored.
 const EMAIL_VERIFY_ENABLED = String(process.env.EMAIL_VERIFY_ENABLED || 'false').toLowerCase() === 'true';
 
 // PostgreSQL pool
@@ -881,6 +882,7 @@ async function initAdmin() {
 
 app.listen(PORT, '0.0.0.0', async () => {
   console.log('Server running on port ' + PORT);
+  console.log('Email verification: ' + (EMAIL_VERIFY_ENABLED ? 'enabled' : 'disabled'));
   try { await ensureDatabaseSchema(); } catch (err) { console.error('Schema initialization error:', err.message); }
   await initAdmin();
   startAutomaticBackups();
