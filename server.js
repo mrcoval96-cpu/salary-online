@@ -15,7 +15,7 @@ app.get('/health', (req, res) => res.status(200).send('OK'));
 
 const PORT = process.env.PORT || 3000;
 
-// Deployment trigger: refresh application after balance direction update.
+// Deployment trigger: refresh application after balance direction update. 
 // Email verification is temporarily disabled until SMTP access is restored.
 // Keep this hard-disabled so an old Timeweb environment variable cannot block login.
 const EMAIL_VERIFY_ENABLED = false;
