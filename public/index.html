@@ -685,12 +685,31 @@ function fillSalaryExportEmployees(selected){
 }
 
 // === API ===
-async function api(url, method = 'GET', body = null) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' };
+let csrfToken='';
+async function ensureCsrfToken(){
+  if(csrfToken)return csrfToken;
+  const res=await fetch('/api/csrf-token',{method:'GET',credentials:'same-origin',cache:'no-store'});
+  const data=await res.json();
+  if(!res.ok||!data.token)throw new Error(data.error||'Не удалось получить защитный токен');
+  csrfToken=data.token;
+  return csrfToken;
+}
+async function api(url, method = 'GET', body = null, csrfRetry = false) {
+  const upper=String(method||'GET').toUpperCase();
+  const headers={ 'Content-Type': 'application/json' };
+  if(!['GET','HEAD','OPTIONS'].includes(upper))headers['X-CSRF-Token']=await ensureCsrfToken();
+  const opts = { method:upper, headers:headers, credentials:'same-origin' };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(url, opts);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Ошибка сервера');
+  let data={};
+  try{data=await res.json();}catch(e){}
+  if(!res.ok){
+    if(res.status===403&&data.code==='CSRF_INVALID'&&!csrfRetry){
+      csrfToken='';
+      return api(url,upper,body,true);
+    }
+    throw new Error(data.error || 'Ошибка сервера');
+  }
   return data;
 }
 
