@@ -25,9 +25,8 @@ if (!process.env.SESSION_SECRET) {
 // Deployment retry after registry pull failure.
 
 // Deployment trigger: refresh application after balance direction update. 
-// Email verification is temporarily disabled until SMTP access is restored.
-// Keep this hard-disabled so an old Timeweb environment variable cannot block login.
-const EMAIL_VERIFY_ENABLED = false;
+// Email verification and password recovery are enabled again.
+const EMAIL_VERIFY_ENABLED = true;
 
 // PostgreSQL pool
 const fs = require('fs');
@@ -238,7 +237,11 @@ function mailTransport(){
     host: process.env.SMTP_HOST || 'smtp.yandex.ru',
     port: Number(process.env.SMTP_PORT || 465),
     secure: String(process.env.SMTP_SECURE || 'true').toLowerCase() !== 'false',
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD }
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD },
+    connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT || 15000),
+    greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT || 15000),
+    socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT || 30000),
+    tls: { servername: process.env.SMTP_HOST || 'smtp.yandex.ru' }
   });
 }
 async function sendSecurityCode(userId,email,purpose){
@@ -255,6 +258,28 @@ async function sendSecurityCode(userId,email,purpose){
     subject: subject+' — Зарплата: учёт и расчёт',
     text: 'Код подтверждения: '+code+'\n\nКод действует 10 минут. Если вы не запрашивали этот код, просто проигнорируйте письмо.'
   });
+}
+async function verifyMailTransport(){
+  if(!EMAIL_VERIFY_ENABLED)return;
+  if(!process.env.SMTP_USER || !process.env.SMTP_PASSWORD){
+    console.warn('SMTP diagnostic: credentials are not configured');
+    return;
+  }
+  const started=Date.now();
+  try{
+    await mailTransport().verify();
+    console.log('SMTP diagnostic: connection and authentication OK in '+(Date.now()-started)+' ms');
+  }catch(err){
+    console.error('SMTP diagnostic failed:', {
+      message: err&&err.message,
+      code: err&&err.code,
+      command: err&&err.command,
+      responseCode: err&&err.responseCode,
+      syscall: err&&err.syscall,
+      address: err&&err.address,
+      port: err&&err.port
+    });
+  }
 }
 async function consumeCode(userId,email,purpose,code){
   const r=await pool.query("SELECT * FROM email_codes WHERE user_id=$1 AND lower(email)=lower($2) AND purpose=$3 ORDER BY created_at DESC LIMIT 1",[userId,normalizeEmail(email),purpose]);
@@ -1267,5 +1292,6 @@ app.listen(PORT, '0.0.0.0', async () => {
   console.log('Email verification: ' + (EMAIL_VERIFY_ENABLED ? 'enabled' : 'disabled'));
   try { await ensureDatabaseSchema(); } catch (err) { console.error('Schema initialization error:', err.message); }
   await initAdmin();
+  verifyMailTransport();
   startAutomaticBackups();
 });
