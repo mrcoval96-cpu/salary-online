@@ -384,16 +384,20 @@ async function salaryOrganization(employeeFio,objectName){
   const e=await pool.query('SELECT organization FROM employees WHERE lower(trim(fio))=lower(trim($1)) LIMIT 1',[String(employeeFio||'')]);
   return e.rows.length?String(e.rows[0].organization||'').trim():'';
 }
+async function ensureEmployeeOrganizationAccess(user,fio){
+  const r=await pool.query('SELECT id,fio,organization FROM employees WHERE lower(trim(fio))=lower(trim($1)) LIMIT 1',[String(fio||'')]);
+  if(!r.rows.length){const err=new Error('Сотрудник не найден');err.status=404;throw err;}
+  await ensureOrganizationAccess(user,r.rows[0].organization);
+  return r.rows[0];
+}
 async function ensureSalaryAccess(user,employeeFio,objectName){
   if(isSiteWideUser(user))return true;
+  await ensureEmployeeOrganizationAccess(user,employeeFio);
+  const object=String(objectName||'').trim();
+  if(object)await ensureObjectAccess(user,object);
   if(isProjectScoped(user)){
-    if(!sameAccessValue(objectName,accessObject(user))){const err=new Error('Нет доступа к начислению другого объекта');err.status=403;throw err;}
-    await ensureObjectAccess(user,objectName);
-    return true;
+    if(!object||!sameAccessValue(object,accessObject(user))){const err=new Error('Нет доступа к начислению другого объекта');err.status=403;throw err;}
   }
-  const org=await salaryOrganization(employeeFio,objectName);
-  if(!org){const err=new Error('Не удалось определить организацию начисления');err.status=400;throw err;}
-  await ensureOrganizationAccess(user,org);
   return true;
 }
 async function ensureFinancialEmployeeAccess(user,fio){
@@ -982,6 +986,12 @@ async function saveObject(id,data,res,req){
   const user=req.accessUser||await refreshAccessUser(req);
   const targetOrg=isSiteWideUser(user)?String(data.organization||'').trim():accessOrganization(user);
   await ensureOrganizationAccess(user,targetOrg);
+  if(responsibleIds.length&&!isSiteWideUser(user)){
+    const rr=await pool.query('SELECT id,organization FROM employees WHERE id=ANY($1::int[])',[responsibleIds]);
+    if(rr.rows.some(function(e){return !sameAccessValue(e.organization,targetOrg);})){
+      const err=new Error('Ответственными можно назначать только сотрудников своей организации');err.status=403;throw err;
+    }
+  }
   if(id)await ensureObjectAccess(user,Number(id));
   if(isProjectScoped(user)&&!sameAccessValue(name,accessObject(user))){const err=new Error('Руководитель проекта может изменять только назначенный объект');err.status=403;throw err;}
   const client=await pool.connect();
@@ -1325,6 +1335,8 @@ app.get('/api/employee-balances', requirePermission('salary.view'), async (req,r
     let result;
     if(isSiteWideUser(user)){
       result=await pool.query('SELECT * FROM employee_balances ORDER BY employee_fio,balance_date,id');
+    }else if(isProjectScoped(user)&&!effectivePermissions(user)['balances.manage']){
+      result={rows:[]};
     }else if(isProjectScoped(user)){
       result=await pool.query("SELECT b.* FROM employee_balances b WHERE EXISTS(SELECT 1 FROM employees e WHERE e.id=b.employee_id AND lower(trim(e.organization))=lower(trim($1)) AND EXISTS(SELECT 1 FROM salary_records s WHERE lower(trim(s.employee_fio))=lower(trim(e.fio)) AND lower(trim(COALESCE(s.object_name,'')))=lower(trim($2)))) ORDER BY b.employee_fio,b.balance_date,b.id",[accessOrganization(user),accessObject(user)]);
     }else{
