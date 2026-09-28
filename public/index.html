@@ -1264,19 +1264,51 @@ function populateEditLists(r){
 function paymentItemsForRecords(recs){
   const items=[];
   recs.forEach(function(r){
+    const recordDate=recordExportDate(r);
     parseJsonArray(r.payments).forEach(function(p,index){
       const amount=parseFloat(p && (p.amount != null ? p.amount : p.sum)) || 0;
       const date=p && (p.date || p.payment_date) ? String(p.date || p.payment_date).slice(0,10) : '';
-      if(amount || date) items.push({date:date,amount:amount,recordId:r.id,index:index,source:'manual'});
+      if(amount || date) items.push({date:date,recordDate:recordDate,amount:amount,recordId:r.id,index:index,source:'manual'});
     });
   });
-  return items.sort(function(a,b){return String(a.date||'9999-99-99').localeCompare(String(b.date||'9999-99-99'));});
+  return items.sort(function(a,b){return String(a.date||a.recordDate||'9999-99-99').localeCompare(String(b.date||b.recordDate||'9999-99-99'));});
+}
+function paymentIsAfterOpening(fio,date,cutoff){
+  const opening=latestBalanceForEmployee(fio,cutoff||'9999-12-31');
+  const start=opening?String(opening.balance_date||'').slice(0,10):'';
+  const d=String(date||'').slice(0,10);
+  return (!start || (d && d>start)) && (!cutoff || !d || d<=cutoff);
+}
+function manualPaymentItemsAfterOpening(fio,recs,cutoff){
+  return paymentItemsForRecords(recs).filter(function(p){
+    return paymentIsAfterOpening(fio,p.date||p.recordDate,cutoff);
+  });
+}
+function manualPaidAfterOpeningForRecords(fio,recs,cutoff){
+  const opening=latestBalanceForEmployee(fio,cutoff||'9999-12-31');
+  const start=opening?String(opening.balance_date||'').slice(0,10):'';
+  let total=0;
+  recs.forEach(function(r){
+    const rd=recordExportDate(r);
+    const items=parseJsonArray(r.payments);
+    if(items.length){
+      items.forEach(function(p){
+        const pd=String((p&&(p.date||p.payment_date))||rd||'').slice(0,10);
+        if((!start||(pd&&pd>start))&&(!cutoff||!pd||pd<=cutoff))total+=parseFloat(p&&(p.amount!=null?p.amount:p.sum)||0)||0;
+      });
+    }else if((!start||(rd&&rd>start))&&(!cutoff||!rd||rd<=cutoff)){
+      total+=parseFloat(r.paid||0)||0;
+    }
+  });
+  return total;
 }
 function bankPaymentItemsForEmployee(fio,from,to){
   const key=String(fio||'').toLowerCase();
+  const opening=latestBalanceForEmployee(fio,to||'9999-12-31');
+  const start=opening?String(opening.balance_date||'').slice(0,10):'';
   return bankStatementPayments.filter(function(p){
     const d=String(p.transaction_date||'').slice(0,10);
-    return String(p.employee_fio||'').toLowerCase()===key && (!from||d>=from) && (!to||d<=to);
+    return String(p.employee_fio||'').toLowerCase()===key && (!start||(d&&d>start)) && (!from||d>=from) && (!to||d<=to);
   }).map(function(p){
     return {date:String(p.transaction_date||'').slice(0,10),amount:parseFloat(p.amount||0)||0,source:'bank',bank:p.bank||'',purpose:p.purpose||'',document_number:p.document_number||'',id:p.id};
   }).sort(function(a,b){return String(a.date||'').localeCompare(String(b.date||''));});
@@ -1331,7 +1363,7 @@ function renderSalary(){
   employeeNames.forEach(function(fio){(byEmp[fio]||[]).forEach(function(r){visibleRecords.push(r);});});
   const periodStart=filter?(String(periodYear)+'-'+String(monthNumber(filter)).padStart(2,'0')+'-01'):'';
   const summaryTotal=visibleRecords.reduce(function(sum,r){return sum+parseFloat(r.total||0);},0);
-  const summaryManualPaid=visibleRecords.reduce(function(sum,r){return sum+parseFloat(r.paid||0);},0);
+  const summaryManualPaid=employeeNames.reduce(function(sum,fio){return sum+manualPaidAfterOpeningForRecords(fio,byEmp[fio]||[],cutoff);},0);
   const summaryBankPaid=employeeNames.reduce(function(sum,fio){return sum+bankPaymentItemsForEmployee(fio,periodStart,filter?cutoff:'').reduce(function(s,p){return s+p.amount;},0);},0);
   const summaryPaid=summaryManualPaid+summaryBankPaid;
   const summaryBalance=employeeNames.reduce(function(sum,fio){return sum+employeePositionAt(fio,cutoff).balance;},0);
@@ -1347,10 +1379,10 @@ function renderSalary(){
   employeeNames.sort(function(a,b){return a.localeCompare(b,'ru');}).forEach(function(fio){
     const recs=(byEmp[fio]||[]).slice().sort(function(a,b){return (recordExportDate(a)||'').localeCompare(recordExportDate(b)||'');});
     const total=recs.reduce(function(sum,r){return sum+parseFloat(r.total||0);},0);
-    const manualPaid=recs.reduce(function(sum,r){return sum+parseFloat(r.paid||0);},0);
+    const manualPaid=manualPaidAfterOpeningForRecords(fio,recs,cutoff);
     const bankItems=bankPaymentItemsForEmployee(fio,periodStart,filter?cutoff:'');
     const paid=manualPaid+bankItems.reduce(function(sum,p){return sum+p.amount;},0);
-    const position=employeePositionAt(fio,cutoff),opening=position.opening,paymentItems=paymentItemsForRecords(recs).concat(bankItems).sort(function(a,b){return String(a.date||'').localeCompare(String(b.date||''));}),balanceItems=balanceItemsForEmployee(fio);
+    const position=employeePositionAt(fio,cutoff),opening=position.opening,paymentItems=manualPaymentItemsAfterOpening(fio,recs,cutoff).concat(bankItems).sort(function(a,b){return String(a.date||a.recordDate||'').localeCompare(String(b.date||b.recordDate||''));}),balanceItems=balanceItemsForEmployee(fio);
     const card=document.createElement('div');card.className='salary-card';
     const head=document.createElement('button');head.type='button';head.className='salary-card-head';head.setAttribute('aria-expanded','false');
     const balanceDate=opening?'<span class="salary-balance-date">на '+formatDateRu(opening.balance_date)+'</span>':'';
