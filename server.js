@@ -569,8 +569,7 @@ function bankTransactionKey(tx){
     normalizeBankText(tx.document_number),
     Number.isFinite(amount)?amount.toFixed(2):'',
     normalizeBankText(tx.recipient_account),
-    normalizeBankText(tx.counterparty).toLocaleLowerCase('ru-RU').replace(/ё/g,'е'),
-    normalizeBankText(tx.purpose)
+    normalizeBankText(tx.counterparty).toLocaleLowerCase('ru-RU').replace(/ё/g,'е')
   ];
   return crypto.createHash('sha256').update(parts.join('|')).digest('hex');
 }
