@@ -1398,7 +1398,7 @@ function renderSalary(){
 
     const paymentDetail=document.createElement('div');paymentDetail.className='salary-payment-detail';
     paymentDetail.innerHTML='<div class="salary-payment-title">История выплат за выбранный период</div>'+(paymentItems.length?paymentItems.map(function(p){
-      if(p.source==='bank')return '<div class="salary-payment-row"><span>'+(p.date?formatDateRu(p.date):'Дата не указана')+' — <b>'+formatMoney(p.amount)+' ₽</b><div style="font-size:11px;color:#667085;margin-top:3px"><b>Из выписки · '+escapeHtml(p.bank||'Банк')+'</b>'+(p.purpose?' — '+escapeHtml(p.purpose):'')+'</div></span><span class="salary-payment-actions"><span class="badge badge-blue">Выписка</span></span></div>';
+      if(p.source==='bank')return '<div class="salary-payment-row"><span>'+(p.date?formatDateRu(p.date):'Дата не указана')+' — <b>'+formatMoney(p.amount)+' ₽</b><div style="font-size:11px;color:#667085;margin-top:3px"><b>Из выписки · '+escapeHtml(p.bank||'Банк')+'</b>'+(p.purpose?' — '+escapeHtml(p.purpose):'')+'</div></span><span class="salary-payment-actions"><span class="badge badge-blue">Выписка</span><button class="btn btn-red btn-sm" type="button" onclick="event.stopPropagation();deleteBankPayment('+p.id+')">Удалить</button></span></div>';
       return '<div class="salary-payment-row"><span>'+(p.date?formatDateRu(p.date):'Дата не указана')+' — <b>'+formatMoney(p.amount)+' ₽</b><div style="font-size:11px;color:#667085;margin-top:3px">Внесено вручную</div></span><span class="salary-payment-actions"><button class="btn btn-blue btn-sm" type="button" onclick="editPayment('+p.recordId+','+p.index+')">Изменить</button><button class="btn btn-red btn-sm" type="button" onclick="deletePayment('+p.recordId+','+p.index+')">Удалить</button></span></div>';
     }).join(''):'<div class="salary-payment-empty">Выплаты не указаны.</div>');
     const paidLink=head.querySelector('.salary-paid-link');
@@ -1464,6 +1464,19 @@ async function saveQuickPayment(){
 async function deletePayment(recordId,index){
   const r=salaryRecords.find(function(x){return x.id===recordId;});if(!r||!confirm('Удалить эту выплату?'))return;
   try{const payments=parseJsonArray(r.payments);payments.splice(index,1);await saveRecordPayments(r,payments);salaryRecords=await api('/api/salary');renderSalary();toast('Выплата удалена');}catch(e){toast(e.message,'error');}
+}
+async function deleteBankPayment(id){
+  const p=bankStatementPayments.find(function(x){return Number(x.id)===Number(id);});
+  if(!p)return;
+  const details=(p.employee_fio||'сотрудник')+' · '+formatDateRu(p.transaction_date)+' · '+formatMoney(p.amount)+' ₽';
+  if(!confirm('Удалить импортированную банковскую выплату?\n\n'+details+'\n\nПри повторном импорте этой выписки платеж снова сможет быть добавлен.'))return;
+  try{
+    await api('/api/bank-payments/'+id,'DELETE');
+    bankStatementPayments=await api('/api/bank-payments');
+    renderSalary();
+    renderDashboard();
+    toast('Банковская выплата удалена');
+  }catch(e){toast(e.message,'error');}
 }
 async function deleteSalary(id){
   if(!confirm('Переместить запись в архив? Её можно будет восстановить.')) return;
