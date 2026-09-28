@@ -11,9 +11,14 @@ const crypto = require('crypto');
 dotenv.config();
 
 const app = express();
+app.set('trust proxy', 1);
 app.get('/health', (req, res) => res.status(200).send('OK'));
 
 const PORT = process.env.PORT || 3000;
+const SESSION_SECRET = String(process.env.SESSION_SECRET || '').trim() || crypto.randomBytes(48).toString('hex');
+if (!process.env.SESSION_SECRET) {
+  console.warn('SECURITY WARNING: SESSION_SECRET is not set. Using a random per-process secret; all sessions will be invalidated after restart. Set SESSION_SECRET in Timeweb.');
+}
 
 // Deployment retry marker.  
 
@@ -46,6 +51,9 @@ async function ensureDatabaseSchema(){
   await pool.query("ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS deleted_by TEXT");
   await pool.query("CREATE TABLE IF NOT EXISTS closed_salary_periods (month TEXT NOT NULL, year TEXT NOT NULL, closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, closed_by TEXT, PRIMARY KEY(month,year))");
   await pool.query("CREATE TABLE IF NOT EXISTS automatic_backups (id SERIAL PRIMARY KEY, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, data JSONB NOT NULL)");
+  await pool.query("CREATE TABLE IF NOT EXISTS security_log (id SERIAL PRIMARY KEY, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, event TEXT NOT NULL, user_login TEXT NOT NULL DEFAULT '', ip TEXT NOT NULL DEFAULT '', user_agent TEXT NOT NULL DEFAULT '', success BOOLEAN NOT NULL DEFAULT FALSE, details TEXT NOT NULL DEFAULT '')");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_security_log_created_at ON security_log(created_at DESC)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_security_log_event ON security_log(event)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_salary_records_deleted_at ON salary_records(deleted_at)");
   await pool.query("ALTER TABLE employees ADD COLUMN IF NOT EXISTS employment_status TEXT NOT NULL DEFAULT 'working'");
   await pool.query("CREATE TABLE IF NOT EXISTS object_responsibles (object_id INTEGER NOT NULL REFERENCES objects(id) ON DELETE CASCADE, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (object_id, employee_id))");
@@ -73,22 +81,124 @@ pool.on('error', (err) => {
 });
 
 // Middleware
-app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true }));
+function requestIp(req){
+  return String(req.ip || req.socket && req.socket.remoteAddress || '').slice(0,120);
+}
+async function logSecurityEvent(req,event,success,details,userLogin){
+  try{
+    await pool.query(
+      'INSERT INTO security_log(event,user_login,ip,user_agent,success,details) VALUES($1,$2,$3,$4,$5,$6)',
+      [String(event||'').slice(0,120),String(userLogin||req.session&&req.session.user&&req.session.user.login||'').slice(0,160),requestIp(req),String(req.get&&req.get('user-agent')||'').slice(0,500),!!success,String(details||'').slice(0,1500)]
+    );
+  }catch(e){ console.error('Security log error:',e.message); }
+}
+function securityHeaders(req,res,next){
+  res.setHeader('X-Content-Type-Options','nosniff');
+  res.setHeader('X-Frame-Options','DENY');
+  res.setHeader('Referrer-Policy','no-referrer');
+  res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=()');
+  res.setHeader('Strict-Transport-Security','max-age=31536000');
+  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
+  next();
+}
+app.use(securityHeaders);
+
+const extraAllowedOrigins=new Set(
+  String(process.env.ALLOWED_ORIGINS || process.env.APP_ORIGIN || process.env.PUBLIC_URL || '')
+    .split(',').map(x=>x.trim().replace(/\/$/,'')).filter(Boolean)
+);
+app.use((req,res,next)=>{
+  const origin=String(req.get('origin')||'').replace(/\/$/,'');
+  if(!origin)return next();
+  const sameOrigin=(req.protocol+'://'+req.get('host')).replace(/\/$/,'');
+  if(origin!==sameOrigin && !extraAllowedOrigins.has(origin)){
+    logSecurityEvent(req,'cors_blocked',false,'Blocked origin: '+origin);
+    return res.status(403).json({error:'Запрос с этого источника запрещён'});
+  }
+  res.setHeader('Access-Control-Allow-Origin',origin);
+  res.setHeader('Vary','Origin');
+  res.setHeader('Access-Control-Allow-Credentials','true');
+  res.setHeader('Access-Control-Allow-Headers','Content-Type, X-CSRF-Token');
+  res.setHeader('Access-Control-Allow-Methods','GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  if(req.method==='OPTIONS')return res.sendStatus(204);
+  next();
+});
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'secret-key',
+  name: 'salary.sid',
+  secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
-  cookie: { maxAge: 24 * 60 * 60 * 1000, httpOnly: true }
+  proxy: true,
+  cookie: {
+    maxAge: 8 * 60 * 60 * 1000,
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax'
+  }
 }));
 
+function createRateLimiter(options){
+  const windowMs=options.windowMs,max=options.max,event=options.event;
+  const store=new Map();
+  return function(req,res,next){
+    const now=Date.now(),key=requestIp(req)+'|'+event;
+    let item=store.get(key);
+    if(!item || item.resetAt<=now)item={count:0,resetAt:now+windowMs};
+    item.count++;store.set(key,item);
+    if(store.size>5000){
+      for(const [k,v] of store){if(v.resetAt<=now)store.delete(k);}
+    }
+    if(item.count>max){
+      const retry=Math.max(1,Math.ceil((item.resetAt-now)/1000));
+      res.setHeader('Retry-After',String(retry));
+      logSecurityEvent(req,'rate_limit',false,event+'; retry_after='+retry);
+      return res.status(429).json({error:'Слишком много запросов. Повторите попытку позже.'});
+    }
+    next();
+  };
+}
+const authRateLimit=createRateLimiter({windowMs:15*60*1000,max:12,event:'auth'});
+const mutationRateLimit=createRateLimiter({windowMs:15*60*1000,max:300,event:'api_mutation'});
+
+app.get('/api/csrf-token',(req,res)=>{
+  if(!req.session.csrfToken)req.session.csrfToken=crypto.randomBytes(32).toString('hex');
+  res.setHeader('Cache-Control','no-store');
+  res.json({token:req.session.csrfToken});
+});
+app.use('/api',(req,res,next)=>{
+  if(['GET','HEAD','OPTIONS'].includes(req.method))return next();
+  mutationRateLimit(req,res,()=>{
+    const supplied=String(req.get('x-csrf-token')||'');
+    const expected=String(req.session&&req.session.csrfToken||'');
+    let ok=false;
+    try{
+      const a=Buffer.from(supplied),b=Buffer.from(expected);
+      ok=!!supplied&&!!expected&&a.length===b.length&&crypto.timingSafeEqual(a,b);
+    }catch(e){}
+    if(!ok){
+      logSecurityEvent(req,'csrf_rejected',false,req.method+' '+req.originalUrl);
+      return res.status(403).json({error:'Недействительный защитный токен. Обновите страницу.',code:'CSRF_INVALID'});
+    }
+    next();
+  });
+});
+
 // Static files
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'),{
+  etag:true,
+  maxAge:'1h',
+  setHeaders:(res)=>res.setHeader('X-Content-Type-Options','nosniff')
+}));
 
 // === AUTH MIDDLEWARE ===
 function requireAuth(req, res, next) {
-  if (!req.session || !req.session.user) return res.status(401).json({ error: 'Не авторизован' });
+  if (!req.session || !req.session.user) {
+    logSecurityEvent(req,'unauthorized_api',false,req.method+' '+req.originalUrl);
+    return res.status(401).json({ error: 'Не авторизован' });
+  }
   if (EMAIL_VERIFY_ENABLED && !req.session.user.email_verified) return res.status(403).json({ error: 'Сначала подтвердите электронную почту', code: 'EMAIL_VERIFICATION_REQUIRED' });
   next();
 }
@@ -99,6 +209,7 @@ function requireSiteManager(req, res, next) {
   }
   if (EMAIL_VERIFY_ENABLED && !req.session.user.email_verified) return res.status(403).json({ error: 'Сначала подтвердите электронную почту', code: 'EMAIL_VERIFICATION_REQUIRED' });
   if (req.session.user.role !== 'Руководитель сайта') {
+    logSecurityEvent(req,'forbidden_admin',false,req.method+' '+req.originalUrl);
     return res.status(403).json({ error: 'Доступ только для руководителя сайта' });
   }
   next();
@@ -147,16 +258,18 @@ async function consumeCode(userId,email,purpose,code){
 // === AUTH ROUTES ===
 
 // Login
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', authRateLimit, async (req, res) => {
   const { login, password } = req.body;
   try {
     const result = await pool.query('SELECT * FROM users WHERE login = $1', [login]);
     if (result.rows.length === 0) {
+      await logSecurityEvent(req,'login_failed',false,'Unknown login',String(login||''));
       return res.status(401).json({ error: 'Неверный логин или пароль' });
     }
     const user = result.rows[0];
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) {
+      await logSecurityEvent(req,'login_failed',false,'Invalid password',String(login||''));
       return res.status(401).json({ error: 'Неверный логин или пароль' });
     }
     if (!user.role) {
@@ -175,6 +288,7 @@ app.post('/api/login', async (req, res) => {
       email_verification_enabled: EMAIL_VERIFY_ENABLED
     };
     await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)', [user.login, 'Вход в систему']);
+    await logSecurityEvent(req,'login_success',true,'Authenticated',user.login);
     res.json(req.session.user);
   } catch (err) {
     console.error('Login error:', err);
@@ -199,7 +313,7 @@ app.get('/api/me', (req, res) => {
   res.json({ ...req.session.user, email_verification_enabled: true });
 });
 
-app.post('/api/email/send-verification', async (req,res)=>{
+app.post('/api/email/send-verification', authRateLimit, async (req,res)=>{
   if(!req.session.user)return res.status(401).json({error:'Не авторизован'});
   if(!EMAIL_VERIFY_ENABLED)return res.json({ok:true,disabled:true,message:'Подтверждение электронной почты временно отключено'});
   const email=normalizeEmail(req.body.email || req.session.user.email);
@@ -213,7 +327,7 @@ app.post('/api/email/send-verification', async (req,res)=>{
     res.json({ok:true,message:'Код отправлен на электронную почту'});
   }catch(e){console.error('Send verification:',e.message);res.status(400).json({error:e.message});}
 });
-app.post('/api/register/verify-email', async (req,res)=>{
+app.post('/api/register/verify-email', authRateLimit, async (req,res)=>{
   if(!EMAIL_VERIFY_ENABLED)return res.json({ok:true,disabled:true});
   const login=String(req.body.login||'').trim(), email=normalizeEmail(req.body.email), code=String(req.body.code||'').trim();
   try{
@@ -226,7 +340,7 @@ app.post('/api/register/verify-email', async (req,res)=>{
   }catch(e){console.error('Registration verify:',e.message);res.status(500).json({error:'Ошибка сервера'});}
 });
 
-app.post('/api/email/verify', async (req,res)=>{
+app.post('/api/email/verify', authRateLimit, async (req,res)=>{
   if(!req.session.user)return res.status(401).json({error:'Не авторизован'});
   if(!EMAIL_VERIFY_ENABLED){req.session.user.email_verified=true;return res.json({ok:true,disabled:true});}
   const email=normalizeEmail(req.session.user.email);
@@ -254,7 +368,7 @@ function normalizePhone(phone) {
   if(d.length!==11)return '';
   return '7 ('+d.slice(1,4)+') '+d.slice(4,7)+'-'+d.slice(7,9)+'-'+d.slice(9,11);
 }
-app.post('/api/register', async (req, res) => {
+app.post('/api/register', authRateLimit, async (req, res) => {
   const { fio, phone, password } = req.body;
   const email=normalizeEmail(req.body.email);
   const normalizedFio=normalizeRegistrationFio(fio);
@@ -288,7 +402,7 @@ app.post('/api/register', async (req, res) => {
 });
 
 // Recover password by verified email
-app.post('/api/recover/request', async (req,res)=>{
+app.post('/api/recover/request', authRateLimit, async (req,res)=>{
   if(!EMAIL_VERIFY_ENABLED)return res.status(503).json({error:'Восстановление пароля по email временно отключено. Обратитесь к руководителю сайта.'});
   const identifier=normalizeEmail(req.body.identifier);
   try{
@@ -299,7 +413,7 @@ app.post('/api/recover/request', async (req,res)=>{
     res.json({ok:true,message:'Если аккаунт найден и email подтверждён, код отправлен на привязанную почту.'});
   }catch(e){res.status(500).json({error:'Ошибка сервера'});}
 });
-app.post('/api/recover/reset', async (req,res)=>{
+app.post('/api/recover/reset', authRateLimit, async (req,res)=>{
   const identifier=normalizeEmail(req.body.identifier), code=String(req.body.code||'').trim(), password=String(req.body.password||'');
   if(password.length<8)return res.status(400).json({error:'Новый пароль должен содержать не менее 8 символов'});
   try{
@@ -915,6 +1029,13 @@ app.get('/api/log', requireAuth, async (req, res) => {
   }
 });
 
+app.get('/api/security-log', requireSiteManager, async (req,res)=>{
+  try{
+    const result=await pool.query('SELECT id,created_at,event,user_login,ip,user_agent,success,details FROM security_log ORDER BY created_at DESC LIMIT 500');
+    res.json(result.rows);
+  }catch(err){res.status(500).json({error:err.message});}
+});
+
 // === EXPORT/IMPORT ===
 app.get('/api/export', requireSiteManager, async (req, res) => {
   try {
@@ -1089,6 +1210,7 @@ app.post('/api/clear', requireSiteManager, async (req, res) => {
     await pool.query('DELETE FROM employee_balances');
     await pool.query('DELETE FROM bank_statement_payments');
     await pool.query('DELETE FROM action_log');
+    await pool.query('DELETE FROM security_log');
     await pool.query('DELETE FROM employees');
     await pool.query('DELETE FROM objects');
     await pool.query('DELETE FROM organizations');
