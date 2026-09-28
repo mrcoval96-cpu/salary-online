@@ -104,7 +104,7 @@ header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mobile-menu-toggle{display:none}
 .salary-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
 .salary-toolbar-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.salary-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}
+.salary-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0}
 .salary-summary-item{padding:12px;border:1px solid #e4e7eb;border-radius:8px;background:#fafbfc}
 .salary-summary-item label{display:block;font-size:12px;color:#666;margin-bottom:4px}
 .salary-summary-item b{font-size:18px}
@@ -126,7 +126,16 @@ header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .salary-card .chevron{transition:transform .2s}
 .salary-card.open .chevron{transform:rotate(180deg)}
 .salary-card .stats{display:flex;gap:20px;flex-wrap:wrap;margin-top:8px}
-.salary-paid-link{font-weight:600;color:#0f3460;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;cursor:pointer}
+.salary-paid-link,.salary-balance-link{font-weight:600;color:#0f3460;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;cursor:pointer}
+.salary-balance-date{font-size:11px;color:#777;margin-left:4px}
+.salary-balance-detail{display:none;border-top:1px solid #eef0f2;padding:10px 16px;background:#fffdf7}
+.salary-balance-detail.show{display:block}
+.balance-history-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:7px 0;border-bottom:1px solid #eceff2;font-size:13px}
+.balance-history-row:last-child{border-bottom:0}
+.balance-history-main{min-width:0}
+.balance-history-comment{font-size:12px;color:#777;margin-top:2px}
+.balance-history-actions{display:flex;gap:5px;flex:0 0 auto}
+.balance-help{font-size:12px;color:#667085;margin:-4px 0 12px}
 .salary-payment-detail{display:none;border-top:1px solid #eef0f2;padding:10px 16px;background:#f8fafc}
 .salary-payment-detail.show{display:block}
 .salary-payment-title{font-size:13px;font-weight:600;margin-bottom:7px;color:#16213e}
@@ -423,6 +432,7 @@ button,input,select,textarea{max-width:100%}
       <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
         <button class="btn btn-green" onclick="calculateAndSave()">Рассчитать и сохранить</button>
         <button class="btn btn-gray" onclick="clearInputForm()">Очистить</button>
+        <button class="btn btn-blue" onclick="openBalanceModal()">Ввод остатков</button>
         <button class="btn btn-blue" onclick="showImportStatement()">Импорт из выписки</button>
       </div>
       <div id="calcResult" style="margin-top:16px;padding:12px;background:#f8f9fa;border-radius:6px;display:none"></div>
@@ -448,6 +458,7 @@ button,input,select,textarea{max-width:100%}
       </div>
       <div class="period-bar"><button class="btn btn-gray btn-sm" onclick="changeSalaryPeriod(-1)">← месяц</button><span id="salaryPeriodLabel">Период</span><button class="btn btn-gray btn-sm" onclick="changeSalaryPeriod(1)">месяц →</button><span id="salaryPeriodStatus" class="period-status"></span><button id="periodToggleBtn" class="btn btn-red btn-sm" style="display:none" onclick="toggleCurrentPeriod()">Закрыть период</button><button class="btn btn-gray btn-sm" onclick="showSalaryArchive()">Архив удалённых</button></div>
       <div class="salary-summary" id="salarySummary">
+        <div class="salary-summary-item"><label>Остатки</label><b id="salarySummaryBalance">0,00 ₽</b></div>
         <div class="salary-summary-item"><label>Начислено</label><b id="salarySummaryTotal">0,00 ₽</b></div>
         <div class="salary-summary-item"><label>Выплачено</label><b id="salarySummaryPaid">0,00 ₽</b></div>
         <div class="salary-summary-item"><label>Задолженность</label><b id="salarySummaryDebt">0,00 ₽</b></div>
@@ -544,6 +555,7 @@ button,input,select,textarea{max-width:100%}
 <div class="modal-overlay" id="salaryEditModal"><div class="modal"><span class="modal-close" onclick="closeModal('salaryEditModal')">&times;</span><h2>Редактирование записи</h2><div class="form-row"><div class="form-group" style="position:relative"><label>Сотрудник</label><input type="text" id="editFio" oninput="autocompleteFio(this)" onblur="setTimeout(()=>hideAutocomplete('fioAc2'),200)"><div class="autocomplete-list" id="fioAc2"></div></div><div class="form-group" style="position:relative"><label>Объект</label><input type="text" id="editObject" oninput="autocompleteObj(this)" onblur="setTimeout(()=>hideAutocomplete('objAc2'),200)"><div class="autocomplete-list" id="objAc2"></div></div></div><div class="form-row"><div class="form-group"><label>Месяц</label><select id="editMonth"><option value="">—</option><option>Январь</option><option>Февраль</option><option>Март</option><option>Апрель</option><option>Май</option><option>Июнь</option><option>Июль</option><option>Август</option><option>Сентябрь</option><option>Октябрь</option><option>Ноябрь</option><option>Декабрь</option></select></div><div class="form-group"><label>Год</label><input type="text" id="editYear"></div><div class="form-group"><label>Дата начисления</label><input type="text" id="editChargeDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div></div><div class="form-row"><div class="form-group"><label>Ставка за час</label><input type="number" id="editHourRate"></div><div class="form-group"><label>Часы</label><input type="number" id="editHours"></div><div class="form-group"><label>Дни суточных</label><input type="number" id="editPerDiemDays"></div><div class="form-group"><label>Ставка суточных</label><input type="number" id="editPerDiemRate"></div></div><div class="form-group"><label>Дополнительные начисления</label><div id="editExtraContainer"></div><button class="btn btn-blue btn-sm" type="button" onclick="addEditExtraCharge()">+ Начисление</button></div><div class="form-group"><label>Выплаты</label><div id="editPaymentsContainer"></div><button class="btn btn-blue btn-sm" type="button" onclick="addEditPayment()">+ Выплата</button></div><div class="form-row"><div class="form-group"><label>Итого</label><input type="number" id="editTotal" readonly></div><div class="form-group"><label>Выплачено</label><input type="number" id="editPaid"></div></div><button class="btn btn-green" onclick="saveEditSalary()">Сохранить изменения</button></div></div>
 <div class="modal-overlay" id="salaryArchiveModal"><div class="modal"><span class="modal-close" onclick="closeModal('salaryArchiveModal')">&times;</span><h2>Архив удалённых начислений</h2><div id="salaryArchiveList"></div></div></div>
 <div class="modal-overlay" id="quickPaymentModal"><div class="modal"><span class="modal-close" onclick="closeModal('quickPaymentModal')">&times;</span><h2 id="quickPaymentTitle">Добавить выплату</h2><div class="form-group"><label>Запись начисления</label><select id="quickPaymentRecord"></select></div><div class="form-row"><div class="form-group"><label>Дата</label><input type="text" id="quickPaymentDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div><div class="form-group"><label>Сумма</label><input type="number" id="quickPaymentAmount" min="0" step="0.01" placeholder="0,00"></div></div><button class="btn btn-green" id="quickPaymentSave" onclick="saveQuickPayment()">Сохранить выплату</button></div></div>
+<div class="modal-overlay" id="balanceModal"><div class="modal"><span class="modal-close" onclick="closeModal('balanceModal')">&times;</span><h2 id="balanceModalTitle">Ввод остатка</h2><div class="balance-help">Остаток фиксирует задолженность перед сотрудником на указанную дату. Дальнейшие начисления и выплаты считаются от этой суммы. Отрицательная сумма означает аванс/переплату.</div><div class="form-group"><label>Сотрудник</label><select id="balanceEmployee" onchange="renderBalanceHistory()"></select></div><div class="form-row"><div class="form-group"><label>Дата остатка</label><input type="text" id="balanceDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div><div class="form-group"><label>Сумма остатка</label><input type="number" id="balanceAmount" step="0.01" placeholder="0,00"></div></div><div class="form-group"><label>Комментарий</label><textarea id="balanceComment" rows="2" placeholder="Например: остаток на начало ведения учёта"></textarea></div><button class="btn btn-green" id="balanceSaveBtn" onclick="saveEmployeeBalance()">Сохранить остаток</button><h3 style="font-size:15px;margin:20px 0 8px">История остатков</h3><div id="balanceHistory"></div></div></div>
 <div class="modal-overlay" id="logModal"><div class="modal"><span class="modal-close" onclick="closeModal('logModal')">&times;</span><h2>Журнал действий</h2><table><thead><tr><th>Дата</th><th>Пользователь</th><th>Действие</th></tr></thead><tbody id="logBody"></tbody></table></div></div>
 <div class="modal-overlay" id="roleModal"><div class="modal"><span class="modal-close" onclick="closeModal('roleModal')">&times;</span><h2>Назначить роль</h2><div class="form-group"><label>Роль</label><select id="roleSelect"><option value="">—</option><option>Руководитель сайта</option><option>Руководитель организации</option><option>Руководитель</option><option>Руководитель проекта</option></select></div><div class="form-group"><label>Организация</label><input type="text" id="roleOrg"></div><div class="form-group"><label>Объект</label><input type="text" id="roleObj"></div><button class="btn btn-green" onclick="saveRole()">Сохранить</button></div></div>
 <div class="modal-overlay" id="importStmtModal"><div class="modal"><span class="modal-close" onclick="closeModal('importStmtModal')">&times;</span><h2>Импорт из выписки</h2><p style="font-size:13px;color:#666;margin-bottom:10px">Одна строка: ФИО; сумма; дата. Дата необязательна.</p><div class="form-group"><textarea id="stmtText" rows="8" placeholder="Иванов И.И.; 50000; 2026-01"></textarea></div><button class="btn btn-green" onclick="doImportStatement()">Импортировать</button></div></div>
@@ -554,6 +566,7 @@ let employees = [];
 let objects = [];
 let organizations = [];
 let salaryRecords = [];
+let employeeBalances = [];
 let closedSalaryPeriods = [];
 let dashboardInitialized = false;
 let users = [];
@@ -561,6 +574,7 @@ let editingEmpId = null;
 let editingObjId = null;
 let editingOrgId = null;
 let editingSalaryId = null;
+let editingBalanceId = null;
 let editingUserId = null;
 
 
@@ -597,6 +611,43 @@ function recordInRange(r, from, to){
   if(from && (!d || d<from)) return false;
   if(to && (!d || d>to)) return false;
   return true;
+}
+
+function salaryCutoffDate(month,year){
+  if(!month)return '9999-12-31';
+  const m=monthNumber(month),y=parseInt(year,10);
+  if(!m||!y)return '9999-12-31';
+  const last=new Date(Date.UTC(y,m,0)).getUTCDate();
+  return y+'-'+String(m).padStart(2,'0')+'-'+String(last).padStart(2,'0');
+}
+function balanceItemsForEmployee(fio){
+  return employeeBalances.filter(function(b){return String(b.employee_fio||'').toLowerCase()===String(fio||'').toLowerCase();})
+    .slice().sort(function(a,b){return String(b.balance_date||'').localeCompare(String(a.balance_date||'')) || Number(b.id||0)-Number(a.id||0);});
+}
+function latestBalanceForEmployee(fio,cutoff){
+  const items=balanceItemsForEmployee(fio).filter(function(b){return !cutoff || String(b.balance_date||'').slice(0,10)<=cutoff;});
+  return items.length?items[0]:null;
+}
+function employeePositionAt(fio,cutoff){
+  cutoff=cutoff||'9999-12-31';
+  const opening=latestBalanceForEmployee(fio,cutoff),start=opening?String(opening.balance_date||'').slice(0,10):'';
+  let charged=0,paid=0;
+  salaryRecords.filter(function(r){return String(r.employee_fio||'').toLowerCase()===String(fio||'').toLowerCase();}).forEach(function(r){
+    const rd=recordExportDate(r);
+    const recordAfter=(!start || (rd && rd>start)) && (!cutoff || !rd || rd<=cutoff);
+    if(recordAfter)charged+=parseFloat(r.total||0);
+    const paymentItems=parseJsonArray(r.payments);
+    if(paymentItems.length){
+      paymentItems.forEach(function(p){
+        const pd=String((p&&(p.date||p.payment_date))||rd||'').slice(0,10);
+        if((!start || (pd && pd>start)) && (!cutoff || !pd || pd<=cutoff))paid+=parseFloat(p&&(p.amount!=null?p.amount:p.sum)||0)||0;
+      });
+    }else if(recordAfter){
+      paid+=parseFloat(r.paid||0);
+    }
+  });
+  const balance=opening?parseFloat(opening.amount||0):0;
+  return {opening:opening,balance:balance,charged:charged,paid:paid,debt:balance+charged-paid};
 }
 function toggleMobileMenu(){
   const info=document.getElementById('headerUserInfo'), btn=document.querySelector('.mobile-menu-toggle');
@@ -651,7 +702,7 @@ async function doLogin() {
   try {
     const user = await api('/api/login', 'POST', { login, password });
     currentUser = user;
-    if(!user.email_verified){showEmailRequired(user);return;}
+    if(user.email_verification_enabled!==false && !user.email_verified){showEmailRequired(user);return;}
     showApp();
   } catch (e) {
     document.getElementById('loginError').textContent = e.message;
@@ -754,9 +805,14 @@ async function doRegister() {
     const created=await withBusyButton('regSubmitBtn','Регистрируем…',function(){return api('/api/register', 'POST', { fio, phone, email, login, password });});
     document.getElementById('regMsg').className = 'success';
     document.getElementById('regMsg').textContent = created.message;
-    document.getElementById('regVerifyBlock').style.display='block';
-    document.getElementById('regVerifyBlock').dataset.login=created.login;
-    document.getElementById('regVerifyBlock').dataset.email=created.email;
+    const verifyBlock=document.getElementById('regVerifyBlock');
+    if(created.email_verification_required){
+      verifyBlock.style.display='block';
+      verifyBlock.dataset.login=created.login;
+      verifyBlock.dataset.email=created.email;
+    }else{
+      verifyBlock.style.display='none';
+    }
   } catch (e) {
     document.getElementById('regMsg').textContent = e.message;
   }
@@ -830,6 +886,7 @@ async function loadAll(){
     objects=await api('/api/objects');
     organizations=await api('/api/organizations');
     salaryRecords=await api('/api/salary');
+    employeeBalances=await api('/api/employee-balances');
     closedSalaryPeriods=await api('/api/salary-periods');
     fillSalaryExportEmployees();
     if(currentUser.role==='Руководитель сайта')users=await api('/api/users');
@@ -1061,6 +1118,63 @@ function clearInputForm() {
   document.getElementById('calcResult').style.display = 'none';
 }
 
+// === OPENING BALANCES ===
+function fillBalanceEmployeeSelect(selected){
+  const select=document.getElementById('balanceEmployee');if(!select)return;
+  const names=employees.map(function(e){return e.fio;}).filter(Boolean).sort(function(a,b){return a.localeCompare(b,'ru');});
+  select.innerHTML='<option value="">— Выберите сотрудника —</option>'+names.map(function(n){return '<option value="'+escapeHtml(n)+'">'+escapeHtml(n)+'</option>';}).join('');
+  if(selected&&names.indexOf(selected)>=0)select.value=selected;
+}
+function openBalanceModal(id){
+  editingBalanceId=id||null;
+  const existing=editingBalanceId?employeeBalances.find(function(b){return Number(b.id)===Number(editingBalanceId);}):null;
+  const preferred=existing?existing.employee_fio:(document.getElementById('inpFio').value.trim()||'');
+  fillBalanceEmployeeSelect(preferred);
+  document.getElementById('balanceDate').value=existing?isoToRuDate(String(existing.balance_date||'').slice(0,10)):isoToRuDate(new Date().toISOString().slice(0,10));
+  document.getElementById('balanceAmount').value=existing?Number(existing.amount||0):'';
+  document.getElementById('balanceComment').value=existing?(existing.comment||''):'';
+  document.getElementById('balanceModalTitle').textContent=existing?'Изменение остатка':'Ввод остатка';
+  document.getElementById('balanceSaveBtn').textContent=existing?'Сохранить изменения':'Сохранить остаток';
+  document.getElementById('balanceModal').classList.add('show');
+  initDateInputs(document.getElementById('balanceModal'));
+  renderBalanceHistory();
+}
+function renderBalanceHistory(){
+  const box=document.getElementById('balanceHistory');if(!box)return;
+  const fio=document.getElementById('balanceEmployee').value;
+  const items=fio?balanceItemsForEmployee(fio):[];
+  box.innerHTML=items.length?items.map(function(b){
+    return '<div class="balance-history-row"><div class="balance-history-main"><b>'+formatDateRu(b.balance_date)+' — '+formatMoney(b.amount)+' ₽</b>'+(b.comment?'<div class="balance-history-comment">'+escapeHtml(b.comment)+'</div>':'')+'</div><div class="balance-history-actions"><button class="btn btn-blue btn-sm" type="button" onclick="editEmployeeBalance('+b.id+')">Изменить</button><button class="btn btn-red btn-sm" type="button" onclick="deleteEmployeeBalance('+b.id+')">Удалить</button></div></div>';
+  }).join(''):'<div class="salary-payment-empty">Для выбранного сотрудника остатки ещё не вводились.</div>';
+}
+function editEmployeeBalance(id){openBalanceModal(id);}
+async function saveEmployeeBalance(){
+  try{
+    const fio=document.getElementById('balanceEmployee').value;
+    const date=validateDateField(document.getElementById('balanceDate').value,'Дата остатка',true);
+    const raw=document.getElementById('balanceAmount').value;
+    if(!fio)throw new Error('Выберите сотрудника');
+    if(raw==='')throw new Error('Укажите сумму остатка');
+    const amount=Number(raw);if(!Number.isFinite(amount))throw new Error('Укажите корректную сумму остатка');
+    const payload={employee_fio:fio,balance_date:date,amount:amount,comment:document.getElementById('balanceComment').value.trim()};
+    if(editingBalanceId)await api('/api/employee-balances/'+editingBalanceId,'PUT',payload);else await api('/api/employee-balances','POST',payload);
+    employeeBalances=await api('/api/employee-balances');
+    closeModal('balanceModal');renderSalary();
+    toast(editingBalanceId?'Остаток изменён':'Остаток сохранён');
+    editingBalanceId=null;
+  }catch(e){toast(e.message,'error');}
+}
+async function deleteEmployeeBalance(id){
+  const b=employeeBalances.find(function(x){return Number(x.id)===Number(id);});
+  if(!b||!confirm('Удалить остаток '+formatMoney(b.amount)+' ₽ от '+formatDateRu(b.balance_date)+'?'))return;
+  try{
+    await api('/api/employee-balances/'+id,'DELETE');
+    employeeBalances=await api('/api/employee-balances');
+    if(document.getElementById('balanceModal').classList.contains('show'))renderBalanceHistory();
+    renderSalary();toast('Остаток удалён');
+  }catch(e){toast(e.message,'error');}
+}
+
 // === SALARY ===
 function formatExtra(ec){
   const items=normalizeExtraItems(ec);
@@ -1132,44 +1246,75 @@ function renderSalary(){
   const debtOnly=document.getElementById('salaryDebtOnly').checked;
   const search=(document.getElementById('salarySearch').value||'').toLowerCase();
   const periodYears=salaryRecords.filter(r=>!filter||r.month===filter).map(r=>String(r.year)).filter(Boolean).sort(),periodYear=periodYears.length?periodYears[periodYears.length-1]:String(new Date().getFullYear()),closed=filter&&isPeriodClosed(filter,periodYear);
+  const cutoff=salaryCutoffDate(filter,periodYear);
   document.getElementById('salaryPeriodLabel').textContent=filter?(filter+' '+periodYear):'Все периоды';
   document.getElementById('salaryPeriodStatus').textContent=filter?(closed?'● Период закрыт':'● Период открыт'):'';
   document.getElementById('salaryPeriodStatus').className='period-status '+(closed?'period-closed':'period-open');
   const toggle=document.getElementById('periodToggleBtn');toggle.style.display=(filter&&currentUser.role==='Руководитель сайта')?'inline-block':'none';toggle.textContent=closed?'Открыть период':'Закрыть период';toggle.className='btn '+(closed?'btn-green':'btn-red')+' btn-sm';
+
   let records=salaryRecords.slice();
-  if(filter)records=records.filter(function(r){return r.month===filter;});
+  if(filter)records=records.filter(function(r){return r.month===filter&&String(r.year)===String(periodYear);});
   if(objectFilter)records=records.filter(function(r){return r.object_name===objectFilter;});
   if(search)records=records.filter(function(r){return (r.employee_fio||'').toLowerCase().includes(search);});
-  if(debtOnly)records=records.filter(function(r){return parseFloat(r.total||0)-parseFloat(r.paid||0)>0.005;});
-  const summaryTotal=records.reduce(function(s,r){return s+parseFloat(r.total||0);},0);
-  const summaryPaid=records.reduce(function(s,r){return s+parseFloat(r.paid||0);},0);
-  document.getElementById('salarySummaryTotal').textContent=formatMoney(summaryTotal)+' ₽';
-  document.getElementById('salarySummaryPaid').textContent=formatMoney(summaryPaid)+' ₽';
-  document.getElementById('salarySummaryDebt').textContent=formatMoney(summaryTotal-summaryPaid)+' ₽';
+
   const byEmp={};
   records.forEach(function(r){if(!byEmp[r.employee_fio])byEmp[r.employee_fio]=[];byEmp[r.employee_fio].push(r);});
+  if(!objectFilter){
+    employeeBalances.forEach(function(b){
+      const fio=b.employee_fio||'';
+      if(!fio)return;
+      if(String(b.balance_date||'').slice(0,10)>cutoff)return;
+      if(search&&!fio.toLowerCase().includes(search))return;
+      if(!byEmp[fio])byEmp[fio]=[];
+    });
+  }
+
+  let employeeNames=Object.keys(byEmp);
+  if(debtOnly)employeeNames=employeeNames.filter(function(fio){return employeePositionAt(fio,cutoff).debt>0.005;});
+
+  const visibleRecords=[];
+  employeeNames.forEach(function(fio){(byEmp[fio]||[]).forEach(function(r){visibleRecords.push(r);});});
+  const summaryTotal=visibleRecords.reduce(function(sum,r){return sum+parseFloat(r.total||0);},0);
+  const summaryPaid=visibleRecords.reduce(function(sum,r){return sum+parseFloat(r.paid||0);},0);
+  const summaryBalance=employeeNames.reduce(function(sum,fio){return sum+employeePositionAt(fio,cutoff).balance;},0);
+  const summaryDebt=employeeNames.reduce(function(sum,fio){return sum+employeePositionAt(fio,cutoff).debt;},0);
+  document.getElementById('salarySummaryBalance').textContent=formatMoney(summaryBalance)+' ₽';
+  document.getElementById('salarySummaryTotal').textContent=formatMoney(summaryTotal)+' ₽';
+  document.getElementById('salarySummaryPaid').textContent=formatMoney(summaryPaid)+' ₽';
+  document.getElementById('salarySummaryDebt').textContent=formatMoney(summaryDebt)+' ₽';
+
   const container=document.getElementById('salaryCards');container.innerHTML='';
-  if(!records.length){container.innerHTML='<div class="salary-payment-empty" style="padding:18px 0">Нет записей по выбранным фильтрам.</div>';return;}
-  Object.keys(byEmp).sort(function(a,b){return a.localeCompare(b,'ru');}).forEach(function(fio){
-    const recs=byEmp[fio].slice().sort(function(a,b){return (recordExportDate(a)||'').localeCompare(recordExportDate(b)||'');});
-    const total=recs.reduce(function(s,r){return s+parseFloat(r.total||0);},0);
-    const paid=recs.reduce(function(s,r){return s+parseFloat(r.paid||0);},0);
-    const debt=total-paid,paymentItems=paymentItemsForRecords(recs);
+  if(!employeeNames.length){container.innerHTML='<div class="salary-payment-empty" style="padding:18px 0">Нет записей по выбранным фильтрам.</div>';return;}
+
+  employeeNames.sort(function(a,b){return a.localeCompare(b,'ru');}).forEach(function(fio){
+    const recs=(byEmp[fio]||[]).slice().sort(function(a,b){return (recordExportDate(a)||'').localeCompare(recordExportDate(b)||'');});
+    const total=recs.reduce(function(sum,r){return sum+parseFloat(r.total||0);},0);
+    const paid=recs.reduce(function(sum,r){return sum+parseFloat(r.paid||0);},0);
+    const position=employeePositionAt(fio,cutoff),opening=position.opening,paymentItems=paymentItemsForRecords(recs),balanceItems=balanceItemsForEmployee(fio);
     const card=document.createElement('div');card.className='salary-card';
     const head=document.createElement('button');head.type='button';head.className='salary-card-head';head.setAttribute('aria-expanded','false');
-    head.innerHTML='<div class="name"><span class="chevron">▼</span>'+escapeHtml(fio)+' <span style="font-size:12px;color:#777">('+recs.length+' зап.)</span></div><div class="stats"><div class="stat">Начислено: <span>'+formatMoney(total)+' ₽</span></div><div class="stat">Выплачено: <span class="salary-paid-link" role="button" tabindex="0" title="Показать выплаты">'+formatMoney(paid)+' ₽</span></div><div class="stat">Задолженность: <span>'+formatMoney(debt)+' ₽</span></div></div>';
+    const balanceDate=opening?'<span class="salary-balance-date">на '+formatDateRu(opening.balance_date)+'</span>':'';
+    head.innerHTML='<div class="name"><span class="chevron">▼</span>'+escapeHtml(fio)+' <span style="font-size:12px;color:#777">('+recs.length+' зап.)</span></div><div class="stats"><div class="stat">Остаток: <span class="salary-balance-link" role="button" tabindex="0" title="Показать историю остатков">'+formatMoney(position.balance)+' ₽</span>'+balanceDate+'</div><div class="stat">Начислено: <span>'+formatMoney(total)+' ₽</span></div><div class="stat">Выплачено: <span class="salary-paid-link" role="button" tabindex="0" title="Показать выплаты">'+formatMoney(paid)+' ₽</span></div><div class="stat">Задолженность: <span>'+formatMoney(position.debt)+' ₽</span></div></div>';
+
+    const balanceDetail=document.createElement('div');balanceDetail.className='salary-balance-detail';
+    balanceDetail.innerHTML='<div class="salary-payment-title">История остатков</div>'+(balanceItems.length?balanceItems.map(function(b){return '<div class="balance-history-row"><div class="balance-history-main"><span>'+formatDateRu(b.balance_date)+' — <b>'+formatMoney(b.amount)+' ₽</b></span>'+(b.comment?'<div class="balance-history-comment">'+escapeHtml(b.comment)+'</div>':'')+'</div><div class="balance-history-actions"><button class="btn btn-blue btn-sm" type="button" onclick="event.stopPropagation();editEmployeeBalance('+b.id+')">Изменить</button><button class="btn btn-red btn-sm" type="button" onclick="event.stopPropagation();deleteEmployeeBalance('+b.id+')">Удалить</button></div></div>';}).join(''):'<div class="salary-payment-empty">Остатки не вводились.</div>');
+    const balanceLink=head.querySelector('.salary-balance-link');
+    function toggleBalances(event){if(event){event.preventDefault();event.stopPropagation();}balanceDetail.classList.toggle('show');}
+    balanceLink.addEventListener('click',toggleBalances);balanceLink.addEventListener('keydown',function(event){if(event.key==='Enter'||event.key===' '){toggleBalances(event);}});
+
     const paymentDetail=document.createElement('div');paymentDetail.className='salary-payment-detail';
-    paymentDetail.innerHTML='<div class="salary-payment-title">История выплат</div>'+(paymentItems.length?paymentItems.map(function(p){return '<div class="salary-payment-row"><span>'+(p.date?formatDateRu(p.date):'Дата не указана')+' — <b>'+formatMoney(p.amount)+' ₽</b></span><span class="salary-payment-actions"><button class="btn btn-blue btn-sm" type="button" onclick="editPayment('+p.recordId+','+p.index+')">Изменить</button><button class="btn btn-red btn-sm" type="button" onclick="deletePayment('+p.recordId+','+p.index+')">Удалить</button></span></div>';}).join(''):'<div class="salary-payment-empty">Выплаты не указаны.</div>');
+    paymentDetail.innerHTML='<div class="salary-payment-title">История выплат за выбранный период</div>'+(paymentItems.length?paymentItems.map(function(p){return '<div class="salary-payment-row"><span>'+(p.date?formatDateRu(p.date):'Дата не указана')+' — <b>'+formatMoney(p.amount)+' ₽</b></span><span class="salary-payment-actions"><button class="btn btn-blue btn-sm" type="button" onclick="editPayment('+p.recordId+','+p.index+')">Изменить</button><button class="btn btn-red btn-sm" type="button" onclick="deletePayment('+p.recordId+','+p.index+')">Удалить</button></span></div>';}).join(''):'<div class="salary-payment-empty">Выплаты не указаны.</div>');
     const paidLink=head.querySelector('.salary-paid-link');
     function togglePayments(event){if(event){event.preventDefault();event.stopPropagation();}paymentDetail.classList.toggle('show');}
     paidLink.addEventListener('click',togglePayments);paidLink.addEventListener('keydown',function(event){if(event.key==='Enter'||event.key===' '){togglePayments(event);}});
+
     const detail=document.createElement('div');detail.className='salary-detail';
-    detail.innerHTML='<div class="salary-records">'+recs.map(function(r){
+    detail.innerHTML=(recs.length?'<div class="salary-records">'+recs.map(function(r){
       const rowDebt=parseFloat(r.total||0)-parseFloat(r.paid||0);
-      return '<div class="salary-entry"><div class="salary-entry-top"><div class="salary-entry-date">Дата начисления: '+formatDateRu(r.charge_date)+'</div><div class="salary-entry-month">'+escapeHtml((r.month||'')+(r.year?' '+r.year:''))+'</div></div><div class="salary-entry-grid"><div class="salary-entry-field"><label>Объект</label><div>'+escapeHtml(r.object_name||'—')+'</div></div><div class="salary-entry-field"><label>Ставка / часы</label><div>'+formatMoney(r.hour_rate)+' ₽ × '+escapeHtml(r.hours||0)+'</div></div><div class="salary-entry-field"><label>Суточные</label><div>'+escapeHtml(r.per_diem_days||0)+' × '+formatMoney(r.per_diem_rate)+' ₽</div></div><div class="salary-entry-field"><label>Доп. начисления</label><div>'+formatExtra(r.extra_charges)+'</div></div></div><div class="salary-entry-totals"><span>Итого: <b>'+formatMoney(r.total)+' ₽</b></span><span>Выплачено: <b>'+formatMoney(r.paid)+' ₽</b></span><span>Долг: <b>'+formatMoney(rowDebt)+' ₽</b></span></div><div class="salary-entry-actions"><button class="btn btn-green btn-sm" type="button" onclick="event.stopPropagation();openQuickPayment('+r.id+')">+ Выплата</button><button class="btn btn-blue btn-sm" type="button" onclick="event.stopPropagation();editSalary('+r.id+')">Изменить</button><button class="btn btn-red btn-sm" type="button" onclick="event.stopPropagation();deleteSalary('+r.id+')">Удалить</button></div></div>';
-    }).join('')+'</div><div class="salary-entry-actions"><button class="btn btn-green btn-sm" type="button" onclick="event.stopPropagation();openQuickPaymentForEmployee('+JSON.stringify(fio).replace(/"/g,'&quot;')+')">+ Выплата сотруднику</button><button class="btn btn-blue btn-sm" type="button" onclick="event.stopPropagation();exportSalaryCSV('+JSON.stringify(fio).replace(/"/g,'&quot;')+')">Экспорт</button></div>';
+      return '<div class="salary-entry"><div class="salary-entry-top"><div class="salary-entry-date">Дата начисления: '+formatDateRu(r.charge_date)+'</div><div class="salary-entry-month">'+escapeHtml((r.month||'')+(r.year?' '+r.year:''))+'</div></div><div class="salary-entry-grid"><div class="salary-entry-field"><label>Объект</label><div>'+escapeHtml(r.object_name||'—')+'</div></div><div class="salary-entry-field"><label>Ставка / часы</label><div>'+formatMoney(r.hour_rate)+' ₽ × '+escapeHtml(r.hours||0)+'</div></div><div class="salary-entry-field"><label>Суточные</label><div>'+escapeHtml(r.per_diem_days||0)+' × '+formatMoney(r.per_diem_rate)+' ₽</div></div><div class="salary-entry-field"><label>Доп. начисления</label><div>'+formatExtra(r.extra_charges)+'</div></div></div><div class="salary-entry-totals"><span>Итого: <b>'+formatMoney(r.total)+' ₽</b></span><span>Выплачено: <b>'+formatMoney(r.paid)+' ₽</b></span><span>Долг записи: <b>'+formatMoney(rowDebt)+' ₽</b></span></div><div class="salary-entry-actions"><button class="btn btn-green btn-sm" type="button" onclick="event.stopPropagation();openQuickPayment('+r.id+')">+ Выплата</button><button class="btn btn-blue btn-sm" type="button" onclick="event.stopPropagation();editSalary('+r.id+')">Изменить</button><button class="btn btn-red btn-sm" type="button" onclick="event.stopPropagation();deleteSalary('+r.id+')">Удалить</button></div></div>';
+    }).join('')+'</div>':'<div class="salary-payment-empty">После ввода остатка начислений за выбранный период нет.</div>')+'<div class="salary-entry-actions"><button class="btn btn-green btn-sm" type="button" onclick="event.stopPropagation();openQuickPaymentForEmployee('+JSON.stringify(fio).replace(/"/g,'&quot;')+')">+ Выплата сотруднику</button><button class="btn btn-blue btn-sm" type="button" onclick="event.stopPropagation();exportSalaryCSV('+JSON.stringify(fio).replace(/"/g,'&quot;')+')">Экспорт</button></div>';
     head.onclick=function(){const open=detail.classList.toggle('show');card.classList.toggle('open',open);head.setAttribute('aria-expanded',open?'true':'false');};
-    card.appendChild(head);card.appendChild(paymentDetail);card.appendChild(detail);container.appendChild(card);
+    card.appendChild(head);card.appendChild(balanceDetail);card.appendChild(paymentDetail);card.appendChild(detail);container.appendChild(card);
   });
 }
 let quickPaymentEdit=null;
