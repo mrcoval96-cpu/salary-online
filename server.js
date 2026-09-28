@@ -705,6 +705,23 @@ app.post('/api/bank-payments/import', requireAuth, async (req,res)=>{
     res.status(500).json({error:err.message});
   }finally{client.release();}
 });
+app.delete('/api/bank-payments/:id', requireAuth, async (req,res)=>{
+  const id=Number(req.params.id);
+  if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректный ID банковской выплаты'});
+  try{
+    const result=await pool.query('DELETE FROM bank_statement_payments WHERE id=$1 RETURNING *',[id]);
+    if(!result.rows.length)return res.status(404).json({error:'Банковская выплата не найдена'});
+    const p=result.rows[0];
+    await pool.query(
+      'INSERT INTO action_log(user_login,action) VALUES($1,$2)',
+      [req.session.user.login,'Удалена банковская выплата: '+(p.employee_fio||'')+', '+String(p.transaction_date||'').slice(0,10)+', '+Number(p.amount||0).toFixed(2)+' ₽, '+(p.bank||'')]
+    );
+    res.json({ok:true,payment:p});
+  }catch(err){
+    console.error('Bank payment delete error:',err);
+    res.status(500).json({error:err.message});
+  }
+});
 
 // === EMPLOYEE OPENING BALANCES ===
 app.get('/api/employee-balances', requireAuth, async (req,res)=>{
