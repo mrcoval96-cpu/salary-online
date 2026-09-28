@@ -39,10 +39,22 @@ try {
 } catch(e) {}
 
 
+if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
 const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
   ...sslConfig
 });
+try{
+  const dbUrl=new URL(process.env.DATABASE_URL);
+  const hosted=!['localhost','127.0.0.1','::1'].includes(dbUrl.hostname);
+  if(hosted && !sslConfig.ssl && String(process.env.DB_ALLOW_PLAINTEXT||'').toLowerCase()!=='true'){
+    throw new Error('Refusing unencrypted connection to hosted PostgreSQL. Configure TLS or set DB_ALLOW_PLAINTEXT=true only if the database is on a trusted private network.');
+  }
+  console.log('Database transport:',sslConfig.ssl?'TLS enabled':(hosted?'plaintext explicitly allowed':'local connection'));
+}catch(e){
+  if(String(e.message||'').startsWith('Refusing unencrypted'))throw e;
+  console.warn('Database security check:',e.message);
+}
 
 
 async function ensureDatabaseSchema(){
@@ -297,12 +309,13 @@ app.post('/api/login', authRateLimit, async (req, res) => {
 });
 
 // Logout
-app.post('/api/logout', (req, res) => {
-  if (req.session.user) {
-    pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)', [req.session.user.login, 'Выход из системы']);
+app.post('/api/logout', async (req, res) => {
+  const login=req.session&&req.session.user?req.session.user.login:'';
+  if (login) {
+    try{await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)', [login, 'Выход из системы']);}catch(e){}
+    await logSecurityEvent(req,'logout',true,'Session ended',login);
   }
-  req.session.destroy();
-  res.json({ ok: true });
+  req.session.destroy(()=>res.json({ ok: true }));
 });
 
 // Check session
@@ -1113,7 +1126,7 @@ app.post('/api/import', requireSiteManager, async (req, res) => {
 // === FULL BACKUP / RESTORE ===
 app.get('/api/backup', requireSiteManager, async (req, res) => {
   try {
-    const [users, employees, objects, orgs, salary, balances, bankPayments, objectResponsibles, log] = await Promise.all([
+    const [users, employees, objects, orgs, salary, balances, bankPayments, objectResponsibles, log, securityLog] = await Promise.all([
       pool.query('SELECT * FROM users ORDER BY id'),
       pool.query('SELECT * FROM employees ORDER BY id'),
       pool.query('SELECT * FROM objects ORDER BY id'),
@@ -1122,7 +1135,8 @@ app.get('/api/backup', requireSiteManager, async (req, res) => {
       pool.query('SELECT * FROM employee_balances ORDER BY id'),
       pool.query('SELECT * FROM bank_statement_payments ORDER BY id'),
       pool.query('SELECT object_id, employee_id, created_at FROM object_responsibles ORDER BY object_id, employee_id'),
-      pool.query('SELECT * FROM action_log ORDER BY id')
+      pool.query('SELECT * FROM action_log ORDER BY id'),
+      pool.query('SELECT * FROM security_log ORDER BY id')
     ]);
     res.json({
       format: 'salary-online-backup',
@@ -1131,7 +1145,7 @@ app.get('/api/backup', requireSiteManager, async (req, res) => {
       users: users.rows, employees: employees.rows, objects: objects.rows,
       organizations: orgs.rows, salary: salary.rows, employee_balances: balances.rows,
       bank_statement_payments: bankPayments.rows,
-      object_responsibles: objectResponsibles.rows, log: log.rows
+      object_responsibles: objectResponsibles.rows, log: log.rows, security_log: securityLog.rows
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1152,6 +1166,7 @@ app.post('/api/restore', requireSiteManager, async (req, res) => {
     await client.query('DELETE FROM employees');
     await client.query('DELETE FROM organizations');
     await client.query('DELETE FROM action_log');
+    await client.query('DELETE FROM security_log');
     await client.query('DELETE FROM users');
 
     for(const u of data.users){
@@ -1192,7 +1207,11 @@ app.post('/api/restore', requireSiteManager, async (req, res) => {
       await client.query('INSERT INTO action_log (id,user_login,action,created_at) VALUES ($1,$2,$3,$4)',
         [l.id,l.user_login||'',l.action||'',l.created_at||new Date()]);
     }
-    for(const table of ['users','employees','objects','organizations','salary_records','employee_balances','bank_statement_payments','action_log']){
+    for(const l of (data.security_log||[])){
+      await client.query('INSERT INTO security_log (id,created_at,event,user_login,ip,user_agent,success,details) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+        [l.id,l.created_at||new Date(),l.event||'',l.user_login||'',l.ip||'',l.user_agent||'',!!l.success,l.details||'']);
+    }
+    for(const table of ['users','employees','objects','organizations','salary_records','employee_balances','bank_statement_payments','action_log','security_log']){
       await client.query("SELECT setval(pg_get_serial_sequence('"+table+"','id'), COALESCE((SELECT MAX(id) FROM "+table+"),1), (SELECT COUNT(*)>0 FROM "+table+"))");
     }
     await client.query('COMMIT');
