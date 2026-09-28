@@ -14,8 +14,9 @@ const app = express();
 app.get('/health', (req, res) => res.status(200).send('OK'));
 
 const PORT = process.env.PORT || 3000;
-// Email verification is temporarily disabled by default until SMTP is restored.
-const EMAIL_VERIFY_ENABLED = String(process.env.EMAIL_VERIFY_ENABLED || 'false').toLowerCase() === 'true';
+// Email verification is temporarily disabled until SMTP access is restored.
+// Keep this hard-disabled so an old Timeweb environment variable cannot block login.
+const EMAIL_VERIFY_ENABLED = false;
 
 // PostgreSQL pool
 const fs = require('fs');
@@ -180,7 +181,9 @@ app.post('/api/logout', (req, res) => {
 // Check session
 app.get('/api/me', (req, res) => {
   if (!req.session.user) return res.status(401).json({ error: 'Не авторизован' });
-  res.json(req.session.user);
+  // While email verification is disabled, also normalize old sessions created before the switch.
+  if (!EMAIL_VERIFY_ENABLED) return res.json({ ...req.session.user, email_verified: true, email_verification_enabled: false });
+  res.json({ ...req.session.user, email_verification_enabled: true });
 });
 
 app.post('/api/email/send-verification', async (req,res)=>{
