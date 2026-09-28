@@ -1290,7 +1290,7 @@ function renderSalary(){
   }
 
   let employeeNames=Object.keys(byEmp);
-  if(debtOnly)employeeNames=employeeNames.filter(function(fio){return employeePositionAt(fio,cutoff).debt>0.005;});
+  if(debtOnly)employeeNames=employeeNames.filter(function(fio){return Math.abs(employeePositionAt(fio,cutoff).debt)>0.005;});
 
   const visibleRecords=[];
   employeeNames.forEach(function(fio){(byEmp[fio]||[]).forEach(function(r){visibleRecords.push(r);});});
