@@ -732,6 +732,26 @@ function formatMoney(value) {
 }
 
 // === LOGIN ===
+function continueAfterLogin(user){
+  currentUser=user;
+  const verificationEnabled=user && user.email_verification_enabled !== false;
+  if(verificationEnabled && !user.email_verified){
+    document.getElementById('loginForm').style.display='none';
+    document.getElementById('registerForm').style.display='none';
+    document.getElementById('recoverForm').style.display='none';
+    document.getElementById('emailRequiredForm').style.display='block';
+    document.getElementById('requiredEmail').value=user.email||'';
+    document.getElementById('requiredEmailCode').value='';
+    document.getElementById('requiredCodeBlock').style.display='none';
+    const msg=document.getElementById('requiredEmailMsg');
+    msg.className='error';
+    msg.textContent=user.email
+      ? 'Подтвердите электронную почту, чтобы продолжить работу.'
+      : 'Укажите и подтвердите электронную почту, чтобы продолжить работу.';
+    return;
+  }
+  showApp();
+}
 async function doLogin() {
   const login = document.getElementById('loginInput').value.trim();
   const password = document.getElementById('passwordInput').value.trim();
@@ -739,9 +759,7 @@ async function doLogin() {
   if (!login || !password) { document.getElementById('loginError').textContent = 'Введите логин и пароль'; return; }
   try {
     const user = await api('/api/login', 'POST', { login, password });
-    currentUser = user;
-    // Email verification is temporarily disabled; do not block login on the client.
-    showApp();
+    continueAfterLogin(user);
   } catch (e) {
     document.getElementById('loginError').textContent = e.message;
   }
@@ -2228,8 +2246,7 @@ function closeModal(id) {
 async function init() {
   try {
     const user = await api('/api/me');
-    currentUser = user;
-    showApp();
+    continueAfterLogin(user);
   } catch (e) {
     // Not logged in, show login screen
     document.getElementById('loginScreen').style.display = 'block';
