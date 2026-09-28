@@ -482,15 +482,16 @@ button,input,select,textarea{max-width:100%}
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
         <h2>Список сотрудников</h2>
-        <div style="display:flex;gap:8px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
           <input type="text" id="empSearch" placeholder="Поиск" oninput="renderEmployees()">
           <button class="btn btn-green btn-sm" onclick="showEmpModal()">+ Добавить</button>
+          <button class="btn btn-red btn-sm" id="deleteSelectedEmployeesBtn" onclick="deleteSelectedEmployees()" disabled>Удалить выбранных (0)</button>
           <button class="btn btn-blue btn-sm" onclick="exportEmployeesExcel()">Экспорт Excel</button>
           <label class="btn btn-blue btn-sm" style="cursor:pointer">Импорт Excel<input type="file" accept=".xlsx,.xls" onchange="importEmployeesExcel(event)" style="display:none"></label>
         </div>
       </div>
       <table id="employeesTable">
-        <thead><tr><th>ФИО</th><th>Организация</th><th>Должность</th><th>Телефон</th><th>Дата рождения</th><th>Комментарии</th><th>Действия</th></tr></thead>
+        <thead><tr><th style="width:42px;text-align:center"><input type="checkbox" id="employeesSelectAll" aria-label="Выбрать всех видимых сотрудников" onchange="toggleSelectAllEmployees(this.checked)"></th><th>ФИО</th><th>Организация</th><th>Должность</th><th>Телефон</th><th>Дата рождения</th><th>Комментарии</th><th>Действия</th></tr></thead>
         <tbody id="employeesBody"></tbody>
       </table>
     </div>
@@ -571,6 +572,7 @@ let closedSalaryPeriods = [];
 let dashboardInitialized = false;
 let users = [];
 let editingEmpId = null;
+const selectedEmployeeIds = new Set();
 let editingObjId = null;
 let editingOrgId = null;
 let editingSalaryId = null;
@@ -1465,13 +1467,47 @@ function exportSalaryCSV(fio){
 }
 
 // === EMPLOYEES ===
+function normalizeEmployeeFio(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('ru-RU');
+}
+function visibleEmployees() {
+  const search = normalizeEmployeeFio(document.getElementById('empSearch').value || '');
+  return search ? employees.filter(function(e){ return normalizeEmployeeFio(e.fio).includes(search); }) : employees.slice();
+}
+function updateEmployeeSelectionUi() {
+  const visible = visibleEmployees();
+  const visibleIds = visible.map(function(e){ return Number(e.id); });
+  const selectedVisible = visibleIds.filter(function(id){ return selectedEmployeeIds.has(id); }).length;
+  const selectAll = document.getElementById('employeesSelectAll');
+  if (selectAll) {
+    selectAll.checked = visibleIds.length > 0 && selectedVisible === visibleIds.length;
+    selectAll.indeterminate = selectedVisible > 0 && selectedVisible < visibleIds.length;
+  }
+  const btn = document.getElementById('deleteSelectedEmployeesBtn');
+  if (btn) {
+    btn.disabled = selectedEmployeeIds.size === 0;
+    btn.textContent = 'Удалить выбранных (' + selectedEmployeeIds.size + ')';
+  }
+}
+function toggleEmployeeSelection(id, checked) {
+  id = Number(id);
+  if (checked) selectedEmployeeIds.add(id); else selectedEmployeeIds.delete(id);
+  updateEmployeeSelectionUi();
+}
+function toggleSelectAllEmployees(checked) {
+  visibleEmployees().forEach(function(e){
+    const id = Number(e.id);
+    if (checked) selectedEmployeeIds.add(id); else selectedEmployeeIds.delete(id);
+  });
+  renderEmployees();
+}
 function renderEmployees() {
-  const search = (document.getElementById('empSearch').value || '').toLowerCase();
-  let list = employees;
-  if (search) list = list.filter(e => e.fio.toLowerCase().includes(search));
-  document.getElementById('employeesBody').innerHTML = list.map(e =>
-    '<tr><td>' + (e.fio||'') + '</td><td>' + (e.organization||'') + '</td><td>' + (e.position||'') + '</td><td>' + (e.phone||'') + '</td><td>' + (e.birth_date||'') + '</td><td>' + (e.comments||'') + '</td><td><button class="btn btn-blue btn-sm" onclick="editEmp(' + e.id + ')">Изм.</button> <button class="btn btn-red btn-sm" onclick="deleteEmp(' + e.id + ')">Удал.</button></td></tr>'
-  ).join('');
+  const list = visibleEmployees();
+  document.getElementById('employeesBody').innerHTML = list.map(function(e){
+    const id = Number(e.id);
+    return '<tr><td style="text-align:center"><input type="checkbox" class="employee-row-check" aria-label="Выбрать сотрудника '+escapeHtml(e.fio||'')+'" '+(selectedEmployeeIds.has(id)?'checked':'')+' onchange="toggleEmployeeSelection('+id+',this.checked)"></td><td>' + escapeHtml(e.fio||'') + '</td><td>' + escapeHtml(e.organization||'') + '</td><td>' + escapeHtml(e.position||'') + '</td><td>' + escapeHtml(e.phone||'') + '</td><td>' + escapeHtml(e.birth_date||'') + '</td><td>' + escapeHtml(e.comments||'') + '</td><td><button class="btn btn-blue btn-sm" onclick="editEmp(' + id + ')">Изм.</button> <button class="btn btn-red btn-sm" onclick="deleteEmp(' + id + ')">Удал.</button></td></tr>';
+  }).join('');
+  updateEmployeeSelectionUi();
 }
 
 function showEmpModal() {
@@ -1526,9 +1562,22 @@ async function deleteEmp(id) {
   if (!confirm('Удалить сотрудника?')) return;
   try {
     await api('/api/employees/' + id, 'DELETE');
+    selectedEmployeeIds.delete(Number(id));
     employees = await api('/api/employees');
     renderEmployees();
     toast('Сотрудник удалён');
+  } catch (e) { toast(e.message, 'error'); }
+}
+async function deleteSelectedEmployees() {
+  const ids = Array.from(selectedEmployeeIds);
+  if (!ids.length) return;
+  if (!confirm('Удалить выбранных сотрудников: ' + ids.length + '?')) return;
+  try {
+    const result = await api('/api/employees/bulk-delete', 'POST', { ids: ids });
+    selectedEmployeeIds.clear();
+    employees = await api('/api/employees');
+    renderEmployees();
+    toast('Удалено сотрудников: ' + Number(result.deleted || 0));
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -1545,39 +1594,44 @@ function exportEmployeesExcel() {
 async function importEmployeesExcel(event) {
   const file = event.target.files[0];
   if (!file) return;
+  const input = event.target;
   const reader = new FileReader();
   reader.onload = async (e) => {
     try {
       const wb = XLSX.read(e.target.result, { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws);
-      let count = 0;
+      const knownFio = new Set(employees.map(function(emp){ return normalizeEmployeeFio(emp.fio); }).filter(Boolean));
+      let added = 0, skipped = 0, empty = 0;
       for (const row of rows) {
-        const fio = row['ФИО'] || row['fio'] || row['FIO'] || '';
-        if (!fio) continue;
-        const existing = employees.find(emp => emp.fio === fio);
+        const fioRaw = row['ФИО'] || row['fio'] || row['FIO'] || '';
+        const fio = String(fioRaw).trim().replace(/\s+/g, ' ');
+        const fioKey = normalizeEmployeeFio(fio);
+        if (!fioKey) { empty++; continue; }
+        if (knownFio.has(fioKey)) { skipped++; continue; }
         const data = {
-          fio: String(fio),
+          fio: fio,
           organization: String(row['Организация'] || row['organization'] || ''),
           position: String(row['Должность'] || row['position'] || ''),
           phone: formatPhoneValue(String(row['Телефон'] || row['phone'] || '')),
           birth_date: String(row['Дата рождения'] || row['birth_date'] || ''),
           comments: String(row['Комментарии'] || row['comments'] || '')
         };
-        if (existing) {
-          await api('/api/employees/' + existing.id, 'PUT', data);
-        } else {
-          await api('/api/employees', 'POST', data);
-        }
-        count++;
+        await api('/api/employees', 'POST', data);
+        knownFio.add(fioKey);
+        added++;
       }
       employees = await api('/api/employees');
+      selectedEmployeeIds.clear();
       renderEmployees();
-      toast('Импортировано: ' + count + ' сотрудников');
-    } catch (err) { toast('Ошибка импорта: ' + err.message, 'error'); }
+      toast('Добавлено: ' + added + '. Пропущено дублей: ' + skipped + (empty ? '. Пустых строк: ' + empty : ''));
+    } catch (err) {
+      toast('Ошибка импорта: ' + err.message, 'error');
+    } finally {
+      input.value = '';
+    }
   };
   reader.readAsArrayBuffer(file);
-  event.target.value = '';
 }
 
 // === OBJECTS ===
