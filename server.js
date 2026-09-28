@@ -412,16 +412,18 @@ function requireAuth(req, res, next) {
   next();
 }
 
-function requireSiteManager(req, res, next) {
-  if (!req.session || !req.session.user) {
-    return res.status(401).json({ error: 'Не авторизован' });
-  }
-  if (EMAIL_VERIFY_ENABLED && !isTechnicalAdmin(req.session.user) && !req.session.user.email_verified) return res.status(403).json({ error: 'Сначала подтвердите электронную почту', code: 'EMAIL_VERIFICATION_REQUIRED' });
-  if (req.session.user.role !== 'Руководитель сайта') {
-    logSecurityEvent(req,'forbidden_admin',false,req.method+' '+req.originalUrl);
-    return res.status(403).json({ error: 'Доступ только для руководителя сайта' });
-  }
-  next();
+async function requireSiteManager(req, res, next) {
+  if (!req.session || !req.session.user) return res.status(401).json({ error: 'Не авторизован' });
+  try{
+    const user=await refreshAccessUser(req);
+    if(!user)return res.status(401).json({error:'Аккаунт не найден'});
+    if (EMAIL_VERIFY_ENABLED && !isTechnicalAdmin(user) && !user.email_verified) return res.status(403).json({ error: 'Сначала подтвердите электронную почту', code: 'EMAIL_VERIFICATION_REQUIRED' });
+    if (!isSiteWideUser(user)) {
+      await logSecurityEvent(req,'forbidden_admin',false,req.method+' '+req.originalUrl,user.login);
+      return res.status(403).json({ error: 'Доступ только для руководителя сайта' });
+    }
+    next();
+  }catch(err){res.status(500).json({error:'Ошибка проверки прав'});}
 }
 
 function requireUserManager(req,res,next){return requirePermission('users.manage')(req,res,next);}
@@ -699,7 +701,7 @@ app.get('/api/users', requireUserManager, async (req, res) => {
     }
     res.json(result.rows.map(u=>({...u,permissions:effectivePermissions(u)})));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status||500).json({ error: err.message });
   }
 });
 
@@ -727,6 +729,11 @@ app.post('/api/users/role', requireUserManager, async (req, res) => {
         return res.status(403).json({error:'Можно управлять только пользователями своей организации'});
       }
       if(user.role==='Руководитель сайта'||role==='Руководитель сайта')return res.status(403).json({error:'Роль руководителя сайта может назначать только руководитель сайта'});
+      const actorPermissions=effectivePermissions(actor);
+      const proposedPermissions=effectivePermissions({...user,role:role,permission_overrides:user.permission_overrides});
+      for(const key of PERMISSION_KEYS){
+        if(proposedPermissions[key]&&!actorPermissions[key])return res.status(403).json({error:'Нельзя назначить роль с правами выше ваших: '+key});
+      }
       organization=ownOrg;
     }
 
@@ -775,11 +782,17 @@ app.put('/api/users/:id/access', requirePermission('users.customize'), async (re
       }
       clean[key]=value;
     }
+    if(!isSiteWideUser(actor)){
+      const proposedPermissions=effectivePermissions({...target,permission_overrides:clean});
+      for(const key of PERMISSION_KEYS){
+        if(proposedPermissions[key]&&!actorPermissions[key])return res.status(403).json({error:'Нельзя выдать или восстановить право выше ваших: '+key});
+      }
+    }
     await pool.query('UPDATE users SET permission_overrides=$1::jsonb WHERE id=$2',[JSON.stringify(clean),userId]);
     await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[actor.login,'Изменены индивидуальные права пользователя '+(target.login||('ID='+userId))]);
     await logSecurityEvent(req,'permissions_changed',true,'Target user ID='+userId+'; overrides='+JSON.stringify(clean),actor.login);
     res.json({ok:true,overrides:clean});
-  }catch(err){res.status(500).json({error:err.message});}
+  }catch(err){res.status(err.status||500).json({error:err.message});}
 });
 
 app.put('/api/users/:id/organization', requireSiteManager, async (req,res)=>{
@@ -806,7 +819,7 @@ app.put('/api/users/:id/organization', requireSiteManager, async (req,res)=>{
     await pool.query('UPDATE users SET organization=$1, object_name=$2 WHERE id=$3',[canonical,objectName,userId]);
     await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Изменена организация пользователя '+target.login+': '+(target.organization||'—')+' → '+(canonical||'—')]);
     res.json({ok:true});
-  }catch(err){res.status(500).json({error:err.message});}
+  }catch(err){res.status(err.status||500).json({error:err.message});}
 });
 
 app.delete('/api/users/:id', requirePermission('users.delete'), async (req,res)=>{
@@ -826,7 +839,7 @@ app.delete('/api/users/:id', requirePermission('users.delete'), async (req,res)=
     await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[actor.login,'Удалён аккаунт пользователя '+target.login+' ('+(target.fio||'')+')']);
     await logSecurityEvent(req,'user_deleted',true,'Deleted user ID='+userId+'; login='+target.login,actor.login);
     res.json({ok:true});
-  }catch(err){res.status(500).json({error:err.message});}
+  }catch(err){res.status(err.status||500).json({error:err.message});}
 });
 
 // === EMPLOYEES ===
@@ -843,7 +856,7 @@ app.get('/api/employees', requirePermission('employees.view'), async (req, res) 
     }
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status||500).json({ error: err.message });
   }
 });
 
@@ -866,7 +879,7 @@ app.post('/api/employees', requirePermission('employees.manage'), async (req, re
       [req.session.user.login, 'Добавлен сотрудник: ' + fio]);
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status||500).json({ error: err.message });
   }
 });
 
@@ -889,7 +902,7 @@ app.put('/api/employees/:id', requirePermission('employees.manage'), async (req,
       [req.session.user.login, 'Изменён сотрудник: ' + fio]);
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status||500).json({ error: err.message });
   }
 });
 
@@ -903,7 +916,7 @@ app.delete('/api/employees/:id', requirePermission('employees.manage'), async (r
       [req.session.user.login, 'Удалён сотрудник ID=' + id]);
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status||500).json({ error: err.message });
   }
 });
 
@@ -960,7 +973,7 @@ app.get('/api/objects',requirePermission('objects.view'),async(req,res)=>{
     else if(isProjectScoped(user))result=await pool.query(base+" WHERE lower(trim(o.organization))=lower(trim($1)) AND lower(trim(o.name))=lower(trim($2)) GROUP BY o.id ORDER BY o.name",[accessOrganization(user),accessObject(user)]);
     else result=await pool.query(base+" WHERE lower(trim(o.organization))=lower(trim($1)) GROUP BY o.id ORDER BY o.name",[accessOrganization(user)]);
     res.json(result.rows);
-  }catch(err){res.status(500).json({error:err.message});}
+  }catch(err){res.status(err.status||500).json({error:err.message});}
 });
 async function saveObject(id,data,res,req){
   const name=String(data.name||'').trim();
@@ -994,11 +1007,11 @@ async function saveObject(id,data,res,req){
     res.status(500).json({error:err.message});
   }finally{client.release();}
 }
-app.post('/api/objects',requirePermission('objects.manage'),async(req,res)=>saveObject(null,req.body||{},res,req));
-app.put('/api/objects/:id',requirePermission('objects.manage'),async(req,res)=>saveObject(req.params.id,req.body||{},res,req));
+app.post('/api/objects',requirePermission('objects.manage'),async(req,res)=>{try{await saveObject(null,req.body||{},res,req);}catch(err){res.status(err.status||500).json({error:err.message});}});
+app.put('/api/objects/:id',requirePermission('objects.manage'),async(req,res)=>{try{await saveObject(req.params.id,req.body||{},res,req);}catch(err){res.status(err.status||500).json({error:err.message});}});
 app.delete('/api/objects/:id',requirePermission('objects.manage'),async(req,res)=>{
   try{const user=req.accessUser||await refreshAccessUser(req);await ensureObjectAccess(user,Number(req.params.id));await pool.query('DELETE FROM objects WHERE id=$1',[req.params.id]);res.json({ok:true});}
-  catch(err){res.status(500).json({error:err.message});}
+  catch(err){res.status(err.status||500).json({error:err.message});}
 });
 
 // === ORGANIZATIONS ===
@@ -1010,11 +1023,11 @@ app.get('/api/organizations', requirePermission('organizations.view'), async (re
       : await pool.query('SELECT * FROM organizations WHERE lower(trim(name))=lower(trim($1)) ORDER BY name',[accessOrganization(user)]);
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status||500).json({ error: err.message });
   }
 });
 
-app.post('/api/organizations', requireSiteManager, async (req, res) => {
+app.post('/api/organizations', requirePermission('organizations.manage'), async (req, res) => {
   const { name, address, contacts } = req.body;
   if (!name) return res.status(400).json({ error: 'Наименование обязательно' });
   try {
@@ -1025,11 +1038,11 @@ app.post('/api/organizations', requireSiteManager, async (req, res) => {
     await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Добавлена организация: '+name]);
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status||500).json({ error: err.message });
   }
 });
 
-app.put('/api/organizations/:id', requireSiteManager, async (req, res) => {
+app.put('/api/organizations/:id', requirePermission('organizations.manage'), async (req, res) => {
   const { name, address, contacts } = req.body;
   try {
     const result = await pool.query(
@@ -1040,16 +1053,16 @@ app.put('/api/organizations/:id', requireSiteManager, async (req, res) => {
     await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Изменена организация: '+name]);
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status||500).json({ error: err.message });
   }
 });
 
-app.delete('/api/organizations/:id', requireSiteManager, async (req, res) => {
+app.delete('/api/organizations/:id', requirePermission('organizations.manage'), async (req, res) => {
   try {
     await pool.query('DELETE FROM organizations WHERE id=$1', [req.params.id]);
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status||500).json({ error: err.message });
   }
 });
 
@@ -1194,7 +1207,7 @@ app.get('/api/salary', requirePermission('salary.view'), async (req, res) => {
     }
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status||500).json({ error: err.message });
   }
 });
 
@@ -1211,7 +1224,7 @@ app.get('/api/bank-payments', requirePermission('bank.view'), async (req,res)=>{
       result=await pool.query("SELECT p.* FROM bank_statement_payments p WHERE EXISTS(SELECT 1 FROM employees e WHERE e.id=p.employee_id AND lower(trim(e.organization))=lower(trim($1))) ORDER BY p.transaction_date,p.id",[accessOrganization(user)]);
     }
     res.json(result.rows);
-  }catch(err){res.status(500).json({error:err.message});}
+  }catch(err){res.status(err.status||500).json({error:err.message});}
 });
 app.post('/api/bank-payments/preview', requirePermission('bank.import'), async (req,res)=>{
   try{
@@ -1281,7 +1294,7 @@ app.put('/api/bank-payments/:id/allocations', requirePermission('bank.allocate')
     res.json(result.rows[0]);
   }catch(err){
     console.error('Bank payment allocation error:',err);
-    res.status(500).json({error:err.message});
+    res.status(err.status||500).json({error:err.message});
   }
 });
 
@@ -1301,7 +1314,7 @@ app.delete('/api/bank-payments/:id', requirePermission('bank.delete'), async (re
     res.json({ok:true,payment:p});
   }catch(err){
     console.error('Bank payment delete error:',err);
-    res.status(500).json({error:err.message});
+    res.status(err.status||500).json({error:err.message});
   }
 });
 
@@ -1318,7 +1331,7 @@ app.get('/api/employee-balances', requirePermission('salary.view'), async (req,r
       result=await pool.query("SELECT b.* FROM employee_balances b WHERE EXISTS(SELECT 1 FROM employees e WHERE e.id=b.employee_id AND lower(trim(e.organization))=lower(trim($1))) ORDER BY b.employee_fio,b.balance_date,b.id",[accessOrganization(user)]);
     }
     res.json(result.rows);
-  }catch(err){res.status(500).json({error:err.message});}
+  }catch(err){res.status(err.status||500).json({error:err.message});}
 });
 app.post('/api/employee-balances', requirePermission('balances.manage'), async (req,res)=>{
   const employee_fio=String(req.body.employee_fio||'').trim();
@@ -1338,7 +1351,7 @@ app.post('/api/employee-balances', requirePermission('balances.manage'), async (
     const directionText=direction==='employee_to_company'?'сотрудник должен компании':'компания должна сотруднику';
     await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Введён остаток: '+emp.rows[0].fio+', '+balance_date+', '+Math.abs(signedAmount).toFixed(2)+' ₽ ('+directionText+')']);
     res.json(result.rows[0]);
-  }catch(err){res.status(500).json({error:err.message});}
+  }catch(err){res.status(err.status||500).json({error:err.message});}
 });
 app.put('/api/employee-balances/:id', requirePermission('balances.manage'), async (req,res)=>{
   const employee_fio=String(req.body.employee_fio||'').trim();
@@ -1361,7 +1374,7 @@ app.put('/api/employee-balances/:id', requirePermission('balances.manage'), asyn
     if(!result.rows.length)return res.status(404).json({error:'Остаток не найден'});
     await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Изменён остаток ID='+req.params.id+' — '+emp.rows[0].fio]);
     res.json(result.rows[0]);
-  }catch(err){res.status(500).json({error:err.message});}
+  }catch(err){res.status(err.status||500).json({error:err.message});}
 });
 app.delete('/api/employee-balances/:id', requirePermission('balances.manage'), async (req,res)=>{
   try{
@@ -1372,7 +1385,7 @@ app.delete('/api/employee-balances/:id', requirePermission('balances.manage'), a
     await pool.query('DELETE FROM employee_balances WHERE id=$1',[req.params.id]);
     await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Удалён остаток ID='+req.params.id+' — '+before.rows[0].employee_fio]);
     res.json({ok:true});
-  }catch(err){res.status(500).json({error:err.message});}
+  }catch(err){res.status(err.status||500).json({error:err.message});}
 });
 
 app.post('/api/salary', requirePermission('salary.create'), async (req, res) => {
@@ -1394,7 +1407,7 @@ app.post('/api/salary', requirePermission('salary.create'), async (req, res) => 
       [req.session.user.login, 'Добавлено начисление: ' + employee_fio + ', ' + (month||'') + ' ' + (year||'') + ', ' + Number(total||0).toFixed(2) + ' ₽; выплачено ' + Number(paid||0).toFixed(2) + ' ₽']);
     res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status||500).json({ error: err.message });
   }
 });
 
@@ -1487,10 +1500,10 @@ app.post('/api/salary-periods/toggle', requireAuth, async(req,res)=>{
     res.json({ok:true});
   }catch(e){res.status(e.status||500).json({error:e.message});}
 });
-app.get('/api/automatic-backups', requireSiteManager, async(req,res)=>{
+app.get('/api/automatic-backups', requirePermission('backups.manage'), async(req,res)=>{
   try{const r=await pool.query("SELECT id,created_at,jsonb_array_length(COALESCE(data->'salary','[]'::jsonb)) AS salary_count FROM automatic_backups ORDER BY created_at DESC LIMIT 7");res.json(r.rows);}catch(e){res.status(500).json({error:e.message});}
 });
-app.post('/api/automatic-backups/create', requireSiteManager, async(req,res)=>{
+app.post('/api/automatic-backups/create', requirePermission('backups.manage'), async(req,res)=>{
   try{await createAutomaticBackup();await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Создана резервная копия']);res.json({ok:true});}catch(e){res.status(500).json({error:e.message});}
 });
 
@@ -1503,21 +1516,21 @@ app.get('/api/log', requirePermission('logs.view'), async (req, res) => {
       : await pool.query("SELECT * FROM action_log WHERE user_login IN (SELECT login FROM users WHERE lower(trim(organization))=lower(trim($1))) ORDER BY created_at DESC LIMIT 200",[accessOrganization(user)]);
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status||500).json({ error: err.message });
   }
 });
 
-app.get('/api/security-log', requireSiteManager, async (req,res)=>{
+app.get('/api/security-log', requirePermission('security.view'), async (req,res)=>{
   try{
     const result=await pool.query('SELECT id,created_at,event,user_login,ip,user_agent,success,details FROM security_log ORDER BY created_at DESC LIMIT 500');
     res.json(result.rows);
-  }catch(err){res.status(500).json({error:err.message});}
+  }catch(err){res.status(err.status||500).json({error:err.message});}
 });
 
 // === EXPORT/IMPORT ===
-app.get('/api/export', requireSiteManager, async (req, res) => {
+app.get('/api/export', requirePermission('backups.manage'), async (req, res) => {
   try {
-    const users = await pool.query('SELECT id, login, fio, phone, role, organization, object_name FROM users');
+    const users = await pool.query('SELECT id, login, fio, phone, email, email_verified, role, organization, object_name, permission_overrides, last_login_at, login_count FROM users');
     const employees = await pool.query('SELECT * FROM employees');
     const objects = await pool.query('SELECT * FROM objects');
     const orgs = await pool.query('SELECT * FROM organizations');
@@ -1528,11 +1541,11 @@ app.get('/api/export', requireSiteManager, async (req, res) => {
     const log = await pool.query('SELECT * FROM action_log ORDER BY created_at DESC LIMIT 500');
     res.json({users:users.rows, employees:employees.rows, objects:objects.rows, organizations:orgs.rows, salary:salary.rows, employee_balances:balances.rows, bank_statement_payments:bankPayments.rows, object_responsibles:objectResponsibles.rows, log:log.rows});
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status||500).json({ error: err.message });
   }
 });
 
-app.post('/api/import', requireSiteManager, async (req, res) => {
+app.post('/api/import', requirePermission('backups.manage'), async (req, res) => {
   const data = req.body;
   try {
     if (data.employees) {
@@ -1584,12 +1597,12 @@ app.post('/api/import', requireSiteManager, async (req, res) => {
     }
     res.json({ ok: true, message: 'Импорт завершён' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status||500).json({ error: err.message });
   }
 });
 
 // === FULL BACKUP / RESTORE ===
-app.get('/api/backup', requireSiteManager, async (req, res) => {
+app.get('/api/backup', requirePermission('backups.manage'), async (req, res) => {
   try {
     const [users, employees, objects, orgs, salary, balances, bankPayments, objectResponsibles, log, securityLog] = await Promise.all([
       pool.query('SELECT * FROM users ORDER BY id'),
@@ -1615,7 +1628,7 @@ app.get('/api/backup', requireSiteManager, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/restore', requireSiteManager, async (req, res) => {
+app.post('/api/restore', requirePermission('backups.manage'), async (req, res) => {
   const data=req.body||{};
   if(data.format!=='salary-online-backup' || !Array.isArray(data.users) || !Array.isArray(data.salary)){
     return res.status(400).json({error:'Файл не является резервной копией Salary Online'});
@@ -1688,7 +1701,7 @@ app.post('/api/restore', requireSiteManager, async (req, res) => {
 });
 
 // Clear all data
-app.post('/api/clear', requireSiteManager, async (req, res) => {
+app.post('/api/clear', requirePermission('backups.manage'), async (req, res) => {
   try {
     await pool.query('DELETE FROM salary_records');
     await pool.query('DELETE FROM employee_balances');
@@ -1701,7 +1714,7 @@ app.post('/api/clear', requireSiteManager, async (req, res) => {
     await pool.query('DELETE FROM users WHERE login != $1', ['ADMIN']);
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status||500).json({ error: err.message });
   }
 });
 
