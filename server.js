@@ -205,12 +205,16 @@ app.use(express.static(path.join(__dirname, 'public'),{
 }));
 
 // === AUTH MIDDLEWARE ===
+function isTechnicalAdmin(userOrLogin){
+  const login=typeof userOrLogin==='string'?userOrLogin:(userOrLogin&&userOrLogin.login);
+  return String(login||'').trim().toUpperCase()==='ADMIN';
+}
 function requireAuth(req, res, next) {
   if (!req.session || !req.session.user) {
     logSecurityEvent(req,'unauthorized_api',false,req.method+' '+req.originalUrl);
     return res.status(401).json({ error: 'Не авторизован' });
   }
-  if (EMAIL_VERIFY_ENABLED && !req.session.user.email_verified) return res.status(403).json({ error: 'Сначала подтвердите электронную почту', code: 'EMAIL_VERIFICATION_REQUIRED' });
+  if (EMAIL_VERIFY_ENABLED && !isTechnicalAdmin(req.session.user) && !req.session.user.email_verified) return res.status(403).json({ error: 'Сначала подтвердите электронную почту', code: 'EMAIL_VERIFICATION_REQUIRED' });
   next();
 }
 
@@ -218,7 +222,7 @@ function requireSiteManager(req, res, next) {
   if (!req.session || !req.session.user) {
     return res.status(401).json({ error: 'Не авторизован' });
   }
-  if (EMAIL_VERIFY_ENABLED && !req.session.user.email_verified) return res.status(403).json({ error: 'Сначала подтвердите электронную почту', code: 'EMAIL_VERIFICATION_REQUIRED' });
+  if (EMAIL_VERIFY_ENABLED && !isTechnicalAdmin(req.session.user) && !req.session.user.email_verified) return res.status(403).json({ error: 'Сначала подтвердите электронную почту', code: 'EMAIL_VERIFICATION_REQUIRED' });
   if (req.session.user.role !== 'Руководитель сайта') {
     logSecurityEvent(req,'forbidden_admin',false,req.method+' '+req.originalUrl);
     return res.status(403).json({ error: 'Доступ только для руководителя сайта' });
@@ -228,7 +232,7 @@ function requireSiteManager(req, res, next) {
 
 function requireUserManager(req,res,next){
   if(!req.session || !req.session.user)return res.status(401).json({error:'Не авторизован'});
-  if(EMAIL_VERIFY_ENABLED && !req.session.user.email_verified)return res.status(403).json({error:'Сначала подтвердите электронную почту',code:'EMAIL_VERIFICATION_REQUIRED'});
+  if(EMAIL_VERIFY_ENABLED && !isTechnicalAdmin(req.session.user) && !req.session.user.email_verified)return res.status(403).json({error:'Сначала подтвердите электронную почту',code:'EMAIL_VERIFICATION_REQUIRED'});
   if(!['Руководитель сайта','Руководитель организации'].includes(req.session.user.role)){
     logSecurityEvent(req,'forbidden_user_management',false,req.method+' '+req.originalUrl);
     return res.status(403).json({error:'Недостаточно прав для управления пользователями'});
@@ -322,6 +326,7 @@ app.post('/api/login', authRateLimit, async (req, res) => {
     if (!user.role) {
       return res.status(403).json({ error: 'Роль не назначена. Обратитесь к руководителю сайта.' });
     }
+    const technicalAdmin=isTechnicalAdmin(user);
     req.session.user = {
       id: user.id,
       login: user.login,
@@ -331,8 +336,8 @@ app.post('/api/login', authRateLimit, async (req, res) => {
       organization: user.organization,
       object_name: user.object_name,
       email: user.email || '',
-      email_verified: EMAIL_VERIFY_ENABLED ? !!user.email_verified : true,
-      email_verification_enabled: EMAIL_VERIFY_ENABLED
+      email_verified: technicalAdmin ? true : (EMAIL_VERIFY_ENABLED ? !!user.email_verified : true),
+      email_verification_enabled: technicalAdmin ? false : EMAIL_VERIFY_ENABLED
     };
     await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)', [user.login, 'Вход в систему']);
     await logSecurityEvent(req,'login_success',true,'Authenticated',user.login);
@@ -356,13 +361,18 @@ app.post('/api/logout', async (req, res) => {
 // Check session
 app.get('/api/me', (req, res) => {
   if (!req.session.user) return res.status(401).json({ error: 'Не авторизован' });
-  // While email verification is disabled, also normalize old sessions created before the switch.
+  if(isTechnicalAdmin(req.session.user)){
+    req.session.user.email_verified=true;
+    req.session.user.email_verification_enabled=false;
+    return res.json({ ...req.session.user, email_verified:true, email_verification_enabled:false });
+  }
   if (!EMAIL_VERIFY_ENABLED) return res.json({ ...req.session.user, email_verified: true, email_verification_enabled: false });
   res.json({ ...req.session.user, email_verification_enabled: true });
 });
 
 app.post('/api/email/send-verification', authRateLimit, async (req,res)=>{
   if(!req.session.user)return res.status(401).json({error:'Не авторизован'});
+  if(isTechnicalAdmin(req.session.user))return res.json({ok:true,disabled:true,message:'Для технического аккаунта ADMIN подтверждение email не требуется'});
   if(!EMAIL_VERIFY_ENABLED)return res.json({ok:true,disabled:true,message:'Подтверждение электронной почты временно отключено'});
   const email=normalizeEmail(req.body.email || req.session.user.email);
   if(!validEmail(email))return res.status(400).json({error:'Введите корректный email'});
@@ -390,6 +400,7 @@ app.post('/api/register/verify-email', authRateLimit, async (req,res)=>{
 
 app.post('/api/email/verify', authRateLimit, async (req,res)=>{
   if(!req.session.user)return res.status(401).json({error:'Не авторизован'});
+  if(isTechnicalAdmin(req.session.user)){req.session.user.email_verified=true;req.session.user.email_verification_enabled=false;return res.json({ok:true,disabled:true});}
   if(!EMAIL_VERIFY_ENABLED){req.session.user.email_verified=true;return res.json({ok:true,disabled:true});}
   const email=normalizeEmail(req.session.user.email);
   const checked=await consumeCode(req.session.user.id,email,'verify',String(req.body.code||'').trim());
