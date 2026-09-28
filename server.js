@@ -47,6 +47,7 @@ async function ensureDatabaseSchema(){
   await pool.query("CREATE TABLE IF NOT EXISTS closed_salary_periods (month TEXT NOT NULL, year TEXT NOT NULL, closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, closed_by TEXT, PRIMARY KEY(month,year))");
   await pool.query("CREATE TABLE IF NOT EXISTS automatic_backups (id SERIAL PRIMARY KEY, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, data JSONB NOT NULL)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_salary_records_deleted_at ON salary_records(deleted_at)");
+  await pool.query("ALTER TABLE employees ADD COLUMN IF NOT EXISTS employment_status TEXT NOT NULL DEFAULT 'working'");
   await pool.query("CREATE TABLE IF NOT EXISTS object_responsibles (object_id INTEGER NOT NULL REFERENCES objects(id) ON DELETE CASCADE, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (object_id, employee_id))");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_object_responsibles_employee ON object_responsibles(employee_id)");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT");
@@ -59,6 +60,7 @@ async function ensureDatabaseSchema(){
   await pool.query("UPDATE employee_balances SET direction='employee_to_company' WHERE amount < 0 AND direction <> 'employee_to_company'");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_employee_balances_employee_date ON employee_balances(lower(employee_fio), balance_date DESC, id DESC)");
   await pool.query("CREATE TABLE IF NOT EXISTS bank_statement_payments (id SERIAL PRIMARY KEY, employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL, employee_fio TEXT NOT NULL, bank TEXT NOT NULL, company_account TEXT NOT NULL DEFAULT '', transaction_date DATE NOT NULL, amount NUMERIC(14,2) NOT NULL, document_number TEXT NOT NULL DEFAULT '', recipient_account TEXT NOT NULL DEFAULT '', counterparty TEXT NOT NULL DEFAULT '', purpose TEXT NOT NULL DEFAULT '', transaction_key TEXT NOT NULL UNIQUE, source_filename TEXT NOT NULL DEFAULT '', imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, imported_by TEXT)");
+  await pool.query("ALTER TABLE bank_statement_payments ADD COLUMN IF NOT EXISTS allocations JSONB NOT NULL DEFAULT '[]'::jsonb");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_bank_statement_payments_employee_date ON bank_statement_payments(lower(employee_fio), transaction_date, id)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_bank_statement_payments_transaction_key ON bank_statement_payments(transaction_key)");
   await pool.query("INSERT INTO object_responsibles (object_id,employee_id) SELECT o.id,e.id FROM objects o CROSS JOIN LATERAL regexp_split_to_table(COALESCE(o.responsible,''),',') AS part(name) JOIN employees e ON lower(trim(e.fio))=lower(trim(part.name)) WHERE trim(part.name)<>'' ON CONFLICT (object_id,employee_id) DO NOTHING");
@@ -363,13 +365,14 @@ app.get('/api/employees', requireAuth, async (req, res) => {
 
 app.post('/api/employees', requireAuth, async (req, res) => {
   const { fio, organization, position, phone, birth_date, comments } = req.body;
+  const employment_status=req.body.employment_status==='dismissed'?'dismissed':'working';
   if (!fio) return res.status(400).json({ error: 'ФИО обязательно' });
   const normalizedPhone=phone ? normalizePhone(phone) : '';
   if(phone && !normalizedPhone)return res.status(400).json({ error: 'Некорректный номер телефона. Формат: 7 (900) 900-90-90' });
   try {
     const result = await pool.query(
-      'INSERT INTO employees (fio, organization, position, phone, birth_date, comments) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-      [fio, organization||'', position||'', normalizedPhone, birth_date||'', comments||'']
+      'INSERT INTO employees (fio, organization, position, phone, birth_date, comments, employment_status) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
+      [fio, organization||'', position||'', normalizedPhone, birth_date||'', comments||'', employment_status]
     );
     await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)',
       [req.session.user.login, 'Добавлен сотрудник: ' + fio]);
@@ -382,12 +385,13 @@ app.post('/api/employees', requireAuth, async (req, res) => {
 app.put('/api/employees/:id', requireAuth, async (req, res) => {
   const { id } = req.params;
   const { fio, organization, position, phone, birth_date, comments } = req.body;
+  const employment_status=req.body.employment_status==='dismissed'?'dismissed':'working';
   const normalizedPhone=phone ? normalizePhone(phone) : '';
   if(phone && !normalizedPhone)return res.status(400).json({ error: 'Некорректный номер телефона. Формат: 7 (900) 900-90-90' });
   try {
     const result = await pool.query(
-      'UPDATE employees SET fio=$1, organization=$2, position=$3, phone=$4, birth_date=$5, comments=$6 WHERE id=$7 RETURNING *',
-      [fio, organization||'', position||'', normalizedPhone, birth_date||'', comments||'', id]
+      'UPDATE employees SET fio=$1, organization=$2, position=$3, phone=$4, birth_date=$5, comments=$6, employment_status=$7 WHERE id=$8 RETURNING *',
+      [fio, organization||'', position||'', normalizedPhone, birth_date||'', comments||'', employment_status, id]
     );
     await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)',
       [req.session.user.login, 'Изменён сотрудник: ' + fio]);
@@ -705,6 +709,41 @@ app.post('/api/bank-payments/import', requireAuth, async (req,res)=>{
     res.status(500).json({error:err.message});
   }finally{client.release();}
 });
+app.put('/api/bank-payments/:id/allocations', requireAuth, async (req,res)=>{
+  const id=Number(req.params.id);
+  if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректный ID банковской выплаты'});
+  const monthNames=new Set(['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']);
+  const raw=Array.isArray(req.body&&req.body.allocations)?req.body.allocations:[];
+  const allocations=[];
+  for(const item of raw){
+    const month=String(item&&item.month||'').trim();
+    const year=String(item&&item.year||'').trim();
+    const amount=Number(item&&item.amount);
+    if(!monthNames.has(month) || !/^\d{4}$/.test(year) || !(amount>0)){
+      return res.status(400).json({error:'Проверьте месяц, год и сумму распределения'});
+    }
+    allocations.push({month,year,amount:Math.round(amount*100)/100});
+  }
+  try{
+    const current=await pool.query('SELECT * FROM bank_statement_payments WHERE id=$1',[id]);
+    if(!current.rows.length)return res.status(404).json({error:'Банковская выплата не найдена'});
+    const payment=current.rows[0];
+    const allocated=allocations.reduce((sum,x)=>sum+x.amount,0);
+    if(allocated>Number(payment.amount||0)+0.005){
+      return res.status(400).json({error:'Сумма распределения превышает сумму банковской выплаты'});
+    }
+    const result=await pool.query('UPDATE bank_statement_payments SET allocations=$1::jsonb WHERE id=$2 RETURNING *',[JSON.stringify(allocations),id]);
+    await pool.query(
+      'INSERT INTO action_log(user_login,action) VALUES($1,$2)',
+      [req.session.user.login,'Изменено распределение банковской выплаты ID='+id+' — '+(payment.employee_fio||'')+', распределено '+allocated.toFixed(2)+' ₽ из '+Number(payment.amount||0).toFixed(2)+' ₽']
+    );
+    res.json(result.rows[0]);
+  }catch(err){
+    console.error('Bank payment allocation error:',err);
+    res.status(500).json({error:err.message});
+  }
+});
+
 app.delete('/api/bank-payments/:id', requireAuth, async (req,res)=>{
   const id=Number(req.params.id);
   if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректный ID банковской выплаты'});
@@ -900,8 +939,8 @@ app.post('/api/import', requireSiteManager, async (req, res) => {
     if (data.employees) {
       for (const emp of data.employees) {
         await pool.query(
-          'INSERT INTO employees (fio, organization, position, phone, birth_date, comments) VALUES ($1,$2,$3,$4,$5,$6)',
-          [emp.fio||'', emp.organization||'', emp.position||'', emp.phone||'', emp.birth_date||'', emp.comments||'']
+          'INSERT INTO employees (fio, organization, position, phone, birth_date, comments, employment_status) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+          [emp.fio||'', emp.organization||'', emp.position||'', emp.phone||'', emp.birth_date||'', emp.comments||'', emp.employment_status==='dismissed'?'dismissed':'working']
         );
       }
     }
@@ -941,7 +980,7 @@ app.post('/api/import', requireSiteManager, async (req, res) => {
       for(const p of data.bank_statement_payments){
         const emp=await pool.query('SELECT id,fio FROM employees WHERE lower(fio)=lower($1) LIMIT 1',[p.employee_fio||'']);
         const tx={bank:p.bank,company_account:p.company_account,transaction_date:p.transaction_date,amount:p.amount,document_number:p.document_number,recipient_account:p.recipient_account,counterparty:p.counterparty||p.employee_fio,purpose:p.purpose};
-        await pool.query('INSERT INTO bank_statement_payments(employee_id,employee_fio,bank,company_account,transaction_date,amount,document_number,recipient_account,counterparty,purpose,transaction_key,source_filename,imported_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(transaction_key) DO NOTHING',[emp.rows[0]?emp.rows[0].id:null,p.employee_fio||'',p.bank||'',p.company_account||'',p.transaction_date||null,p.amount||0,p.document_number||'',p.recipient_account||'',p.counterparty||p.employee_fio||'',p.purpose||'',p.transaction_key||bankTransactionKey(tx),p.source_filename||'',p.imported_by||req.session.user.login]);
+        await pool.query('INSERT INTO bank_statement_payments(employee_id,employee_fio,bank,company_account,transaction_date,amount,document_number,recipient_account,counterparty,purpose,transaction_key,source_filename,imported_by,allocations) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb) ON CONFLICT(transaction_key) DO NOTHING',[emp.rows[0]?emp.rows[0].id:null,p.employee_fio||'',p.bank||'',p.company_account||'',p.transaction_date||null,p.amount||0,p.document_number||'',p.recipient_account||'',p.counterparty||p.employee_fio||'',p.purpose||'',p.transaction_key||bankTransactionKey(tx),p.source_filename||'',p.imported_by||req.session.user.login,JSON.stringify(Array.isArray(p.allocations)?p.allocations:[])]);
       }
     }
     res.json({ ok: true, message: 'Импорт завершён' });
@@ -999,8 +1038,8 @@ app.post('/api/restore', requireSiteManager, async (req, res) => {
         [u.id,u.login||'',u.password||'',u.fio||'',u.phone||'',u.role||'',u.organization||'',u.object_name||'',u.role_history||'[]']);
     }
     for(const e of (data.employees||[])){
-      await client.query('INSERT INTO employees (id,fio,organization,position,phone,birth_date,comments) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-        [e.id,e.fio||'',e.organization||'',e.position||'',e.phone||'',e.birth_date||null,e.comments||'']);
+      await client.query('INSERT INTO employees (id,fio,organization,position,phone,birth_date,comments,employment_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+        [e.id,e.fio||'',e.organization||'',e.position||'',e.phone||'',e.birth_date||null,e.comments||'',e.employment_status==='dismissed'?'dismissed':'working']);
     }
     for(const o of (data.objects||[])){
       await client.query('INSERT INTO objects (id,name,address,customer,organization,responsible) VALUES ($1,$2,$3,$4,$5,$6)',
@@ -1026,7 +1065,7 @@ app.post('/api/restore', requireSiteManager, async (req, res) => {
     }
     for(const p of (data.bank_statement_payments||[])){
       const tx={bank:p.bank,company_account:p.company_account,transaction_date:p.transaction_date,amount:p.amount,document_number:p.document_number,recipient_account:p.recipient_account,counterparty:p.counterparty||p.employee_fio,purpose:p.purpose};
-      await client.query('INSERT INTO bank_statement_payments (id,employee_id,employee_fio,bank,company_account,transaction_date,amount,document_number,recipient_account,counterparty,purpose,transaction_key,source_filename,imported_at,imported_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)',[p.id,p.employee_id||null,p.employee_fio||'',p.bank||'',p.company_account||'',p.transaction_date||null,p.amount||0,p.document_number||'',p.recipient_account||'',p.counterparty||p.employee_fio||'',p.purpose||'',p.transaction_key||bankTransactionKey(tx),p.source_filename||'',p.imported_at||new Date(),p.imported_by||'']);
+      await client.query('INSERT INTO bank_statement_payments (id,employee_id,employee_fio,bank,company_account,transaction_date,amount,document_number,recipient_account,counterparty,purpose,transaction_key,source_filename,imported_at,imported_by,allocations) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb)',[p.id,p.employee_id||null,p.employee_fio||'',p.bank||'',p.company_account||'',p.transaction_date||null,p.amount||0,p.document_number||'',p.recipient_account||'',p.counterparty||p.employee_fio||'',p.purpose||'',p.transaction_key||bankTransactionKey(tx),p.source_filename||'',p.imported_at||new Date(),p.imported_by||'',JSON.stringify(Array.isArray(p.allocations)?p.allocations:[])]);
     }
     for(const l of (data.log||[])){
       await client.query('INSERT INTO action_log (id,user_login,action,created_at) VALUES ($1,$2,$3,$4)',
