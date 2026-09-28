@@ -535,7 +535,7 @@ button,input,select,textarea{max-width:100%}
   <div id="tab-data" class="tab-content">
     <div class="card">
       <h2 style="margin-bottom:16px">Экспорт и импорт данных</h2>
-      <p style="color:#666;margin-bottom:12px;font-size:13px">Резервная копия содержит пользователей, сотрудников, объекты, зарплатные записи и журнал.</p>
+      <p style="color:#666;margin-bottom:12px;font-size:13px">Резервная копия содержит пользователей, сотрудников, объекты, зарплатные записи, банковские выплаты и журнал.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <button class="btn btn-blue" onclick="downloadBackup()">Скачать резервную копию</button>
         <label class="btn btn-green" style="cursor:pointer">Восстановить из копии<input type="file" accept=".json" onchange="restoreBackup(event)" style="display:none"></label>
@@ -559,7 +559,7 @@ button,input,select,textarea{max-width:100%}
 <div class="modal-overlay" id="balanceModal"><div class="modal"><span class="modal-close" onclick="closeModal('balanceModal')">&times;</span><h2 id="balanceModalTitle">Ввод остатка</h2><div class="balance-help">Остаток фиксирует взаиморасчёт с сотрудником на указанную дату. Если галочка не отмечена — компания должна сотруднику. Если отмечена — сотрудник должен компании. Дальнейшие начисления и выплаты считаются от этого сальдо.</div><div class="form-group"><label>Сотрудник</label><select id="balanceEmployee" onchange="renderBalanceHistory()"></select></div><div class="form-row"><div class="form-group"><label>Дата остатка</label><input type="text" id="balanceDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div><div class="form-group"><label>Сумма остатка</label><input type="number" id="balanceAmount" min="0" step="0.01" placeholder="0,00"></div></div><div class="form-group"><label>Кто кому должен</label><label style="display:flex;align-items:center;gap:8px;padding:9px 10px;border:1px solid #ddd;border-radius:6px;cursor:pointer"><input type="checkbox" id="balanceEmployeeOwes" style="width:18px;height:18px;min-height:0" onchange="updateBalanceDirectionHint()"> <span>Сотрудник должен компании</span></label><div id="balanceDirectionHint" style="font-size:12px;color:#667085;margin-top:5px">Компания должна сотруднику</div></div><div class="form-group"><label>Комментарий</label><textarea id="balanceComment" rows="2" placeholder="Например: остаток на начало ведения учёта"></textarea></div><button class="btn btn-green" id="balanceSaveBtn" onclick="saveEmployeeBalance()">Сохранить остаток</button><h3 style="font-size:15px;margin:20px 0 8px">История остатков</h3><div id="balanceHistory"></div></div></div>
 <div class="modal-overlay" id="logModal"><div class="modal"><span class="modal-close" onclick="closeModal('logModal')">&times;</span><h2>Журнал действий</h2><table><thead><tr><th>Дата</th><th>Пользователь</th><th>Действие</th></tr></thead><tbody id="logBody"></tbody></table></div></div>
 <div class="modal-overlay" id="roleModal"><div class="modal"><span class="modal-close" onclick="closeModal('roleModal')">&times;</span><h2>Назначить роль</h2><div class="form-group"><label>Роль</label><select id="roleSelect"><option value="">—</option><option>Руководитель сайта</option><option>Руководитель организации</option><option>Руководитель</option><option>Руководитель проекта</option></select></div><div class="form-group"><label>Организация</label><input type="text" id="roleOrg"></div><div class="form-group"><label>Объект</label><input type="text" id="roleObj"></div><button class="btn btn-green" onclick="saveRole()">Сохранить</button></div></div>
-<div class="modal-overlay" id="importStmtModal"><div class="modal"><span class="modal-close" onclick="closeModal('importStmtModal')">&times;</span><h2>Импорт из выписки</h2><p style="font-size:13px;color:#666;margin-bottom:10px">Одна строка: ФИО; сумма; дата. Дата необязательна.</p><div class="form-group"><textarea id="stmtText" rows="8" placeholder="Иванов И.И.; 50000; 2026-01"></textarea></div><button class="btn btn-green" onclick="doImportStatement()">Импортировать</button></div></div>
+<div class="modal-overlay" id="importStmtModal"><div class="modal" style="max-width:1100px"><span class="modal-close" onclick="closeModal('importStmtModal')">&times;</span><h2>Импорт банковской выписки</h2><div class="balance-help">Поддерживаются выписки ВТБ и Т‑Банка в Excel. Импортируются все исходящие выплаты сотрудникам, найденным по полному ФИО: зарплата, аванс, подотчёт, отпускные, больничные, материальная помощь и другие выплаты. Существующие записи не изменяются, повторные операции пропускаются.</div><div class="form-group"><label>Файл выписки (.xlsx / .xls)</label><input type="file" id="bankStatementFile" accept=".xlsx,.xls" onchange="handleBankStatementFile(event)"></div><div id="bankStatementSummary" style="font-size:13px;color:#475467;margin:8px 0"></div><div style="overflow:auto;max-height:430px;border:1px solid #e5e7eb;border-radius:8px"><table style="min-width:900px"><thead><tr><th>Дата</th><th>Сотрудник</th><th>Сумма</th><th>Банк</th><th>Назначение</th><th>Статус</th></tr></thead><tbody id="bankStatementPreviewBody"><tr><td colspan="6" style="color:#777">Выберите файл выписки для предварительного просмотра.</td></tr></tbody></table></div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button class="btn btn-gray" type="button" onclick="closeModal('importStmtModal')">Отмена</button><button class="btn btn-green" id="bankStatementImportBtn" type="button" onclick="importBankStatementPreview()" disabled>Импортировать выплаты</button></div></div></div>
 
 <script>
 let currentUser = null;
@@ -568,6 +568,9 @@ let objects = [];
 let organizations = [];
 let salaryRecords = [];
 let employeeBalances = [];
+let bankStatementPayments = [];
+let bankStatementTransactions = [];
+let bankStatementPreview = [];
 let closedSalaryPeriods = [];
 let dashboardInitialized = false;
 let users = [];
@@ -647,6 +650,10 @@ function employeePositionAt(fio,cutoff){
     }else if(recordAfter){
       paid+=parseFloat(r.paid||0);
     }
+  });
+  bankStatementPayments.filter(function(p){return String(p.employee_fio||'').toLowerCase()===String(fio||'').toLowerCase();}).forEach(function(p){
+    const pd=String(p.transaction_date||'').slice(0,10);
+    if((!start || (pd && pd>start)) && (!cutoff || !pd || pd<=cutoff))paid+=parseFloat(p.amount||0)||0;
   });
   const balance=opening?parseFloat(opening.amount||0):0;
   return {opening:opening,balance:balance,charged:charged,paid:paid,debt:balance+charged-paid};
@@ -889,6 +896,7 @@ async function loadAll(){
     organizations=await api('/api/organizations');
     salaryRecords=await api('/api/salary');
     employeeBalances=await api('/api/employee-balances');
+    bankStatementPayments=await api('/api/bank-payments');
     closedSalaryPeriods=await api('/api/salary-periods');
     fillSalaryExportEmployees();
     if(currentUser.role==='Руководитель сайта')users=await api('/api/users');
@@ -1249,10 +1257,19 @@ function paymentItemsForRecords(recs){
     parseJsonArray(r.payments).forEach(function(p,index){
       const amount=parseFloat(p && (p.amount != null ? p.amount : p.sum)) || 0;
       const date=p && (p.date || p.payment_date) ? String(p.date || p.payment_date).slice(0,10) : '';
-      if(amount || date) items.push({date:date,amount:amount,recordId:r.id,index:index});
+      if(amount || date) items.push({date:date,amount:amount,recordId:r.id,index:index,source:'manual'});
     });
   });
   return items.sort(function(a,b){return String(a.date||'9999-99-99').localeCompare(String(b.date||'9999-99-99'));});
+}
+function bankPaymentItemsForEmployee(fio,from,to){
+  const key=String(fio||'').toLowerCase();
+  return bankStatementPayments.filter(function(p){
+    const d=String(p.transaction_date||'').slice(0,10);
+    return String(p.employee_fio||'').toLowerCase()===key && (!from||d>=from) && (!to||d<=to);
+  }).map(function(p){
+    return {date:String(p.transaction_date||'').slice(0,10),amount:parseFloat(p.amount||0)||0,source:'bank',bank:p.bank||'',purpose:p.purpose||'',document_number:p.document_number||'',id:p.id};
+  }).sort(function(a,b){return String(a.date||'').localeCompare(String(b.date||''));});
 }
 function fillSalaryObjectFilter(){
   const select=document.getElementById('salaryObjectFilter'); if(!select)return;
@@ -1289,6 +1306,12 @@ function renderSalary(){
       if(search&&!fio.toLowerCase().includes(search))return;
       if(!byEmp[fio])byEmp[fio]=[];
     });
+    bankStatementPayments.forEach(function(p){
+      const fio=p.employee_fio||'',d=String(p.transaction_date||'').slice(0,10);
+      if(!fio||d>cutoff)return;
+      if(search&&!fio.toLowerCase().includes(search))return;
+      if(!byEmp[fio])byEmp[fio]=[];
+    });
   }
 
   let employeeNames=Object.keys(byEmp);
@@ -1296,8 +1319,11 @@ function renderSalary(){
 
   const visibleRecords=[];
   employeeNames.forEach(function(fio){(byEmp[fio]||[]).forEach(function(r){visibleRecords.push(r);});});
+  const periodStart=filter?(String(periodYear)+'-'+String(monthNumber(filter)).padStart(2,'0')+'-01'):'';
   const summaryTotal=visibleRecords.reduce(function(sum,r){return sum+parseFloat(r.total||0);},0);
-  const summaryPaid=visibleRecords.reduce(function(sum,r){return sum+parseFloat(r.paid||0);},0);
+  const summaryManualPaid=visibleRecords.reduce(function(sum,r){return sum+parseFloat(r.paid||0);},0);
+  const summaryBankPaid=employeeNames.reduce(function(sum,fio){return sum+bankPaymentItemsForEmployee(fio,periodStart,filter?cutoff:'').reduce(function(s,p){return s+p.amount;},0);},0);
+  const summaryPaid=summaryManualPaid+summaryBankPaid;
   const summaryBalance=employeeNames.reduce(function(sum,fio){return sum+employeePositionAt(fio,cutoff).balance;},0);
   const summaryDebt=employeeNames.reduce(function(sum,fio){return sum+employeePositionAt(fio,cutoff).debt;},0);
   document.getElementById('salarySummaryBalance').textContent=formatMoney(summaryBalance)+' ₽';
@@ -1311,8 +1337,10 @@ function renderSalary(){
   employeeNames.sort(function(a,b){return a.localeCompare(b,'ru');}).forEach(function(fio){
     const recs=(byEmp[fio]||[]).slice().sort(function(a,b){return (recordExportDate(a)||'').localeCompare(recordExportDate(b)||'');});
     const total=recs.reduce(function(sum,r){return sum+parseFloat(r.total||0);},0);
-    const paid=recs.reduce(function(sum,r){return sum+parseFloat(r.paid||0);},0);
-    const position=employeePositionAt(fio,cutoff),opening=position.opening,paymentItems=paymentItemsForRecords(recs),balanceItems=balanceItemsForEmployee(fio);
+    const manualPaid=recs.reduce(function(sum,r){return sum+parseFloat(r.paid||0);},0);
+    const bankItems=bankPaymentItemsForEmployee(fio,periodStart,filter?cutoff:'');
+    const paid=manualPaid+bankItems.reduce(function(sum,p){return sum+p.amount;},0);
+    const position=employeePositionAt(fio,cutoff),opening=position.opening,paymentItems=paymentItemsForRecords(recs).concat(bankItems).sort(function(a,b){return String(a.date||'').localeCompare(String(b.date||''));}),balanceItems=balanceItemsForEmployee(fio);
     const card=document.createElement('div');card.className='salary-card';
     const head=document.createElement('button');head.type='button';head.className='salary-card-head';head.setAttribute('aria-expanded','false');
     const balanceDate=opening?'<span class="salary-balance-date">на '+formatDateRu(opening.balance_date)+'</span>':'';
@@ -1327,7 +1355,10 @@ function renderSalary(){
     balanceLink.addEventListener('click',toggleBalances);balanceLink.addEventListener('keydown',function(event){if(event.key==='Enter'||event.key===' '){toggleBalances(event);}});
 
     const paymentDetail=document.createElement('div');paymentDetail.className='salary-payment-detail';
-    paymentDetail.innerHTML='<div class="salary-payment-title">История выплат за выбранный период</div>'+(paymentItems.length?paymentItems.map(function(p){return '<div class="salary-payment-row"><span>'+(p.date?formatDateRu(p.date):'Дата не указана')+' — <b>'+formatMoney(p.amount)+' ₽</b></span><span class="salary-payment-actions"><button class="btn btn-blue btn-sm" type="button" onclick="editPayment('+p.recordId+','+p.index+')">Изменить</button><button class="btn btn-red btn-sm" type="button" onclick="deletePayment('+p.recordId+','+p.index+')">Удалить</button></span></div>';}).join(''):'<div class="salary-payment-empty">Выплаты не указаны.</div>');
+    paymentDetail.innerHTML='<div class="salary-payment-title">История выплат за выбранный период</div>'+(paymentItems.length?paymentItems.map(function(p){
+      if(p.source==='bank')return '<div class="salary-payment-row"><span>'+(p.date?formatDateRu(p.date):'Дата не указана')+' — <b>'+formatMoney(p.amount)+' ₽</b><div style="font-size:11px;color:#667085;margin-top:3px"><b>Из выписки · '+escapeHtml(p.bank||'Банк')+'</b>'+(p.purpose?' — '+escapeHtml(p.purpose):'')+'</div></span><span class="salary-payment-actions"><span class="badge badge-blue">Выписка</span></span></div>';
+      return '<div class="salary-payment-row"><span>'+(p.date?formatDateRu(p.date):'Дата не указана')+' — <b>'+formatMoney(p.amount)+' ₽</b><div style="font-size:11px;color:#667085;margin-top:3px">Внесено вручную</div></span><span class="salary-payment-actions"><button class="btn btn-blue btn-sm" type="button" onclick="editPayment('+p.recordId+','+p.index+')">Изменить</button><button class="btn btn-red btn-sm" type="button" onclick="deletePayment('+p.recordId+','+p.index+')">Удалить</button></span></div>';
+    }).join(''):'<div class="salary-payment-empty">Выплаты не указаны.</div>');
     const paidLink=head.querySelector('.salary-paid-link');
     function togglePayments(event){if(event){event.preventDefault();event.stopPropagation();}paymentDetail.classList.toggle('show');}
     paidLink.addEventListener('click',togglePayments);paidLink.addEventListener('keydown',function(event){if(event.key==='Enter'||event.key===' '){togglePayments(event);}});
@@ -1789,37 +1820,129 @@ async function showLog() {
   } catch (e) { toast(e.message, 'error'); }
 }
 
-// === IMPORT STATEMENT ===
+// === BANK STATEMENT IMPORT ===
 function showImportStatement() {
-  document.getElementById('stmtText').value = '';
+  bankStatementTransactions=[];
+  bankStatementPreview=[];
+  const input=document.getElementById('bankStatementFile');if(input)input.value='';
+  document.getElementById('bankStatementSummary').textContent='';
+  document.getElementById('bankStatementPreviewBody').innerHTML='<tr><td colspan="6" style="color:#777">Выберите файл выписки для предварительного просмотра.</td></tr>';
+  document.getElementById('bankStatementImportBtn').disabled=true;
   document.getElementById('importStmtModal').classList.add('show');
 }
-
-async function doImportStatement() {
-  const text = document.getElementById('stmtText').value;
-  const lines = text.split('\n').filter(l => l.trim());
-  let count = 0;
-  for (const line of lines) {
-    const parts = line.split(';').map(p => p.trim());
-    if (parts.length < 2) continue;
-    const fio = parts[0];
-    const amount = parseFloat(parts[1]) || 0;
-    const date = parts[2] || '';
-    const month = date.split('-')[1] || '';
-    const year = date.split('-')[0] || '';
-    try {
-      await api('/api/salary', 'POST', {
-        employee_fio: fio, object_name: '', month: '', year: year,
-        hour_rate: 0, hours: 0, per_diem_days: 0, per_diem_rate: 0,
-        extra_charges: [], payments: [{ date: date, amount: amount }],
-        total: 0, paid: amount
-      });
-      count++;
-    } catch (e) {}
+function statementHeaderKey(value){return String(value||'').trim().replace(/\s+/g,' ').toLocaleLowerCase('ru-RU');}
+function statementDateToIso(value){
+  if(value instanceof Date&&!isNaN(value))return value.toISOString().slice(0,10);
+  if(typeof value==='number'&&window.XLSX&&XLSX.SSF&&XLSX.SSF.parse_date_code){
+    const d=XLSX.SSF.parse_date_code(value);if(d&&d.y)return String(d.y).padStart(4,'0')+'-'+String(d.m).padStart(2,'0')+'-'+String(d.d).padStart(2,'0');
   }
-  salaryRecords = await api('/api/salary');
-  closeModal('importStmtModal');
-  toast('Импортировано: ' + count + ' записей');
+  const s=String(value||'').trim();
+  let m=s.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);if(m)return m[3]+'-'+m[2]+'-'+m[1];
+  m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[1]+'-'+m[2]+'-'+m[3]:'';
+}
+function statementNumber(value){
+  if(typeof value==='number')return value;
+  const s=String(value||'').replace(/\s/g,'').replace(',','.');
+  const n=Number(s);return Number.isFinite(n)?n:0;
+}
+function statementFindHeader(rows,required){
+  for(let i=0;i<rows.length;i++){
+    const keys=(rows[i]||[]).map(statementHeaderKey);
+    if(required.every(function(x){return keys.indexOf(statementHeaderKey(x))>=0;}))return i;
+  }
+  return -1;
+}
+function statementCell(row,headers,name){
+  const idx=headers.indexOf(statementHeaderKey(name));return idx>=0?(row[idx]!=null?row[idx]:''):'';
+}
+function parseBankStatementWorkbook(wb,filename){
+  const ws=wb.Sheets[wb.SheetNames[0]],rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});
+  let bank='',headerRow=-1,companyAccount='';
+  headerRow=statementFindHeader(rows,['Дата','Контрагент','Дебет, RUR']);
+  if(headerRow>=0){
+    bank='ВТБ';
+    for(let i=0;i<Math.min(rows.length,10);i++)if(statementHeaderKey(rows[i][0])==='номер счета:')companyAccount=String(rows[i][1]||'').trim();
+  }else{
+    headerRow=statementFindHeader(rows,['Тип операции','Дата проведения','Наименование контрагента','Дебет']);
+    if(headerRow>=0){
+      bank='Т-Банк';
+      for(let i=0;i<Math.min(rows.length,10);i++)if(statementHeaderKey(rows[i][0])==='выписка по счёту №')companyAccount=String(rows[i][1]||'').trim();
+    }
+  }
+  if(headerRow<0)throw new Error('Не удалось определить формат выписки. Сейчас поддерживаются ВТБ и Т-Банк.');
+  const headers=(rows[headerRow]||[]).map(statementHeaderKey);
+  const employeeNames=new Set(employees.map(function(e){return normalizeEmployeeFio(e.fio).replace(/ё/g,'е');}));
+  const out=[];
+  for(let i=headerRow+1;i<rows.length;i++){
+    const row=rows[i]||[];
+    let date='',doc='',counterparty='',recipientAccount='',purpose='',amount=0,isDebit=true;
+    if(bank==='ВТБ'){
+      date=statementDateToIso(statementCell(row,headers,'Дата'));
+      doc=String(statementCell(row,headers,'Номер')||'').trim();
+      counterparty=String(statementCell(row,headers,'Контрагент')||'').trim();
+      recipientAccount=String(statementCell(row,headers,'Счет контрагента')||'').trim();
+      purpose=String(statementCell(row,headers,'Назначение')||'').trim();
+      amount=statementNumber(statementCell(row,headers,'Дебет, RUR'));
+    }else{
+      date=statementDateToIso(statementCell(row,headers,'Дата проведения'));
+      doc=String(statementCell(row,headers,'Номер документа')||'').trim();
+      counterparty=String(statementCell(row,headers,'Наименование контрагента')||statementCell(row,headers,'Наименование получателя')||'').trim();
+      recipientAccount=String(statementCell(row,headers,'Счет контрагента')||statementCell(row,headers,'Счет получателя')||'').trim();
+      purpose=String(statementCell(row,headers,'Назначение платежа')||statementCell(row,headers,'Описание операции')||'').trim();
+      amount=statementNumber(statementCell(row,headers,'Дебет'));
+      const type=statementHeaderKey(statementCell(row,headers,'Тип операции'));isDebit=!type||type==='дебет';
+    }
+    if(!isDebit||!date||amount<=0||!counterparty)continue;
+    const fioKey=normalizeEmployeeFio(counterparty).replace(/ё/g,'е');
+    if(!employeeNames.has(fioKey))continue;
+    out.push({bank:bank,company_account:companyAccount,transaction_date:date,amount:amount,document_number:doc,recipient_account:recipientAccount,counterparty:counterparty,purpose:purpose,source_filename:filename||''});
+  }
+  return out;
+}
+async function handleBankStatementFile(event){
+  const file=event.target.files&&event.target.files[0];if(!file)return;
+  try{
+    const buffer=await file.arrayBuffer();
+    const wb=XLSX.read(buffer,{type:'array',cellDates:true});
+    bankStatementTransactions=parseBankStatementWorkbook(wb,file.name);
+    if(!bankStatementTransactions.length)throw new Error('В выписке не найдено выплат сотрудникам, ФИО которых есть в разделе «Сотрудники».');
+    const preview=await api('/api/bank-payments/preview','POST',{transactions:bankStatementTransactions});
+    bankStatementPreview=preview.items||[];
+    renderBankStatementPreview();
+  }catch(e){
+    bankStatementTransactions=[];bankStatementPreview=[];
+    document.getElementById('bankStatementPreviewBody').innerHTML='<tr><td colspan="6" style="color:#b42318">'+escapeHtml(e.message)+'</td></tr>';
+    document.getElementById('bankStatementSummary').textContent='';
+    document.getElementById('bankStatementImportBtn').disabled=true;
+  }
+}
+function bankPreviewStatusHtml(item){
+  const map={ready:['Готово','#067647'],duplicate_import:['Уже импортировано','#667085'],duplicate_manual:['Уже внесено вручную','#667085'],duplicate_file:['Дубликат в файле','#667085'],employee_not_found:['Сотрудник не найден','#b42318'],invalid:['Ошибка','#b42318']};
+  const x=map[item.status]||[item.message||item.status,'#667085'];
+  return '<span style="font-weight:600;color:'+x[1]+'">'+escapeHtml(x[0])+'</span>';
+}
+function renderBankStatementPreview(){
+  const ready=bankStatementPreview.filter(function(x){return x.status==='ready';}).length;
+  const duplicates=bankStatementPreview.filter(function(x){return x.status==='duplicate_import'||x.status==='duplicate_manual'||x.status==='duplicate_file';}).length;
+  const total=bankStatementPreview.length;
+  document.getElementById('bankStatementSummary').textContent='Найдено выплат сотрудникам: '+total+'. К импорту: '+ready+'. Пропущено повторов: '+duplicates+'.';
+  document.getElementById('bankStatementPreviewBody').innerHTML=bankStatementPreview.map(function(item){
+    return '<tr><td>'+escapeHtml(formatDateRu(item.transaction_date))+'</td><td>'+escapeHtml(item.employee_fio||item.counterparty||'')+'</td><td><b>'+formatMoney(item.amount)+' ₽</b></td><td>'+escapeHtml(item.bank||'')+'</td><td style="max-width:420px;white-space:normal">'+escapeHtml(item.purpose||'')+'</td><td>'+bankPreviewStatusHtml(item)+'</td></tr>';
+  }).join('');
+  document.getElementById('bankStatementImportBtn').disabled=ready===0;
+}
+async function importBankStatementPreview(){
+  const btn=document.getElementById('bankStatementImportBtn');
+  if(!bankStatementTransactions.length||btn.disabled)return;
+  setButtonBusy(btn,true,'Импортируем…');
+  try{
+    const result=await api('/api/bank-payments/import','POST',{transactions:bankStatementTransactions});
+    bankStatementPayments=await api('/api/bank-payments');
+    const preview=await api('/api/bank-payments/preview','POST',{transactions:bankStatementTransactions});
+    bankStatementPreview=preview.items||[];renderBankStatementPreview();renderSalary();
+    toast('Импортировано выплат: '+Number(result.imported||0));
+  }catch(e){toast(e.message,'error');}
+  finally{setButtonBusy(btn,false);renderBankStatementPreview();}
 }
 
 // === DATA EXPORT/IMPORT ===
