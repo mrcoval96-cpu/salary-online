@@ -48,7 +48,9 @@ async function ensureDatabaseSchema(){
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(lower(email)) WHERE email IS NOT NULL AND trim(email) <> ''");
   await pool.query("CREATE TABLE IF NOT EXISTS email_codes (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, email TEXT NOT NULL, purpose TEXT NOT NULL, code_hash TEXT NOT NULL, expires_at TIMESTAMP NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_email_codes_lookup ON email_codes(lower(email), purpose, created_at DESC)");
-  await pool.query("CREATE TABLE IF NOT EXISTS employee_balances (id SERIAL PRIMARY KEY, employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL, employee_fio TEXT NOT NULL, balance_date DATE NOT NULL, amount NUMERIC(14,2) NOT NULL DEFAULT 0, comment TEXT NOT NULL DEFAULT '', created_by TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+  await pool.query("CREATE TABLE IF NOT EXISTS employee_balances (id SERIAL PRIMARY KEY, employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL, employee_fio TEXT NOT NULL, balance_date DATE NOT NULL, amount NUMERIC(14,2) NOT NULL DEFAULT 0, direction TEXT NOT NULL DEFAULT 'company_to_employee', comment TEXT NOT NULL DEFAULT '', created_by TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+  await pool.query("ALTER TABLE employee_balances ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'company_to_employee'");
+  await pool.query("UPDATE employee_balances SET direction='employee_to_company' WHERE amount < 0 AND direction <> 'employee_to_company'");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_employee_balances_employee_date ON employee_balances(lower(employee_fio), balance_date DESC, id DESC)");
   await pool.query("INSERT INTO object_responsibles (object_id,employee_id) SELECT o.id,e.id FROM objects o CROSS JOIN LATERAL regexp_split_to_table(COALESCE(o.responsible,''),',') AS part(name) JOIN employees e ON lower(trim(e.fio))=lower(trim(part.name)) WHERE trim(part.name)<>'' ON CONFLICT (object_id,employee_id) DO NOTHING");
 }
@@ -560,6 +562,8 @@ app.post('/api/employee-balances', requireAuth, async (req,res)=>{
   const employee_fio=String(req.body.employee_fio||'').trim();
   const balance_date=String(req.body.balance_date||'').slice(0,10);
   const amount=Number(req.body.amount);
+  const direction=req.body.direction==='employee_to_company'?'employee_to_company':'company_to_employee';
+  const signedAmount=(direction==='employee_to_company'?-1:1)*Math.abs(amount);
   const comment=String(req.body.comment||'').trim();
   if(!employee_fio)return res.status(400).json({error:'Выберите сотрудника'});
   if(!/^\d{4}-\d{2}-\d{2}$/.test(balance_date))return res.status(400).json({error:'Укажите корректную дату остатка'});
@@ -567,8 +571,9 @@ app.post('/api/employee-balances', requireAuth, async (req,res)=>{
   try{
     const emp=await pool.query('SELECT id,fio FROM employees WHERE lower(fio)=lower($1) LIMIT 1',[employee_fio]);
     if(!emp.rows.length)return res.status(400).json({error:'Сотрудник не найден'});
-    const result=await pool.query('INSERT INTO employee_balances(employee_id,employee_fio,balance_date,amount,comment,created_by) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',[emp.rows[0].id,emp.rows[0].fio,balance_date,amount,comment,req.session.user.login]);
-    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Введён остаток: '+emp.rows[0].fio+', '+balance_date+', '+amount.toFixed(2)+' ₽']);
+    const result=await pool.query('INSERT INTO employee_balances(employee_id,employee_fio,balance_date,amount,direction,comment,created_by) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *',[emp.rows[0].id,emp.rows[0].fio,balance_date,signedAmount,direction,comment,req.session.user.login]);
+    const directionText=direction==='employee_to_company'?'сотрудник должен компании':'компания должна сотруднику';
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Введён остаток: '+emp.rows[0].fio+', '+balance_date+', '+Math.abs(signedAmount).toFixed(2)+' ₽ ('+directionText+')']);
     res.json(result.rows[0]);
   }catch(err){res.status(500).json({error:err.message});}
 });
@@ -576,6 +581,8 @@ app.put('/api/employee-balances/:id', requireAuth, async (req,res)=>{
   const employee_fio=String(req.body.employee_fio||'').trim();
   const balance_date=String(req.body.balance_date||'').slice(0,10);
   const amount=Number(req.body.amount);
+  const direction=req.body.direction==='employee_to_company'?'employee_to_company':'company_to_employee';
+  const signedAmount=(direction==='employee_to_company'?-1:1)*Math.abs(amount);
   const comment=String(req.body.comment||'').trim();
   if(!employee_fio)return res.status(400).json({error:'Выберите сотрудника'});
   if(!/^\d{4}-\d{2}-\d{2}$/.test(balance_date))return res.status(400).json({error:'Укажите корректную дату остатка'});
@@ -583,7 +590,7 @@ app.put('/api/employee-balances/:id', requireAuth, async (req,res)=>{
   try{
     const emp=await pool.query('SELECT id,fio FROM employees WHERE lower(fio)=lower($1) LIMIT 1',[employee_fio]);
     if(!emp.rows.length)return res.status(400).json({error:'Сотрудник не найден'});
-    const result=await pool.query('UPDATE employee_balances SET employee_id=$1,employee_fio=$2,balance_date=$3,amount=$4,comment=$5,updated_at=CURRENT_TIMESTAMP WHERE id=$6 RETURNING *',[emp.rows[0].id,emp.rows[0].fio,balance_date,amount,comment,req.params.id]);
+    const result=await pool.query('UPDATE employee_balances SET employee_id=$1,employee_fio=$2,balance_date=$3,amount=$4,direction=$5,comment=$6,updated_at=CURRENT_TIMESTAMP WHERE id=$7 RETURNING *',[emp.rows[0].id,emp.rows[0].fio,balance_date,signedAmount,direction,comment,req.params.id]);
     if(!result.rows.length)return res.status(404).json({error:'Остаток не найден'});
     await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Изменён остаток ID='+req.params.id+' — '+emp.rows[0].fio]);
     res.json(result.rows[0]);
@@ -752,7 +759,9 @@ app.post('/api/import', requireSiteManager, async (req, res) => {
     if(data.employee_balances){
       for(const b of data.employee_balances){
         const emp=await pool.query('SELECT id,fio FROM employees WHERE lower(fio)=lower($1) LIMIT 1',[b.employee_fio||'']);
-        await pool.query('INSERT INTO employee_balances(employee_id,employee_fio,balance_date,amount,comment,created_by) VALUES($1,$2,$3,$4,$5,$6)',[emp.rows[0]?emp.rows[0].id:null,b.employee_fio||'',b.balance_date||null,b.amount||0,b.comment||'',b.created_by||req.session.user.login]);
+        const direction=b.direction==='employee_to_company'||Number(b.amount)<0?'employee_to_company':'company_to_employee';
+        const signedAmount=(direction==='employee_to_company'?-1:1)*Math.abs(Number(b.amount)||0);
+        await pool.query('INSERT INTO employee_balances(employee_id,employee_fio,balance_date,amount,direction,comment,created_by) VALUES($1,$2,$3,$4,$5,$6,$7)',[emp.rows[0]?emp.rows[0].id:null,b.employee_fio||'',b.balance_date||null,signedAmount,direction,b.comment||'',b.created_by||req.session.user.login]);
       }
     }
     res.json({ ok: true, message: 'Импорт завершён' });
@@ -828,7 +837,9 @@ app.post('/api/restore', requireSiteManager, async (req, res) => {
          typeof s.extra_charges==='string'?s.extra_charges:JSON.stringify(s.extra_charges||[]),typeof s.payments==='string'?s.payments:JSON.stringify(s.payments||[]),s.total||0,s.paid||0]);
     }
     for(const b of (data.employee_balances||[])){
-      await client.query('INSERT INTO employee_balances (id,employee_id,employee_fio,balance_date,amount,comment,created_by,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',[b.id,b.employee_id||null,b.employee_fio||'',b.balance_date||null,b.amount||0,b.comment||'',b.created_by||'',b.created_at||new Date(),b.updated_at||b.created_at||new Date()]);
+      const direction=b.direction==='employee_to_company'||Number(b.amount)<0?'employee_to_company':'company_to_employee';
+      const signedAmount=(direction==='employee_to_company'?-1:1)*Math.abs(Number(b.amount)||0);
+      await client.query('INSERT INTO employee_balances (id,employee_id,employee_fio,balance_date,amount,direction,comment,created_by,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[b.id,b.employee_id||null,b.employee_fio||'',b.balance_date||null,signedAmount,direction,b.comment||'',b.created_by||'',b.created_at||new Date(),b.updated_at||b.created_at||new Date()]);
     }
     for(const l of (data.log||[])){
       await client.query('INSERT INTO action_log (id,user_login,action,created_at) VALUES ($1,$2,$3,$4)',
