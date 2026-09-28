@@ -262,8 +262,8 @@ button,input,select,textarea{max-width:100%}
   #employeesTable td,#objectsTable td,#organizationsTable td,#usersTable td{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;width:100%;padding:7px 4px;border:0;border-bottom:1px solid #f0f1f2;white-space:normal;word-break:break-word;text-align:right}
   #employeesTable td:last-child,#objectsTable td:last-child,#organizationsTable td:last-child,#usersTable td:last-child{border-bottom:0;justify-content:flex-end;flex-wrap:wrap}
   #employeesTable td:before,#objectsTable td:before,#organizationsTable td:before,#usersTable td:before{font-weight:600;color:#666;text-align:left;flex:0 0 38%}
-  #employeesTable td:nth-child(1):before{content:"ФИО"}#employeesTable td:nth-child(2):before{content:"Организация"}#employeesTable td:nth-child(3):before{content:"Должность"}#employeesTable td:nth-child(4):before{content:"Телефон"}#employeesTable td:nth-child(5):before{content:"Дата рождения"}#employeesTable td:nth-child(6):before{content:"Комментарии"}
-  #objectsTable td:nth-child(1):before{content:"Объект"}#objectsTable td:nth-child(2):before{content:"Адрес"}#objectsTable td:nth-child(3):before{content:"Заказчик"}#objectsTable td:nth-child(4):before{content:"Организация"}#objectsTable td:nth-child(5):before{content:"Ответственные"}#objectsTable td:nth-child(6):before{content:"Долг по зарплате"}
+  #employeesTable td:nth-child(1):before{content:"Выбор"}#employeesTable td:nth-child(2):before{content:"ФИО"}#employeesTable td:nth-child(3):before{content:"Организация"}#employeesTable td:nth-child(4):before{content:"Должность"}#employeesTable td:nth-child(5):before{content:"Телефон"}#employeesTable td:nth-child(6):before{content:"Дата рождения"}#employeesTable td:nth-child(7):before{content:"Статус"}#employeesTable td:nth-child(8):before{content:"Комментарии"}
+  #objectsTable td:nth-child(1):before{content:"Объект"}#objectsTable td:nth-child(2):before{content:"Адрес"}#objectsTable td:nth-child(3):before{content:"Заказчик"}#objectsTable td:nth-child(4):before{content:"Организация"}#objectsTable td:nth-child(5):before{content:"Ответственные"}#objectsTable td:nth-child(6):before{content:"Зарплата за месяц"}
   #organizationsTable td:nth-child(1):before{content:"Организация"}#organizationsTable td:nth-child(2):before{content:"Адрес"}#organizationsTable td:nth-child(3):before{content:"Контакты"}
   #usersTable td:nth-child(1):before{content:"ФИО"}#usersTable td:nth-child(2):before{content:"Логин"}#usersTable td:nth-child(3):before{content:"Телефон"}#usersTable td:nth-child(4):before{content:"Роль"}#usersTable td:nth-child(5):before{content:"Организация / объект"}
 }
@@ -491,7 +491,7 @@ button,input,select,textarea{max-width:100%}
         </div>
       </div>
       <table id="employeesTable">
-        <thead><tr><th style="width:42px;text-align:center"><input type="checkbox" id="employeesSelectAll" aria-label="Выбрать всех видимых сотрудников" onchange="toggleSelectAllEmployees(this.checked)"></th><th>ФИО</th><th>Организация</th><th>Должность</th><th>Телефон</th><th>Дата рождения</th><th>Комментарии</th><th>Действия</th></tr></thead>
+        <thead><tr><th style="width:42px;text-align:center"><input type="checkbox" id="employeesSelectAll" aria-label="Выбрать всех видимых сотрудников" onchange="toggleSelectAllEmployees(this.checked)"></th><th>ФИО</th><th>Организация</th><th>Должность</th><th>Телефон</th><th>Дата рождения</th><th>Статус</th><th>Комментарии</th><th>Действия</th></tr></thead>
         <tbody id="employeesBody"></tbody>
       </table>
     </div>
@@ -502,9 +502,13 @@ button,input,select,textarea{max-width:100%}
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:10px;flex-wrap:wrap">
         <h2>Объекты</h2>
-        <button class="btn btn-green btn-sm" onclick="showObjModal()">+ Добавить объект</button>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="objectsMonth" onchange="renderObjects()"><option>Январь</option><option>Февраль</option><option>Март</option><option>Апрель</option><option>Май</option><option>Июнь</option><option>Июль</option><option>Август</option><option>Сентябрь</option><option>Октябрь</option><option>Ноябрь</option><option>Декабрь</option></select>
+          <input id="objectsYear" type="number" min="2000" max="2100" style="width:96px" onchange="renderObjects()">
+          <button class="btn btn-green btn-sm" onclick="showObjModal()">+ Добавить объект</button>
+        </div>
       </div>
-      <table id="objectsTable"><thead><tr><th>Наименование</th><th>Адрес</th><th>Заказчик</th><th>Организация</th><th>Ответственные</th><th>Задолженность по зарплате</th><th>Действия</th></tr></thead>
+      <table id="objectsTable"><thead><tr><th>Наименование</th><th>Адрес</th><th>Заказчик</th><th>Организация</th><th>Ответственные</th><th>Зарплата за месяц</th><th>Действия</th></tr></thead>
       <tbody id="objectsBody"></tbody></table>
     </div>
   </div>
@@ -550,13 +554,14 @@ button,input,select,textarea{max-width:100%}
 </div>
 
 <!-- MODALS -->
-<div class="modal-overlay" id="empModal"><div class="modal"><span class="modal-close" onclick="closeModal('empModal')">&times;</span><h2>Сотрудник</h2><div class="form-group"><label>ФИО</label><input type="text" id="empFio"></div><div class="form-group"><label>Организация</label><input type="text" id="empOrg"></div><div class="form-group"><label>Должность</label><input type="text" id="empPos"></div><div class="form-group"><label>Телефон</label><input type="tel" id="empPhone" class="phone-input" placeholder="7 (900) 900-90-90" inputmode="numeric" autocomplete="tel" maxlength="18" oninput="formatPhoneInput(this)"></div><div class="form-group"><label>Дата рождения</label><input type="text" id="empBirth" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div><div class="form-group"><label>Комментарии</label><textarea id="empComments"></textarea></div><button class="btn btn-green" onclick="saveEmp()">Сохранить</button></div></div>
+<div class="modal-overlay" id="empModal"><div class="modal"><span class="modal-close" onclick="closeModal('empModal')">&times;</span><h2>Сотрудник</h2><div class="form-group"><label>ФИО</label><input type="text" id="empFio"></div><div class="form-group"><label>Организация</label><input type="text" id="empOrg"></div><div class="form-group"><label>Должность</label><input type="text" id="empPos"></div><div class="form-group"><label>Телефон</label><input type="tel" id="empPhone" class="phone-input" placeholder="7 (900) 900-90-90" inputmode="numeric" autocomplete="tel" maxlength="18" oninput="formatPhoneInput(this)"></div><div class="form-group"><label>Дата рождения</label><input type="text" id="empBirth" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div><div class="form-group"><label>Статус</label><select id="empStatus"><option value="working">Работает</option><option value="dismissed">Уволен</option></select></div><div class="form-group"><label>Комментарии</label><textarea id="empComments"></textarea></div><button class="btn btn-green" onclick="saveEmp()">Сохранить</button></div></div>
 <div class="modal-overlay" id="objModal"><div class="modal"><span class="modal-close" onclick="closeModal('objModal')">&times;</span><h2>Объект</h2><div class="form-group"><label>Наименование</label><input type="text" id="objName"></div><div class="form-group"><label>Адрес</label><input type="text" id="objAddr"></div><div class="form-group"><label>Заказчик</label><input type="text" id="objCust"></div><div class="form-group"><label>Организация</label><input type="text" id="objOrg"></div><div class="form-group"><label>Ответственные сотрудники</label><input class="responsible-search" type="text" id="objRespSearch" placeholder="Поиск сотрудника" oninput="filterResponsiblePicker()"><div id="objRespList" class="responsible-picker"></div><div id="objRespChips" class="responsible-chips"></div></div><button class="btn btn-green" onclick="saveObj()">Сохранить</button></div></div>
-<div class="modal-overlay" id="objectSalaryDebtModal"><div class="modal" style="max-width:900px"><span class="modal-close" onclick="closeModal('objectSalaryDebtModal')">&times;</span><h2 id="objectSalaryDebtTitle">Задолженность по зарплате</h2><div id="objectSalaryDebtSummary" class="salary-summary" style="margin:14px 0"></div><div class="balance-help" style="margin-bottom:12px">Объект определяет список сотрудников по начислениям на этом объекте. Задолженность по каждому сотруднику показывается по его общему текущему сальдо: с учётом введённого остатка, всех начислений, ручных выплат и импортированных банковских выплат независимо от объекта выплаты.</div><div style="overflow:auto;max-height:520px"><table style="min-width:650px"><thead><tr><th>Сотрудник</th><th>Начислено</th><th>Выплачено</th><th>Задолженность</th><th>Переплата</th></tr></thead><tbody id="objectSalaryDebtBody"></tbody></table></div></div></div>
+<div class="modal-overlay" id="objectSalaryDebtModal"><div class="modal" style="max-width:760px"><span class="modal-close" onclick="closeModal('objectSalaryDebtModal')">&times;</span><h2 id="objectSalaryDebtTitle">Зарплата по объекту</h2><div id="objectSalaryDebtSummary" class="salary-summary" style="margin:14px 0"></div><div class="balance-help" style="margin-bottom:12px">Показываются только начисления за выбранный месяц, которые непосредственно привязаны к этому объекту. Общая задолженность сотрудника и выплаты с других объектов сюда не переносятся, поэтому суммы между объектами не дублируются.</div><div style="overflow:auto;max-height:520px"><table style="min-width:520px"><thead><tr><th>Сотрудник</th><th>Начислено за месяц</th></tr></thead><tbody id="objectSalaryDebtBody"></tbody></table></div></div></div>
 <div class="modal-overlay" id="orgModal"><div class="modal"><span class="modal-close" onclick="closeModal('orgModal')">&times;</span><h2>Организация</h2><div class="form-group"><label>Наименование</label><input type="text" id="orgName"></div><div class="form-group"><label>Адрес</label><input type="text" id="orgAddr"></div><div class="form-group"><label>Контакты</label><input type="text" id="orgContacts"></div><button class="btn btn-green" onclick="saveOrg()">Сохранить</button></div></div>
 <div class="modal-overlay" id="salaryEditModal"><div class="modal"><span class="modal-close" onclick="closeModal('salaryEditModal')">&times;</span><h2>Редактирование записи</h2><div class="form-row"><div class="form-group" style="position:relative"><label>Сотрудник</label><input type="text" id="editFio" oninput="autocompleteFio(this)" onblur="setTimeout(()=>hideAutocomplete('fioAc2'),200)"><div class="autocomplete-list" id="fioAc2"></div></div><div class="form-group" style="position:relative"><label>Объект</label><input type="text" id="editObject" oninput="autocompleteObj(this)" onblur="setTimeout(()=>hideAutocomplete('objAc2'),200)"><div class="autocomplete-list" id="objAc2"></div></div></div><div class="form-row"><div class="form-group"><label>Месяц</label><select id="editMonth"><option value="">—</option><option>Январь</option><option>Февраль</option><option>Март</option><option>Апрель</option><option>Май</option><option>Июнь</option><option>Июль</option><option>Август</option><option>Сентябрь</option><option>Октябрь</option><option>Ноябрь</option><option>Декабрь</option></select></div><div class="form-group"><label>Год</label><input type="text" id="editYear"></div><div class="form-group"><label>Дата начисления</label><input type="text" id="editChargeDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div></div><div class="form-row"><div class="form-group"><label>Ставка за час</label><input type="number" id="editHourRate"></div><div class="form-group"><label>Часы</label><input type="number" id="editHours"></div><div class="form-group"><label>Дни суточных</label><input type="number" id="editPerDiemDays"></div><div class="form-group"><label>Ставка суточных</label><input type="number" id="editPerDiemRate"></div></div><div class="form-group"><label>Дополнительные начисления</label><div id="editExtraContainer"></div><button class="btn btn-blue btn-sm" type="button" onclick="addEditExtraCharge()">+ Начисление</button></div><div class="form-group"><label>Выплаты</label><div id="editPaymentsContainer"></div><button class="btn btn-blue btn-sm" type="button" onclick="addEditPayment()">+ Выплата</button></div><div class="form-row"><div class="form-group"><label>Итого</label><input type="number" id="editTotal" readonly></div><div class="form-group"><label>Выплачено</label><input type="number" id="editPaid"></div></div><button class="btn btn-green" onclick="saveEditSalary()">Сохранить изменения</button></div></div>
 <div class="modal-overlay" id="salaryArchiveModal"><div class="modal"><span class="modal-close" onclick="closeModal('salaryArchiveModal')">&times;</span><h2>Архив удалённых начислений</h2><div id="salaryArchiveList"></div></div></div>
 <div class="modal-overlay" id="quickPaymentModal"><div class="modal"><span class="modal-close" onclick="closeModal('quickPaymentModal')">&times;</span><h2 id="quickPaymentTitle">Добавить выплату</h2><div class="form-group"><label>Запись начисления</label><select id="quickPaymentRecord"></select></div><div class="form-row"><div class="form-group"><label>Дата</label><input type="text" id="quickPaymentDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div><div class="form-group"><label>Сумма</label><input type="number" id="quickPaymentAmount" min="0" step="0.01" placeholder="0,00"></div></div><button class="btn btn-green" id="quickPaymentSave" onclick="saveQuickPayment()">Сохранить выплату</button></div></div>
+<div class="modal-overlay" id="bankAllocationModal"><div class="modal" style="max-width:760px"><span class="modal-close" onclick="closeModal('bankAllocationModal')">&times;</span><h2>Распределение банковской выплаты по месяцам</h2><div id="bankAllocationInfo" class="balance-help" style="margin-bottom:12px"></div><div id="bankAllocationRows"></div><button class="btn btn-blue btn-sm" type="button" onclick="addBankAllocationRow()">+ Добавить месяц</button><div id="bankAllocationRemaining" style="font-size:13px;font-weight:600;margin:12px 0"></div><div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-gray" type="button" onclick="closeModal('bankAllocationModal')">Отмена</button><button class="btn btn-green" type="button" onclick="saveBankAllocations()">Сохранить распределение</button></div></div></div>
 <div class="modal-overlay" id="balanceModal"><div class="modal"><span class="modal-close" onclick="closeModal('balanceModal')">&times;</span><h2 id="balanceModalTitle">Ввод остатка</h2><div class="balance-help">Остаток фиксирует взаиморасчёт с сотрудником на указанную дату. Если галочка не отмечена — компания должна сотруднику. Если отмечена — сотрудник должен компании. Дальнейшие начисления и выплаты считаются от этого сальдо.</div><div class="form-group"><label>Сотрудник</label><select id="balanceEmployee" onchange="renderBalanceHistory()"></select></div><div class="form-row"><div class="form-group"><label>Дата остатка</label><input type="text" id="balanceDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div><div class="form-group"><label>Сумма остатка</label><input type="number" id="balanceAmount" min="0" step="0.01" placeholder="0,00"></div></div><div class="form-group"><label>Кто кому должен</label><label style="display:flex;align-items:center;gap:8px;padding:9px 10px;border:1px solid #ddd;border-radius:6px;cursor:pointer"><input type="checkbox" id="balanceEmployeeOwes" style="width:18px;height:18px;min-height:0" onchange="updateBalanceDirectionHint()"> <span>Сотрудник должен компании</span></label><div id="balanceDirectionHint" style="font-size:12px;color:#667085;margin-top:5px">Компания должна сотруднику</div></div><div class="form-group"><label>Комментарий</label><textarea id="balanceComment" rows="2" placeholder="Например: остаток на начало ведения учёта"></textarea></div><button class="btn btn-green" id="balanceSaveBtn" onclick="saveEmployeeBalance()">Сохранить остаток</button><h3 style="font-size:15px;margin:20px 0 8px">История остатков</h3><div id="balanceHistory"></div></div></div>
 <div class="modal-overlay" id="logModal"><div class="modal"><span class="modal-close" onclick="closeModal('logModal')">&times;</span><h2>Журнал действий</h2><table><thead><tr><th>Дата</th><th>Пользователь</th><th>Действие</th></tr></thead><tbody id="logBody"></tbody></table></div></div>
 <div class="modal-overlay" id="roleModal"><div class="modal"><span class="modal-close" onclick="closeModal('roleModal')">&times;</span><h2>Назначить роль</h2><div class="form-group"><label>Роль</label><select id="roleSelect"><option value="">—</option><option>Руководитель сайта</option><option>Руководитель организации</option><option>Руководитель</option><option>Руководитель проекта</option></select></div><div class="form-group"><label>Организация</label><input type="text" id="roleOrg"></div><div class="form-group"><label>Объект</label><input type="text" id="roleObj"></div><button class="btn btn-green" onclick="saveRole()">Сохранить</button></div></div>
@@ -574,6 +579,8 @@ let bankStatementTransactions = [];
 let bankStatementPreview = [];
 let closedSalaryPeriods = [];
 let dashboardInitialized = false;
+let objectsPeriodInitialized = false;
+let editingBankAllocationId = null;
 let users = [];
 let editingEmpId = null;
 const selectedEmployeeIds = new Set();
@@ -1303,16 +1310,36 @@ function manualPaidAfterOpeningForRecords(fio,recs,cutoff){
   });
   return total;
 }
+function normalizedBankAllocations(payment){
+  return parseJsonArray(payment&&payment.allocations).map(function(a){
+    return {month:String(a.month||''),year:String(a.year||''),amount:Number(a.amount||0)};
+  }).filter(function(a){return a.month&&a.year&&a.amount>0;});
+}
 function bankPaymentItemsForEmployee(fio,from,to){
   const key=String(fio||'').toLowerCase();
   const opening=latestBalanceForEmployee(fio,to||'9999-12-31');
   const start=opening?String(opening.balance_date||'').slice(0,10):'';
-  return bankStatementPayments.filter(function(p){
+  const periodKey=from?String(from).slice(0,7):'';
+  const items=[];
+  bankStatementPayments.filter(function(p){
     const d=String(p.transaction_date||'').slice(0,10);
-    return String(p.employee_fio||'').toLowerCase()===key && (!start||(d&&d>start)) && (!from||d>=from) && (!to||d<=to);
-  }).map(function(p){
-    return {date:String(p.transaction_date||'').slice(0,10),amount:parseFloat(p.amount||0)||0,source:'bank',bank:p.bank||'',purpose:p.purpose||'',document_number:p.document_number||'',id:p.id};
-  }).sort(function(a,b){return String(a.date||'').localeCompare(String(b.date||''));});
+    return String(p.employee_fio||'').toLowerCase()===key && (!start||(d&&d>start));
+  }).forEach(function(p){
+    const d=String(p.transaction_date||'').slice(0,10),alloc=normalizedBankAllocations(p);
+    if(periodKey){
+      if(alloc.length){
+        alloc.forEach(function(a){
+          const mk=String(a.year)+'-'+String(monthNumber(a.month)).padStart(2,'0');
+          if(mk===periodKey)items.push({date:d,amount:a.amount,source:'bank',bank:p.bank||'',purpose:p.purpose||'',document_number:p.document_number||'',id:p.id,allocation_month:a.month,allocation_year:a.year});
+        });
+      }else if((!from||d>=from)&&(!to||d<=to)){
+        items.push({date:d,amount:parseFloat(p.amount||0)||0,source:'bank',bank:p.bank||'',purpose:p.purpose||'',document_number:p.document_number||'',id:p.id});
+      }
+    }else{
+      items.push({date:d,amount:parseFloat(p.amount||0)||0,source:'bank',bank:p.bank||'',purpose:p.purpose||'',document_number:p.document_number||'',id:p.id});
+    }
+  });
+  return items.sort(function(a,b){return String(a.date||'').localeCompare(String(b.date||''));});
 }
 function fillSalaryObjectFilter(){
   const select=document.getElementById('salaryObjectFilter'); if(!select)return;
@@ -1399,7 +1426,7 @@ function renderSalary(){
 
     const paymentDetail=document.createElement('div');paymentDetail.className='salary-payment-detail';
     paymentDetail.innerHTML='<div class="salary-payment-title">История выплат за выбранный период</div>'+(paymentItems.length?paymentItems.map(function(p){
-      if(p.source==='bank')return '<div class="salary-payment-row"><span>'+(p.date?formatDateRu(p.date):'Дата не указана')+' — <b>'+formatMoney(p.amount)+' ₽</b><div style="font-size:11px;color:#667085;margin-top:3px"><b>Из выписки · '+escapeHtml(p.bank||'Банк')+'</b>'+(p.purpose?' — '+escapeHtml(p.purpose):'')+'</div></span><span class="salary-payment-actions"><span class="badge badge-blue">Выписка</span><button class="btn btn-red btn-sm" type="button" onclick="event.stopPropagation();deleteBankPayment('+p.id+')">Удалить</button></span></div>';
+      if(p.source==='bank')return '<div class="salary-payment-row"><span>'+(p.date?formatDateRu(p.date):'Дата не указана')+' — <b>'+formatMoney(p.amount)+' ₽</b>'+(p.allocation_month?'<div style="font-size:11px;color:#027a48;margin-top:3px">Распределено: '+escapeHtml(p.allocation_month+' '+p.allocation_year)+'</div>':'')+'<div style="font-size:11px;color:#667085;margin-top:3px"><b>Из выписки · '+escapeHtml(p.bank||'Банк')+'</b>'+(p.purpose?' — '+escapeHtml(p.purpose):'')+'</div></span><span class="salary-payment-actions"><span class="badge badge-blue">Выписка</span><button class="btn btn-blue btn-sm" type="button" onclick="event.stopPropagation();openBankAllocation('+p.id+')">Распределить</button><button class="btn btn-red btn-sm" type="button" onclick="event.stopPropagation();deleteBankPayment('+p.id+')">Удалить</button></span></div>';
       return '<div class="salary-payment-row"><span>'+(p.date?formatDateRu(p.date):'Дата не указана')+' — <b>'+formatMoney(p.amount)+' ₽</b><div style="font-size:11px;color:#667085;margin-top:3px">Внесено вручную</div></span><span class="salary-payment-actions"><button class="btn btn-blue btn-sm" type="button" onclick="editPayment('+p.recordId+','+p.index+')">Изменить</button><button class="btn btn-red btn-sm" type="button" onclick="deletePayment('+p.recordId+','+p.index+')">Удалить</button></span></div>';
     }).join(''):'<div class="salary-payment-empty">Выплаты не указаны.</div>');
     const paidLink=head.querySelector('.salary-paid-link');
@@ -1465,6 +1492,61 @@ async function saveQuickPayment(){
 async function deletePayment(recordId,index){
   const r=salaryRecords.find(function(x){return x.id===recordId;});if(!r||!confirm('Удалить эту выплату?'))return;
   try{const payments=parseJsonArray(r.payments);payments.splice(index,1);await saveRecordPayments(r,payments);salaryRecords=await api('/api/salary');renderSalary();toast('Выплата удалена');}catch(e){toast(e.message,'error');}
+}
+function bankAllocationMonthOptions(selected){
+  const months=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  return months.map(function(m){return '<option '+(m===selected?'selected':'')+'>'+m+'</option>';}).join('');
+}
+function addBankAllocationRow(value){
+  const box=document.getElementById('bankAllocationRows');
+  const row=document.createElement('div');row.className='form-row bank-allocation-row';
+  const now=new Date(),months=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  value=value||{};
+  row.innerHTML='<div class="form-group"><label>Месяц</label><select class="bank-allocation-month" onchange="updateBankAllocationRemaining()">'+bankAllocationMonthOptions(value.month||months[now.getMonth()])+'</select></div><div class="form-group"><label>Год</label><input class="bank-allocation-year" type="number" min="2000" max="2100" value="'+escapeHtml(value.year||now.getFullYear())+'" oninput="updateBankAllocationRemaining()"></div><div class="form-group"><label>Сумма</label><input class="bank-allocation-amount" type="number" min="0" step="0.01" value="'+(value.amount||'')+'" oninput="updateBankAllocationRemaining()"></div><div class="form-group" style="align-self:end"><button class="btn btn-red btn-sm" type="button" onclick="this.closest(\'.bank-allocation-row\').remove();updateBankAllocationRemaining()">Удалить строку</button></div>';
+  box.appendChild(row);updateBankAllocationRemaining();
+}
+function readBankAllocationRows(){
+  return Array.from(document.querySelectorAll('#bankAllocationRows .bank-allocation-row')).map(function(row){
+    return {month:row.querySelector('.bank-allocation-month').value,year:String(row.querySelector('.bank-allocation-year').value||''),amount:Number(row.querySelector('.bank-allocation-amount').value||0)};
+  }).filter(function(x){return x.amount>0;});
+}
+function updateBankAllocationRemaining(){
+  const p=bankStatementPayments.find(function(x){return Number(x.id)===Number(editingBankAllocationId);});
+  if(!p)return;
+  const used=readBankAllocationRows().reduce(function(s,x){return s+x.amount;},0),remaining=Number(p.amount||0)-used;
+  const el=document.getElementById('bankAllocationRemaining');
+  el.textContent='Распределено: '+formatMoney(used)+' ₽ · Не распределено: '+formatMoney(Math.max(remaining,0))+' ₽';
+  el.style.color=remaining<-0.005?'#b42318':'#344054';
+}
+function openBankAllocation(id){
+  const p=bankStatementPayments.find(function(x){return Number(x.id)===Number(id);});
+  if(!p)return;
+  editingBankAllocationId=Number(id);
+  document.getElementById('bankAllocationInfo').innerHTML='<b>'+escapeHtml(p.employee_fio||'')+'</b> · '+formatDateRu(p.transaction_date)+' · '+formatMoney(p.amount)+' ₽<br>'+escapeHtml(p.purpose||'');
+  const box=document.getElementById('bankAllocationRows');box.innerHTML='';
+  const allocations=normalizedBankAllocations(p);
+  if(allocations.length)allocations.forEach(addBankAllocationRow);
+  else{
+    const selected=document.getElementById('salaryMonthFilter').value;
+    const years=salaryRecords.filter(function(r){return r.employee_fio===p.employee_fio&&(!selected||r.month===selected);}).map(function(r){return String(r.year||'');}).filter(Boolean).sort();
+    const d=new Date(),months=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+    addBankAllocationRow({month:selected||months[d.getMonth()],year:years.length?years[years.length-1]:String(d.getFullYear()),amount:Number(p.amount||0)});
+  }
+  updateBankAllocationRemaining();
+  document.getElementById('bankAllocationModal').classList.add('show');
+}
+async function saveBankAllocations(){
+  const p=bankStatementPayments.find(function(x){return Number(x.id)===Number(editingBankAllocationId);});
+  if(!p)return;
+  const allocations=readBankAllocationRows(),used=allocations.reduce(function(s,x){return s+x.amount;},0);
+  if(used>Number(p.amount||0)+0.005){toast('Распределённая сумма превышает сумму выплаты','error');return;}
+  try{
+    await api('/api/bank-payments/'+p.id+'/allocations','PUT',{allocations:allocations});
+    bankStatementPayments=await api('/api/bank-payments');
+    closeModal('bankAllocationModal');
+    renderSalary();renderDashboard();
+    toast('Распределение выплаты сохранено');
+  }catch(e){toast(e.message,'error');}
 }
 async function deleteBankPayment(id){
   const p=bankStatementPayments.find(function(x){return Number(x.id)===Number(id);});
@@ -1592,7 +1674,8 @@ function renderEmployees() {
   const list = visibleEmployees();
   document.getElementById('employeesBody').innerHTML = list.map(function(e){
     const id = Number(e.id);
-    return '<tr><td style="text-align:center"><input type="checkbox" class="employee-row-check" aria-label="Выбрать сотрудника '+escapeHtml(e.fio||'')+'" '+(selectedEmployeeIds.has(id)?'checked':'')+' onchange="toggleEmployeeSelection('+id+',this.checked)"></td><td>' + escapeHtml(e.fio||'') + '</td><td>' + escapeHtml(e.organization||'') + '</td><td>' + escapeHtml(e.position||'') + '</td><td>' + escapeHtml(e.phone||'') + '</td><td>' + escapeHtml(e.birth_date||'') + '</td><td>' + escapeHtml(e.comments||'') + '</td><td><button class="btn btn-blue btn-sm" onclick="editEmp(' + id + ')">Изм.</button> <button class="btn btn-red btn-sm" onclick="deleteEmp(' + id + ')">Удал.</button></td></tr>';
+    const status=e.employment_status==='dismissed'?'<span class="badge badge-orange">Уволен</span>':'<span class="badge badge-green">Работает</span>';
+    return '<tr><td style="text-align:center"><input type="checkbox" class="employee-row-check" aria-label="Выбрать сотрудника '+escapeHtml(e.fio||'')+'" '+(selectedEmployeeIds.has(id)?'checked':'')+' onchange="toggleEmployeeSelection('+id+',this.checked)"></td><td>' + escapeHtml(e.fio||'') + '</td><td>' + escapeHtml(e.organization||'') + '</td><td>' + escapeHtml(e.position||'') + '</td><td>' + escapeHtml(e.phone||'') + '</td><td>' + escapeHtml(e.birth_date||'') + '</td><td>'+status+'</td><td>' + escapeHtml(e.comments||'') + '</td><td><button class="btn btn-blue btn-sm" onclick="editEmp(' + id + ')">Изм.</button> <button class="btn btn-red btn-sm" onclick="deleteEmp(' + id + ')">Удал.</button></td></tr>';
   }).join('');
   updateEmployeeSelectionUi();
 }
@@ -1605,6 +1688,7 @@ function showEmpModal() {
   document.getElementById('empPhone').value = '';
   document.getElementById('empBirth').value = '';
   document.getElementById('empComments').value = '';
+  document.getElementById('empStatus').value = 'working';
   document.getElementById('empModal').classList.add('show');
 }
 
@@ -1618,6 +1702,7 @@ function editEmp(id) {
   document.getElementById('empPhone').value = formatPhoneValue(e.phone || '');
   document.getElementById('empBirth').value = e.birth_date ? isoToRuDate(String(e.birth_date).slice(0,10)) : '';
   document.getElementById('empComments').value = e.comments || '';
+  document.getElementById('empStatus').value = e.employment_status==='dismissed'?'dismissed':'working';
   document.getElementById('empModal').classList.add('show');
 }
 
@@ -1630,6 +1715,7 @@ async function saveEmp() {
     position: document.getElementById('empPos').value,
     phone: empPhone,
     birth_date: validateDateField(document.getElementById('empBirth').value,'Дата рождения',false) || null,
+    employment_status: document.getElementById('empStatus').value,
     comments: document.getElementById('empComments').value
   };
   try {
@@ -1671,7 +1757,7 @@ async function deleteSelectedEmployees() {
 function exportEmployeesExcel() {
   const ws = XLSX.utils.json_to_sheet(employees.map(e => ({
     'ФИО': e.fio||'', 'Организация': e.organization||'', 'Должность': e.position||'',
-    'Телефон': e.phone||'', 'Дата рождения': e.birth_date||'', 'Комментарии': e.comments||''
+    'Телефон': e.phone||'', 'Дата рождения': e.birth_date||'', 'Статус': e.employment_status==='dismissed'?'Уволен':'Работает', 'Комментарии': e.comments||''
   })));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Сотрудники');
@@ -1702,6 +1788,7 @@ async function importEmployeesExcel(event) {
           position: String(row['Должность'] || row['position'] || ''),
           phone: formatPhoneValue(String(row['Телефон'] || row['phone'] || '')),
           birth_date: String(row['Дата рождения'] || row['birth_date'] || ''),
+          employment_status: String(row['Статус'] || row['employment_status'] || '').toLocaleLowerCase('ru-RU').includes('увол')?'dismissed':'working',
           comments: String(row['Комментарии'] || row['comments'] || '')
         };
         await api('/api/employees', 'POST', data);
@@ -1726,66 +1813,54 @@ function objectResponsibleNames(o){
   if(Array.isArray(o.responsibles) && o.responsibles.length) return o.responsibles.map(function(r){return r.fio || r.name || '';}).filter(Boolean);
   return String(o.responsible || '').split(',').map(function(x){return x.trim();}).filter(Boolean);
 }
+function initObjectsPeriod(){
+  if(objectsPeriodInitialized)return;
+  objectsPeriodInitialized=true;
+  const d=new Date(),months=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  document.getElementById('objectsMonth').value=months[d.getMonth()];
+  document.getElementById('objectsYear').value=d.getFullYear();
+}
 function objectSalaryDebtData(objectName){
+  initObjectsPeriod();
   const key=String(objectName||'').trim().toLocaleLowerCase('ru-RU');
-  const fioSet=new Set();
+  const month=document.getElementById('objectsMonth').value;
+  const year=String(document.getElementById('objectsYear').value||new Date().getFullYear());
+  const rows={};
   salaryRecords.filter(function(r){
-    return String(r.object_name||'').trim().toLocaleLowerCase('ru-RU')===key;
+    return String(r.object_name||'').trim().toLocaleLowerCase('ru-RU')===key && r.month===month && String(r.year)===year;
   }).forEach(function(r){
-    const fio=String(r.employee_fio||'').trim();
-    if(fio)fioSet.add(fio);
+    const fio=String(r.employee_fio||'').trim()||'Без сотрудника';
+    if(!rows[fio])rows[fio]={fio:fio,total:0};
+    rows[fio].total+=Number(r.total||0);
   });
-
-  const today=(function(){
-    const d=new Date();
-    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-  })();
-
-  const employeesRows=Array.from(fioSet).map(function(fio){
-    const pos=employeePositionAt(fio,today);
-    const debt=Math.max(Number(pos.debt)||0,0);
-    const overpayment=Math.max(-(Number(pos.debt)||0),0);
-    return {
-      fio:fio,
-      total:Number(pos.balance||0)+Number(pos.charged||0),
-      paid:Number(pos.paid||0),
-      debt:debt,
-      overpayment:overpayment,
-      opening:Number(pos.balance||0),
-      charged:Number(pos.charged||0)
-    };
-  }).sort(function(a,b){return b.debt-a.debt || a.fio.localeCompare(b.fio,'ru');});
-
+  const employeesRows=Object.values(rows).sort(function(a,b){return b.total-a.total || a.fio.localeCompare(b.fio,'ru');});
   return {
     rows:employeesRows,
     total:employeesRows.reduce(function(s,x){return s+x.total;},0),
-    paid:employeesRows.reduce(function(s,x){return s+x.paid;},0),
-    debt:employeesRows.reduce(function(s,x){return s+x.debt;},0),
-    overpayment:employeesRows.reduce(function(s,x){return s+x.overpayment;},0)
+    month:month,
+    year:year
   };
 }
 function showObjectSalaryDebt(id){
   const o=objects.find(function(x){return Number(x.id)===Number(id);});
   if(!o)return;
   const data=objectSalaryDebtData(o.name);
-  document.getElementById('objectSalaryDebtTitle').textContent='Задолженность по зарплате — '+(o.name||'Объект');
+  document.getElementById('objectSalaryDebtTitle').textContent='Зарплата — '+(o.name||'Объект')+' · '+data.month+' '+data.year;
   document.getElementById('objectSalaryDebtSummary').innerHTML=
-    '<div class="salary-summary-item"><label>Начислено</label><b>'+formatMoney(data.total)+' ₽</b></div>'+
-    '<div class="salary-summary-item"><label>Выплачено</label><b>'+formatMoney(data.paid)+' ₽</b></div>'+
-    '<div class="salary-summary-item"><label>Задолженность</label><b>'+formatMoney(data.debt)+' ₽</b></div>'+
-    '<div class="salary-summary-item"><label>Переплата</label><b>'+formatMoney(data.overpayment)+' ₽</b></div>';
+    '<div class="salary-summary-item"><label>Начислено за месяц</label><b>'+formatMoney(data.total)+' ₽</b></div>'+
+    '<div class="salary-summary-item"><label>Сотрудников</label><b>'+data.rows.length+'</b></div>';
   document.getElementById('objectSalaryDebtBody').innerHTML=data.rows.length?data.rows.map(function(x){
-    return '<tr><td>'+escapeHtml(x.fio)+'</td><td>'+formatMoney(x.total)+' ₽</td><td>'+formatMoney(x.paid)+' ₽</td><td><b>'+formatMoney(x.debt)+' ₽</b></td><td>'+formatMoney(x.overpayment)+' ₽</td></tr>';
-  }).join(''):'<tr><td colspan="5" style="color:#777">По этому объекту начислений пока нет.</td></tr>';
+    return '<tr><td>'+escapeHtml(x.fio)+'</td><td><b>'+formatMoney(x.total)+' ₽</b></td></tr>';
+  }).join(''):'<tr><td colspan="2" style="color:#777">По этому объекту за выбранный месяц начислений нет.</td></tr>';
   document.getElementById('objectSalaryDebtModal').classList.add('show');
 }
 function renderObjects(){
+  initObjectsPeriod();
+  const month=document.getElementById('objectsMonth').value,year=String(document.getElementById('objectsYear').value||'');
   document.getElementById('objectsBody').innerHTML=objects.map(function(o){
     const names=objectResponsibleNames(o),salary=objectSalaryDebtData(o.name);
-    const debtHtml=salary.debt>0
-      ? '<button class="btn btn-red btn-sm" type="button" onclick="showObjectSalaryDebt('+o.id+')">'+formatMoney(salary.debt)+' ₽</button>'
-      : '<button class="btn btn-gray btn-sm" type="button" onclick="showObjectSalaryDebt('+o.id+')">'+formatMoney(0)+' ₽</button>';
-    return '<tr><td>'+escapeHtml(o.name||'')+'</td><td>'+escapeHtml(o.address||'')+'</td><td>'+escapeHtml(o.customer||'')+'</td><td>'+escapeHtml(o.organization||'')+'</td><td>'+(names.length ? names.map(function(n){return '<span class="responsible-chip">'+escapeHtml(n)+'</span>';}).join(' ') : '—')+'</td><td>'+debtHtml+'</td><td><button class="btn btn-blue btn-sm" onclick="editObj('+o.id+')">Изм.</button> <button class="btn btn-red btn-sm" onclick="deleteObj('+o.id+')">Удал.</button></td></tr>';
+    const salaryHtml='<button class="btn '+(salary.total>0?'btn-blue':'btn-gray')+' btn-sm" type="button" onclick="showObjectSalaryDebt('+o.id+')">'+formatMoney(salary.total)+' ₽</button>';
+    return '<tr><td>'+escapeHtml(o.name||'')+'</td><td>'+escapeHtml(o.address||'')+'</td><td>'+escapeHtml(o.customer||'')+'</td><td>'+escapeHtml(o.organization||'')+'</td><td>'+(names.length ? names.map(function(n){return '<span class="responsible-chip">'+escapeHtml(n)+'</span>';}).join(' ') : '—')+'</td><td><div><b>'+escapeHtml(month+' '+year)+'</b></div>'+salaryHtml+'</td><td><button class="btn btn-blue btn-sm" onclick="editObj('+o.id+')">Изм.</button> <button class="btn btn-red btn-sm" onclick="deleteObj('+o.id+')">Удал.</button></td></tr>';
   }).join('');
 }
 function selectedResponsibleIds(){
