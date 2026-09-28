@@ -2087,16 +2087,36 @@ async function deleteOrg(id) {
 
 // === USERS ===
 function canManageUsers(){return can('users.manage');}
+function userOverrides(user){
+  if(user&&user.permission_overrides&&typeof user.permission_overrides==='object'&&!Array.isArray(user.permission_overrides))return user.permission_overrides;
+  try{const parsed=JSON.parse(user&&user.permission_overrides||'{}');return parsed&&typeof parsed==='object'?parsed:{};}catch(e){return {};}
+}
+function formatLastLogin(user){
+  if(!user.last_login_at)return '<span style="color:#98a2b3">Не входил</span><div style="font-size:11px;color:#98a2b3">Входов: '+Number(user.login_count||0)+'</div>';
+  const d=new Date(user.last_login_at);
+  return '<span>'+escapeHtml(isNaN(d)?String(user.last_login_at):d.toLocaleString('ru-RU'))+'</span><div style="font-size:11px;color:#667085">Входов: '+Number(user.login_count||0)+'</div>';
+}
 function renderUsers() {
   if (!canManageUsers()) return;
   const hint=document.getElementById('usersScopeHint');
-  if(hint)hint.textContent=currentUser.role==='Руководитель организации'
-    ? 'Показаны только пользователи организации «'+(currentUser.organization||'')+'». Вы можете назначать им роли внутри своей организации.'
-    : 'Показаны пользователи всех организаций. Регистрация уже содержит выбранную организацию.';
+  if(hint)hint.textContent=currentUser.role==='Руководитель сайта'
+    ? 'Показаны пользователи всех организаций. Роль задаёт стандартные права, а кнопка «Изменить доступ» позволяет настроить исключения для конкретного пользователя.'
+    : 'Показаны только пользователи организации «'+(currentUser.organization||'')+'». Индивидуальные права действуют только внутри этой организации.';
   document.getElementById('usersBody').innerHTML = users.map(function(u){
+    const isAdmin=String(u.login||'').trim().toUpperCase()==='ADMIN';
     const roleBadge = u.role ? '<span class="badge badge-blue">' + escapeHtml(u.role) + '</span>' : '<span class="badge" style="background:#eee;color:#999">нет роли</span>';
-    const emailBadge=u.email_verified?'<span class="badge badge-green" title="Email подтверждён">email ✓</span>':'<span class="badge badge-orange" title="Email не подтверждён">email не подтверждён</span>';
-    return '<tr><td>' + escapeHtml(u.fio||'') + '<div style="margin-top:4px">'+emailBadge+'</div></td><td>' + escapeHtml(u.login||'') + '</td><td>' + escapeHtml(u.phone||'') + '</td><td>' + roleBadge + '</td><td>' + escapeHtml(u.organization||'') + (u.object_name ? ' / ' + escapeHtml(u.object_name) : '') + '</td><td><button class="btn btn-blue btn-sm" onclick="showRoleModal(' + Number(u.id) + ')">Назначить роль</button></td></tr>';
+    const emailHtml=isAdmin
+      ? '<span style="color:#667085">Технический аккаунт</span>'
+      : (u.email_verified&&u.email
+        ? '<div>'+escapeHtml(u.email)+'</div><span class="badge badge-green" style="margin-top:4px">Подтверждён</span>'
+        : '<span class="badge badge-orange">Не подтверждён</span>');
+    const orgHtml=escapeHtml(u.organization||'—')+(u.object_name?' / '+escapeHtml(u.object_name):'');
+    const actions=[];
+    if(!isAdmin&&can('users.manage'))actions.push('<button class="btn btn-blue btn-sm" onclick="showRoleModal('+Number(u.id)+')">Назначить роль</button>');
+    if(!isAdmin&&can('users.customize'))actions.push('<button class="btn btn-gray btn-sm" onclick="showAccessModal('+Number(u.id)+')">Изменить доступ</button>');
+    if(!isAdmin&&currentUser.role==='Руководитель сайта')actions.push('<button class="btn btn-gray btn-sm" onclick="showUserOrganizationModal('+Number(u.id)+')">Организация</button>');
+    if(!isAdmin&&can('users.delete')&&Number(u.id)!==Number(currentUser.id))actions.push('<button class="btn btn-red btn-sm" onclick="deleteUserAccount('+Number(u.id)+')">Удалить</button>');
+    return '<tr><td>' + escapeHtml(u.fio||'') + '</td><td>' + escapeHtml(u.login||'') + '</td><td>'+emailHtml+'</td><td>' + escapeHtml(u.phone||'') + '</td><td>' + roleBadge + '</td><td>' + orgHtml + '</td><td>'+formatLastLogin(u)+'</td><td><div style="display:flex;gap:5px;flex-wrap:wrap">'+(actions.join('')||'—')+'</div></td></tr>';
   }).join('');
 }
 function fillRoleOptions(selected){
@@ -2109,12 +2129,12 @@ function fillRoleOptions(selected){
 function fillRoleOrganizationOptions(selected){
   const select=document.getElementById('roleOrg');
   let list=organizations.slice();
-  if(currentUser.role==='Руководитель организации'){
+  if(currentUser.role!=='Руководитель сайта'){
     list=list.filter(function(o){return String(o.name||'').trim().toLocaleLowerCase('ru-RU')===String(currentUser.organization||'').trim().toLocaleLowerCase('ru-RU');});
   }
   select.innerHTML='<option value="">— Выберите организацию —</option>'+list.map(function(o){return '<option value="'+escapeHtml(o.name||'')+'">'+escapeHtml(o.name||'')+'</option>';}).join('');
   if(selected)select.value=selected;
-  if(currentUser.role==='Руководитель организации'){
+  if(currentUser.role!=='Руководитель сайта'){
     select.value=currentUser.organization||selected||'';
     select.disabled=true;
   }else select.disabled=false;
@@ -2130,10 +2150,10 @@ function fillRoleObjectOptions(orgName,selected){
 function showRoleModal(userId) {
   if(!canManageUsers())return;
   const user=users.find(function(u){return Number(u.id)===Number(userId);});
-  if(!user)return;
+  if(!user||String(user.login||'').trim().toUpperCase()==='ADMIN')return;
   editingUserId = Number(userId);
   fillRoleOptions(user.role||'');
-  fillRoleOrganizationOptions(currentUser.role==='Руководитель организации'?(currentUser.organization||''):(user.organization||''));
+  fillRoleOrganizationOptions(currentUser.role==='Руководитель сайта'?(user.organization||''):(currentUser.organization||''));
   fillRoleObjectOptions(document.getElementById('roleOrg').value,user.object_name||'');
   document.getElementById('roleModal').classList.add('show');
 }
@@ -2150,6 +2170,83 @@ async function saveRole() {
     renderUsers();
     toast('Роль назначена');
   } catch (e) { toast(e.message, 'error'); }
+}
+async function ensurePermissionCatalog(){
+  if(permissionCatalog)return permissionCatalog;
+  permissionCatalog=await api('/api/permissions/catalog');
+  return permissionCatalog;
+}
+async function showAccessModal(userId){
+  if(!can('users.customize'))return;
+  const user=users.find(function(u){return Number(u.id)===Number(userId);});
+  if(!user||String(user.login||'').trim().toUpperCase()==='ADMIN')return;
+  try{
+    const catalog=await ensurePermissionCatalog();
+    editingAccessUserId=Number(userId);
+    document.getElementById('accessModalTitle').textContent='Индивидуальный доступ — '+(user.fio||user.login||'');
+    const overrides=userOverrides(user);
+    const defaults=(catalog.role_defaults&&catalog.role_defaults[user.role])||{};
+    const actorPermissions=catalog.actor_permissions||currentUser.permissions||{};
+    let lastGroup='',html='';
+    (catalog.definitions||[]).forEach(function(def){
+      if(def.siteOnly&&currentUser.role!=='Руководитель сайта')return;
+      if(def.group!==lastGroup){lastGroup=def.group;html+='<h3 style="font-size:14px;margin:15px 0 7px">'+escapeHtml(def.group)+'</h3>';}
+      const has=Object.prototype.hasOwnProperty.call(overrides,def.key)&&typeof overrides[def.key]==='boolean';
+      const value=has?(overrides[def.key]?'allow':'deny'):'inherit';
+      const inherited=!!defaults[def.key];
+      const canGrant=currentUser.role==='Руководитель сайта'||!!actorPermissions[def.key];
+      html+='<div style="display:grid;grid-template-columns:minmax(260px,1fr) minmax(190px,250px);gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #eee"><div><b style="font-size:13px">'+escapeHtml(def.label)+'</b><div style="font-size:11px;color:#667085">По роли: '+(inherited?'разрешено':'запрещено')+'</div></div><select class="permission-override" data-key="'+escapeHtml(def.key)+'"><option value="inherit" '+(value==='inherit'?'selected':'')+'>По роли</option>'+(canGrant?'<option value="allow" '+(value==='allow'?'selected':'')+'>Разрешить</option>':'')+'<option value="deny" '+(value==='deny'?'selected':'')+'>Запретить</option></select></div>';
+    });
+    document.getElementById('accessPermissionList').innerHTML=html||'<div style="color:#777">Нет доступных для изменения прав.</div>';
+    document.getElementById('accessModal').classList.add('show');
+  }catch(e){toast(e.message,'error');}
+}
+async function saveUserAccess(){
+  if(!editingAccessUserId)return;
+  const overrides={};
+  document.querySelectorAll('#accessPermissionList .permission-override').forEach(function(select){
+    if(select.value==='allow')overrides[select.dataset.key]=true;
+    if(select.value==='deny')overrides[select.dataset.key]=false;
+  });
+  try{
+    await api('/api/users/'+editingAccessUserId+'/access','PUT',{overrides:overrides});
+    users=await api('/api/users');
+    closeModal('accessModal');
+    renderUsers();
+    toast('Индивидуальные права сохранены');
+  }catch(e){toast(e.message,'error');}
+}
+function showUserOrganizationModal(userId){
+  if(currentUser.role!=='Руководитель сайта')return;
+  const user=users.find(function(u){return Number(u.id)===Number(userId);});
+  if(!user||String(user.login||'').trim().toUpperCase()==='ADMIN')return;
+  editingOrganizationUserId=Number(userId);
+  document.getElementById('userOrganizationName').textContent=(user.fio||user.login||'');
+  const select=document.getElementById('userOrganizationSelect');
+  select.innerHTML='<option value="">— Без организации —</option>'+organizations.map(function(o){return '<option value="'+escapeHtml(o.name||'')+'">'+escapeHtml(o.name||'')+'</option>';}).join('');
+  select.value=user.organization||'';
+  document.getElementById('userOrganizationModal').classList.add('show');
+}
+async function saveUserOrganization(){
+  if(!editingOrganizationUserId)return;
+  try{
+    await api('/api/users/'+editingOrganizationUserId+'/organization','PUT',{organization:document.getElementById('userOrganizationSelect').value});
+    users=await api('/api/users');
+    closeModal('userOrganizationModal');
+    renderUsers();
+    toast('Организация пользователя изменена');
+  }catch(e){toast(e.message,'error');}
+}
+async function deleteUserAccount(userId){
+  const user=users.find(function(u){return Number(u.id)===Number(userId);});
+  if(!user)return;
+  if(!confirm('Удалить аккаунт '+(user.fio||user.login)+'? Это действие нельзя отменить.'))return;
+  try{
+    await api('/api/users/'+Number(userId),'DELETE');
+    users=await api('/api/users');
+    renderUsers();
+    toast('Аккаунт удалён');
+  }catch(e){toast(e.message,'error');}
 }
 
 // === LOG ===
