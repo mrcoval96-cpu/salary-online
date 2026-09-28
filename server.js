@@ -402,6 +402,29 @@ app.delete('/api/employees/:id', requireAuth, async (req, res) => {
   }
 });
 
+app.post('/api/employees/bulk-delete', requireAuth, async (req, res) => {
+  const ids = Array.isArray(req.body.ids)
+    ? Array.from(new Set(req.body.ids.map(Number).filter(id => Number.isInteger(id) && id > 0)))
+    : [];
+  if (!ids.length) return res.status(400).json({ error: 'Не выбраны сотрудники для удаления' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query('DELETE FROM employees WHERE id = ANY($1::int[]) RETURNING id, fio', [ids]);
+    await client.query(
+      'INSERT INTO action_log (user_login, action) VALUES ($1, $2)',
+      [req.session.user.login, 'Массовое удаление сотрудников: ' + result.rows.map(r => r.fio || ('ID=' + r.id)).join(', ')]
+    );
+    await client.query('COMMIT');
+    res.json({ ok: true, deleted: result.rows.length, employees: result.rows });
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch(e) {}
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // === OBJECTS ===
 async function normalizeResponsibleIds(body){
   let ids=Array.isArray(body.responsible_ids) ? body.responsible_ids : [];
