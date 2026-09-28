@@ -552,7 +552,7 @@ button,input,select,textarea{max-width:100%}
 <!-- MODALS -->
 <div class="modal-overlay" id="empModal"><div class="modal"><span class="modal-close" onclick="closeModal('empModal')">&times;</span><h2>Сотрудник</h2><div class="form-group"><label>ФИО</label><input type="text" id="empFio"></div><div class="form-group"><label>Организация</label><input type="text" id="empOrg"></div><div class="form-group"><label>Должность</label><input type="text" id="empPos"></div><div class="form-group"><label>Телефон</label><input type="tel" id="empPhone" class="phone-input" placeholder="7 (900) 900-90-90" inputmode="numeric" autocomplete="tel" maxlength="18" oninput="formatPhoneInput(this)"></div><div class="form-group"><label>Дата рождения</label><input type="text" id="empBirth" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div><div class="form-group"><label>Комментарии</label><textarea id="empComments"></textarea></div><button class="btn btn-green" onclick="saveEmp()">Сохранить</button></div></div>
 <div class="modal-overlay" id="objModal"><div class="modal"><span class="modal-close" onclick="closeModal('objModal')">&times;</span><h2>Объект</h2><div class="form-group"><label>Наименование</label><input type="text" id="objName"></div><div class="form-group"><label>Адрес</label><input type="text" id="objAddr"></div><div class="form-group"><label>Заказчик</label><input type="text" id="objCust"></div><div class="form-group"><label>Организация</label><input type="text" id="objOrg"></div><div class="form-group"><label>Ответственные сотрудники</label><input class="responsible-search" type="text" id="objRespSearch" placeholder="Поиск сотрудника" oninput="filterResponsiblePicker()"><div id="objRespList" class="responsible-picker"></div><div id="objRespChips" class="responsible-chips"></div></div><button class="btn btn-green" onclick="saveObj()">Сохранить</button></div></div>
-<div class="modal-overlay" id="objectSalaryDebtModal"><div class="modal" style="max-width:900px"><span class="modal-close" onclick="closeModal('objectSalaryDebtModal')">&times;</span><h2 id="objectSalaryDebtTitle">Задолженность по зарплате</h2><div id="objectSalaryDebtSummary" class="salary-summary" style="margin:14px 0"></div><div class="balance-help" style="margin-bottom:12px">Расчёт относится только к начислениям, привязанным к этому объекту, и выплатам, внесённым непосредственно в эти начисления. Импортированные банковские выплаты и вводные остатки относятся к сотруднику в целом и не распределяются между объектами автоматически.</div><div style="overflow:auto;max-height:520px"><table style="min-width:650px"><thead><tr><th>Сотрудник</th><th>Начислено</th><th>Выплачено</th><th>Задолженность</th><th>Переплата</th></tr></thead><tbody id="objectSalaryDebtBody"></tbody></table></div></div></div>
+<div class="modal-overlay" id="objectSalaryDebtModal"><div class="modal" style="max-width:900px"><span class="modal-close" onclick="closeModal('objectSalaryDebtModal')">&times;</span><h2 id="objectSalaryDebtTitle">Задолженность по зарплате</h2><div id="objectSalaryDebtSummary" class="salary-summary" style="margin:14px 0"></div><div class="balance-help" style="margin-bottom:12px">Объект определяет список сотрудников по начислениям на этом объекте. Задолженность по каждому сотруднику показывается по его общему текущему сальдо: с учётом введённого остатка, всех начислений, ручных выплат и импортированных банковских выплат независимо от объекта выплаты.</div><div style="overflow:auto;max-height:520px"><table style="min-width:650px"><thead><tr><th>Сотрудник</th><th>Начислено</th><th>Выплачено</th><th>Задолженность</th><th>Переплата</th></tr></thead><tbody id="objectSalaryDebtBody"></tbody></table></div></div></div>
 <div class="modal-overlay" id="orgModal"><div class="modal"><span class="modal-close" onclick="closeModal('orgModal')">&times;</span><h2>Организация</h2><div class="form-group"><label>Наименование</label><input type="text" id="orgName"></div><div class="form-group"><label>Адрес</label><input type="text" id="orgAddr"></div><div class="form-group"><label>Контакты</label><input type="text" id="orgContacts"></div><button class="btn btn-green" onclick="saveOrg()">Сохранить</button></div></div>
 <div class="modal-overlay" id="salaryEditModal"><div class="modal"><span class="modal-close" onclick="closeModal('salaryEditModal')">&times;</span><h2>Редактирование записи</h2><div class="form-row"><div class="form-group" style="position:relative"><label>Сотрудник</label><input type="text" id="editFio" oninput="autocompleteFio(this)" onblur="setTimeout(()=>hideAutocomplete('fioAc2'),200)"><div class="autocomplete-list" id="fioAc2"></div></div><div class="form-group" style="position:relative"><label>Объект</label><input type="text" id="editObject" oninput="autocompleteObj(this)" onblur="setTimeout(()=>hideAutocomplete('objAc2'),200)"><div class="autocomplete-list" id="objAc2"></div></div></div><div class="form-row"><div class="form-group"><label>Месяц</label><select id="editMonth"><option value="">—</option><option>Январь</option><option>Февраль</option><option>Март</option><option>Апрель</option><option>Май</option><option>Июнь</option><option>Июль</option><option>Август</option><option>Сентябрь</option><option>Октябрь</option><option>Ноябрь</option><option>Декабрь</option></select></div><div class="form-group"><label>Год</label><input type="text" id="editYear"></div><div class="form-group"><label>Дата начисления</label><input type="text" id="editChargeDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div></div><div class="form-row"><div class="form-group"><label>Ставка за час</label><input type="number" id="editHourRate"></div><div class="form-group"><label>Часы</label><input type="number" id="editHours"></div><div class="form-group"><label>Дни суточных</label><input type="number" id="editPerDiemDays"></div><div class="form-group"><label>Ставка суточных</label><input type="number" id="editPerDiemRate"></div></div><div class="form-group"><label>Дополнительные начисления</label><div id="editExtraContainer"></div><button class="btn btn-blue btn-sm" type="button" onclick="addEditExtraCharge()">+ Начисление</button></div><div class="form-group"><label>Выплаты</label><div id="editPaymentsContainer"></div><button class="btn btn-blue btn-sm" type="button" onclick="addEditPayment()">+ Выплата</button></div><div class="form-row"><div class="form-group"><label>Итого</label><input type="number" id="editTotal" readonly></div><div class="form-group"><label>Выплачено</label><input type="number" id="editPaid"></div></div><button class="btn btn-green" onclick="saveEditSalary()">Сохранить изменения</button></div></div>
 <div class="modal-overlay" id="salaryArchiveModal"><div class="modal"><span class="modal-close" onclick="closeModal('salaryArchiveModal')">&times;</span><h2>Архив удалённых начислений</h2><div id="salaryArchiveList"></div></div></div>
@@ -1728,21 +1728,34 @@ function objectResponsibleNames(o){
 }
 function objectSalaryDebtData(objectName){
   const key=String(objectName||'').trim().toLocaleLowerCase('ru-RU');
-  const rows={};
+  const fioSet=new Set();
   salaryRecords.filter(function(r){
     return String(r.object_name||'').trim().toLocaleLowerCase('ru-RU')===key;
   }).forEach(function(r){
-    const fio=String(r.employee_fio||'').trim()||'Без сотрудника';
-    if(!rows[fio])rows[fio]={fio:fio,total:0,paid:0,debt:0,overpayment:0};
-    rows[fio].total+=Number(r.total||0);
-    rows[fio].paid+=Number(r.paid||0);
+    const fio=String(r.employee_fio||'').trim();
+    if(fio)fioSet.add(fio);
   });
-  const employeesRows=Object.values(rows).map(function(x){
-    const balance=x.total-x.paid;
-    x.debt=Math.max(balance,0);
-    x.overpayment=Math.max(-balance,0);
-    return x;
+
+  const today=(function(){
+    const d=new Date();
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  })();
+
+  const employeesRows=Array.from(fioSet).map(function(fio){
+    const pos=employeePositionAt(fio,today);
+    const debt=Math.max(Number(pos.debt)||0,0);
+    const overpayment=Math.max(-(Number(pos.debt)||0),0);
+    return {
+      fio:fio,
+      total:Number(pos.balance||0)+Number(pos.charged||0),
+      paid:Number(pos.paid||0),
+      debt:debt,
+      overpayment:overpayment,
+      opening:Number(pos.balance||0),
+      charged:Number(pos.charged||0)
+    };
   }).sort(function(a,b){return b.debt-a.debt || a.fio.localeCompare(b.fio,'ru');});
+
   return {
     rows:employeesRows,
     total:employeesRows.reduce(function(s,x){return s+x.total;},0),
