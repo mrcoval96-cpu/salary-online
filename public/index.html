@@ -1001,26 +1001,25 @@ async function showApp(){
   document.getElementById('mainApp').style.display='block';
   document.getElementById('userFio').textContent=currentUser.fio;
   document.getElementById('userRole').textContent=currentUser.role || 'без роли';
-  const canManageUsers=['Руководитель сайта','Руководитель организации'].includes(currentUser.role);
-  document.getElementById('usersTab').style.display=canManageUsers?'inline-block':'none';
-  document.getElementById('securityLogBtn').style.display=currentUser.role==='Руководитель сайта'?'inline-block':'none';
-  const orgAddBtn=document.getElementById('orgAddBtn');if(orgAddBtn)orgAddBtn.style.display=currentUser.role==='Руководитель сайта'?'inline-block':'none';
+  applyPermissionsToUi();
   await loadAll();
+  applyPermissionsToUi();
   fillSalaryExportEmployees();
   initDashboardPeriod();
-  showTab('dashboard');
+  showTab(firstAccessibleTab());
 }
 async function loadAll(){
   try{
-    employees=await api('/api/employees');
-    objects=await api('/api/objects');
-    organizations=await api('/api/organizations');
-    salaryRecords=await api('/api/salary');
-    employeeBalances=await api('/api/employee-balances');
-    bankStatementPayments=await api('/api/bank-payments');
-    closedSalaryPeriods=await api('/api/salary-periods');
+    employees=can('employees.view')?await api('/api/employees'):[];
+    objects=can('objects.view')?await api('/api/objects'):[];
+    organizations=can('organizations.view')?await api('/api/organizations'):[];
+    salaryRecords=can('salary.view')?await api('/api/salary'):[];
+    employeeBalances=can('salary.view')?await api('/api/employee-balances'):[];
+    bankStatementPayments=can('bank.view')?await api('/api/bank-payments'):[];
+    closedSalaryPeriods=can('salary.view')?await api('/api/salary-periods'):[];
+    users=can('users.manage')?await api('/api/users'):[];
+    permissionCatalog=can('users.manage')?await api('/api/permissions/catalog'):null;
     fillSalaryExportEmployees();
-    if(['Руководитель сайта','Руководитель организации'].includes(currentUser.role))users=await api('/api/users');
   }catch(e){toast(e.message,'error');}
 }
 
@@ -1032,7 +1031,7 @@ function showTab(tab) {
   document.getElementById('tab-' + tab).classList.add('active');
   if (tab === 'dashboard') renderDashboard();
   if (tab === 'salary') renderSalary();
-  if (tab === 'data' && currentUser.role==='Руководитель сайта') loadAutoBackups();
+  if (tab === 'data' && can('backups.manage')) loadAutoBackups();
   if (tab === 'employees') renderEmployees();
   if (tab === 'objects') renderObjects();
   if (tab === 'organizations') renderOrganizations();
@@ -1472,7 +1471,7 @@ function renderSalary(){
   document.getElementById('salaryPeriodLabel').textContent=filter?(filter+' '+periodYear):'Все периоды';
   document.getElementById('salaryPeriodStatus').textContent=filter?(closed?'● Период закрыт':'● Период открыт'):'';
   document.getElementById('salaryPeriodStatus').className='period-status '+(closed?'period-closed':'period-open');
-  const toggle=document.getElementById('periodToggleBtn');toggle.style.display=(filter&&currentUser.role==='Руководитель сайта')?'inline-block':'none';toggle.textContent=closed?'Открыть период':'Закрыть период';toggle.className='btn '+(closed?'btn-green':'btn-red')+' btn-sm';
+  const toggle=document.getElementById('periodToggleBtn');const mayToggle=closed?can('periods.reopen'):can('periods.close');toggle.style.display=(filter&&mayToggle)?'inline-block':'none';toggle.textContent=closed?'Открыть период':'Закрыть период';toggle.className='btn '+(closed?'btn-green':'btn-red')+' btn-sm';
 
   let records=salaryRecords.slice();
   if(filter)records=records.filter(function(r){return r.month===filter&&String(r.year)===String(periodYear);});
@@ -1788,7 +1787,9 @@ function renderEmployees() {
   document.getElementById('employeesBody').innerHTML = list.map(function(e){
     const id = Number(e.id);
     const status=e.employment_status==='dismissed'?'<span class="badge badge-orange">Уволен</span>':'<span class="badge badge-green">Работает</span>';
-    return '<tr><td style="text-align:center"><input type="checkbox" class="employee-row-check" aria-label="Выбрать сотрудника '+escapeHtml(e.fio||'')+'" '+(selectedEmployeeIds.has(id)?'checked':'')+' onchange="toggleEmployeeSelection('+id+',this.checked)"></td><td>' + escapeHtml(e.fio||'') + '</td><td>' + escapeHtml(e.organization||'') + '</td><td>' + escapeHtml(e.position||'') + '</td><td>' + escapeHtml(e.phone||'') + '</td><td>' + escapeHtml(e.birth_date||'') + '</td><td>'+status+'</td><td>' + escapeHtml(e.comments||'') + '</td><td><button class="btn btn-blue btn-sm" onclick="editEmp(' + id + ')">Изм.</button> <button class="btn btn-red btn-sm" onclick="deleteEmp(' + id + ')">Удал.</button></td></tr>';
+    const selector=can('employees.manage')?'<input type="checkbox" class="employee-row-check" aria-label="Выбрать сотрудника '+escapeHtml(e.fio||'')+'" '+(selectedEmployeeIds.has(id)?'checked':'')+' onchange="toggleEmployeeSelection('+id+',this.checked)">':'';
+    const actions=can('employees.manage')?'<button class="btn btn-blue btn-sm" onclick="editEmp(' + id + ')">Изм.</button> <button class="btn btn-red btn-sm" onclick="deleteEmp(' + id + ')">Удал.</button>':'—';
+    return '<tr><td style="text-align:center">'+selector+'</td><td>' + escapeHtml(e.fio||'') + '</td><td>' + escapeHtml(e.organization||'') + '</td><td>' + escapeHtml(e.position||'') + '</td><td>' + escapeHtml(e.phone||'') + '</td><td>' + escapeHtml(e.birth_date||'') + '</td><td>'+status+'</td><td>' + escapeHtml(e.comments||'') + '</td><td>'+actions+'</td></tr>';
   }).join('');
   updateEmployeeSelectionUi();
 }
@@ -1973,7 +1974,8 @@ function renderObjects(){
   document.getElementById('objectsBody').innerHTML=objects.map(function(o){
     const names=objectResponsibleNames(o),salary=objectSalaryDebtData(o.name);
     const salaryHtml='<button class="btn '+(salary.total>0?'btn-blue':'btn-gray')+' btn-sm" type="button" onclick="showObjectSalaryDebt('+o.id+')">'+formatMoney(salary.total)+' ₽</button>';
-    return '<tr><td>'+escapeHtml(o.name||'')+'</td><td>'+escapeHtml(o.address||'')+'</td><td>'+escapeHtml(o.customer||'')+'</td><td>'+escapeHtml(o.organization||'')+'</td><td>'+(names.length ? names.map(function(n){return '<span class="responsible-chip">'+escapeHtml(n)+'</span>';}).join(' ') : '—')+'</td><td><div><b>'+escapeHtml(month+' '+year)+'</b></div>'+salaryHtml+'</td><td><button class="btn btn-blue btn-sm" onclick="editObj('+o.id+')">Изм.</button> <button class="btn btn-red btn-sm" onclick="deleteObj('+o.id+')">Удал.</button></td></tr>';
+    const actions=can('objects.manage')?'<button class="btn btn-blue btn-sm" onclick="editObj('+o.id+')">Изм.</button> <button class="btn btn-red btn-sm" onclick="deleteObj('+o.id+')">Удал.</button>':'—';
+    return '<tr><td>'+escapeHtml(o.name||'')+'</td><td>'+escapeHtml(o.address||'')+'</td><td>'+escapeHtml(o.customer||'')+'</td><td>'+escapeHtml(o.organization||'')+'</td><td>'+(names.length ? names.map(function(n){return '<span class="responsible-chip">'+escapeHtml(n)+'</span>';}).join(' ') : '—')+'</td><td><div><b>'+escapeHtml(month+' '+year)+'</b></div>'+salaryHtml+'</td><td>'+actions+'</td></tr>';
   }).join('');
 }
 function selectedResponsibleIds(){
@@ -2030,7 +2032,7 @@ async function deleteObj(id){
 
 // === ORGANIZATIONS ===
 function renderOrganizations() {
-  const canEdit=currentUser&&currentUser.role==='Руководитель сайта';
+  const canEdit=can('organizations.manage');
   document.getElementById('orgsBody').innerHTML = organizations.map(function(o){
     const actions=canEdit?'<button class="btn btn-blue btn-sm" onclick="editOrg(' + o.id + ')">Изм.</button> <button class="btn btn-red btn-sm" onclick="deleteOrg(' + o.id + ')">Удал.</button>':'—';
     return '<tr><td>' + escapeHtml(o.name||'') + '</td><td>' + escapeHtml(o.address||'') + '</td><td>' + escapeHtml(o.contacts||'') + '</td><td>'+actions+'</td></tr>';
@@ -2038,14 +2040,14 @@ function renderOrganizations() {
 }
 
 function showOrgModal() {
-  if(!currentUser||currentUser.role!=='Руководитель сайта'){toast('Добавлять организации может только руководитель сайта','error');return;}
+  if(!can('organizations.manage')){toast('Недостаточно прав для добавления организации','error');return;}
   editingOrgId = null;
   ['orgName','orgAddr','orgContacts'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('orgModal').classList.add('show');
 }
 
 function editOrg(id) {
-  if(!currentUser||currentUser.role!=='Руководитель сайта'){toast('Изменять организации может только руководитель сайта','error');return;}
+  if(!can('organizations.manage')){toast('Недостаточно прав для изменения организации','error');return;}
   const o = organizations.find(x => x.id === id);
   if (!o) return;
   editingOrgId = id;
@@ -2056,7 +2058,7 @@ function editOrg(id) {
 }
 
 async function saveOrg() {
-  if(!currentUser||currentUser.role!=='Руководитель сайта'){toast('Сохранять организации может только руководитель сайта','error');return;}
+  if(!can('organizations.manage')){toast('Недостаточно прав для сохранения организации','error');return;}
   const data = {
     name: document.getElementById('orgName').value,
     address: document.getElementById('orgAddr').value,
@@ -2073,7 +2075,7 @@ async function saveOrg() {
 }
 
 async function deleteOrg(id) {
-  if(!currentUser||currentUser.role!=='Руководитель сайта'){toast('Удалять организации может только руководитель сайта','error');return;}
+  if(!can('organizations.manage')){toast('Недостаточно прав для удаления организации','error');return;}
   if (!confirm('Удалить организацию?')) return;
   try {
     await api('/api/organizations/' + id, 'DELETE');
@@ -2084,9 +2086,7 @@ async function deleteOrg(id) {
 }
 
 // === USERS ===
-function canManageUsers(){
-  return currentUser&&['Руководитель сайта','Руководитель организации'].includes(currentUser.role);
-}
+function canManageUsers(){return can('users.manage');}
 function renderUsers() {
   if (!canManageUsers()) return;
   const hint=document.getElementById('usersScopeHint');
@@ -2101,8 +2101,8 @@ function renderUsers() {
 }
 function fillRoleOptions(selected){
   const roles=currentUser.role==='Руководитель сайта'
-    ? ['','Руководитель сайта','Руководитель организации','Руководитель','Руководитель проекта']
-    : ['','Руководитель организации','Руководитель','Руководитель проекта'];
+    ? ['','Руководитель сайта','Руководитель организации','Бухгалтер','Руководитель','Руководитель проекта']
+    : ['','Руководитель организации','Бухгалтер','Руководитель','Руководитель проекта'];
   const select=document.getElementById('roleSelect');
   select.innerHTML=roles.map(function(r){return '<option value="'+escapeHtml(r)+'" '+(r===selected?'selected':'')+'>'+(r||'— Без роли —')+'</option>';}).join('');
 }
