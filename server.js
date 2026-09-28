@@ -15,6 +15,8 @@ app.get('/health', (req, res) => res.status(200).send('OK'));
 
 const PORT = process.env.PORT || 3000;
 
+// Deployment retry marker.
+
 // Deployment retry after registry pull failure.
 
 // Deployment trigger: refresh application after balance direction update. 
