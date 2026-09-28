@@ -263,7 +263,7 @@ button,input,select,textarea{max-width:100%}
   #employeesTable td:last-child,#objectsTable td:last-child,#organizationsTable td:last-child,#usersTable td:last-child{border-bottom:0;justify-content:flex-end;flex-wrap:wrap}
   #employeesTable td:before,#objectsTable td:before,#organizationsTable td:before,#usersTable td:before{font-weight:600;color:#666;text-align:left;flex:0 0 38%}
   #employeesTable td:nth-child(1):before{content:"ФИО"}#employeesTable td:nth-child(2):before{content:"Организация"}#employeesTable td:nth-child(3):before{content:"Должность"}#employeesTable td:nth-child(4):before{content:"Телефон"}#employeesTable td:nth-child(5):before{content:"Дата рождения"}#employeesTable td:nth-child(6):before{content:"Комментарии"}
-  #objectsTable td:nth-child(1):before{content:"Объект"}#objectsTable td:nth-child(2):before{content:"Адрес"}#objectsTable td:nth-child(3):before{content:"Заказчик"}#objectsTable td:nth-child(4):before{content:"Организация"}#objectsTable td:nth-child(5):before{content:"Ответственные"}
+  #objectsTable td:nth-child(1):before{content:"Объект"}#objectsTable td:nth-child(2):before{content:"Адрес"}#objectsTable td:nth-child(3):before{content:"Заказчик"}#objectsTable td:nth-child(4):before{content:"Организация"}#objectsTable td:nth-child(5):before{content:"Ответственные"}#objectsTable td:nth-child(6):before{content:"Долг по зарплате"}
   #organizationsTable td:nth-child(1):before{content:"Организация"}#organizationsTable td:nth-child(2):before{content:"Адрес"}#organizationsTable td:nth-child(3):before{content:"Контакты"}
   #usersTable td:nth-child(1):before{content:"ФИО"}#usersTable td:nth-child(2):before{content:"Логин"}#usersTable td:nth-child(3):before{content:"Телефон"}#usersTable td:nth-child(4):before{content:"Роль"}#usersTable td:nth-child(5):before{content:"Организация / объект"}
 }
@@ -504,7 +504,7 @@ button,input,select,textarea{max-width:100%}
         <h2>Объекты</h2>
         <button class="btn btn-green btn-sm" onclick="showObjModal()">+ Добавить объект</button>
       </div>
-      <table><thead><tr><th>Наименование</th><th>Адрес</th><th>Заказчик</th><th>Организация</th><th>Ответственные</th><th>Действия</th></tr></thead>
+      <table id="objectsTable"><thead><tr><th>Наименование</th><th>Адрес</th><th>Заказчик</th><th>Организация</th><th>Ответственные</th><th>Задолженность по зарплате</th><th>Действия</th></tr></thead>
       <tbody id="objectsBody"></tbody></table>
     </div>
   </div>
@@ -552,6 +552,7 @@ button,input,select,textarea{max-width:100%}
 <!-- MODALS -->
 <div class="modal-overlay" id="empModal"><div class="modal"><span class="modal-close" onclick="closeModal('empModal')">&times;</span><h2>Сотрудник</h2><div class="form-group"><label>ФИО</label><input type="text" id="empFio"></div><div class="form-group"><label>Организация</label><input type="text" id="empOrg"></div><div class="form-group"><label>Должность</label><input type="text" id="empPos"></div><div class="form-group"><label>Телефон</label><input type="tel" id="empPhone" class="phone-input" placeholder="7 (900) 900-90-90" inputmode="numeric" autocomplete="tel" maxlength="18" oninput="formatPhoneInput(this)"></div><div class="form-group"><label>Дата рождения</label><input type="text" id="empBirth" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div><div class="form-group"><label>Комментарии</label><textarea id="empComments"></textarea></div><button class="btn btn-green" onclick="saveEmp()">Сохранить</button></div></div>
 <div class="modal-overlay" id="objModal"><div class="modal"><span class="modal-close" onclick="closeModal('objModal')">&times;</span><h2>Объект</h2><div class="form-group"><label>Наименование</label><input type="text" id="objName"></div><div class="form-group"><label>Адрес</label><input type="text" id="objAddr"></div><div class="form-group"><label>Заказчик</label><input type="text" id="objCust"></div><div class="form-group"><label>Организация</label><input type="text" id="objOrg"></div><div class="form-group"><label>Ответственные сотрудники</label><input class="responsible-search" type="text" id="objRespSearch" placeholder="Поиск сотрудника" oninput="filterResponsiblePicker()"><div id="objRespList" class="responsible-picker"></div><div id="objRespChips" class="responsible-chips"></div></div><button class="btn btn-green" onclick="saveObj()">Сохранить</button></div></div>
+<div class="modal-overlay" id="objectSalaryDebtModal"><div class="modal" style="max-width:900px"><span class="modal-close" onclick="closeModal('objectSalaryDebtModal')">&times;</span><h2 id="objectSalaryDebtTitle">Задолженность по зарплате</h2><div id="objectSalaryDebtSummary" class="salary-summary" style="margin:14px 0"></div><div class="balance-help" style="margin-bottom:12px">Расчёт относится только к начислениям, привязанным к этому объекту, и выплатам, внесённым непосредственно в эти начисления. Импортированные банковские выплаты и вводные остатки относятся к сотруднику в целом и не распределяются между объектами автоматически.</div><div style="overflow:auto;max-height:520px"><table style="min-width:650px"><thead><tr><th>Сотрудник</th><th>Начислено</th><th>Выплачено</th><th>Задолженность</th><th>Переплата</th></tr></thead><tbody id="objectSalaryDebtBody"></tbody></table></div></div></div>
 <div class="modal-overlay" id="orgModal"><div class="modal"><span class="modal-close" onclick="closeModal('orgModal')">&times;</span><h2>Организация</h2><div class="form-group"><label>Наименование</label><input type="text" id="orgName"></div><div class="form-group"><label>Адрес</label><input type="text" id="orgAddr"></div><div class="form-group"><label>Контакты</label><input type="text" id="orgContacts"></div><button class="btn btn-green" onclick="saveOrg()">Сохранить</button></div></div>
 <div class="modal-overlay" id="salaryEditModal"><div class="modal"><span class="modal-close" onclick="closeModal('salaryEditModal')">&times;</span><h2>Редактирование записи</h2><div class="form-row"><div class="form-group" style="position:relative"><label>Сотрудник</label><input type="text" id="editFio" oninput="autocompleteFio(this)" onblur="setTimeout(()=>hideAutocomplete('fioAc2'),200)"><div class="autocomplete-list" id="fioAc2"></div></div><div class="form-group" style="position:relative"><label>Объект</label><input type="text" id="editObject" oninput="autocompleteObj(this)" onblur="setTimeout(()=>hideAutocomplete('objAc2'),200)"><div class="autocomplete-list" id="objAc2"></div></div></div><div class="form-row"><div class="form-group"><label>Месяц</label><select id="editMonth"><option value="">—</option><option>Январь</option><option>Февраль</option><option>Март</option><option>Апрель</option><option>Май</option><option>Июнь</option><option>Июль</option><option>Август</option><option>Сентябрь</option><option>Октябрь</option><option>Ноябрь</option><option>Декабрь</option></select></div><div class="form-group"><label>Год</label><input type="text" id="editYear"></div><div class="form-group"><label>Дата начисления</label><input type="text" id="editChargeDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div></div><div class="form-row"><div class="form-group"><label>Ставка за час</label><input type="number" id="editHourRate"></div><div class="form-group"><label>Часы</label><input type="number" id="editHours"></div><div class="form-group"><label>Дни суточных</label><input type="number" id="editPerDiemDays"></div><div class="form-group"><label>Ставка суточных</label><input type="number" id="editPerDiemRate"></div></div><div class="form-group"><label>Дополнительные начисления</label><div id="editExtraContainer"></div><button class="btn btn-blue btn-sm" type="button" onclick="addEditExtraCharge()">+ Начисление</button></div><div class="form-group"><label>Выплаты</label><div id="editPaymentsContainer"></div><button class="btn btn-blue btn-sm" type="button" onclick="addEditPayment()">+ Выплата</button></div><div class="form-row"><div class="form-group"><label>Итого</label><input type="number" id="editTotal" readonly></div><div class="form-group"><label>Выплачено</label><input type="number" id="editPaid"></div></div><button class="btn btn-green" onclick="saveEditSalary()">Сохранить изменения</button></div></div>
 <div class="modal-overlay" id="salaryArchiveModal"><div class="modal"><span class="modal-close" onclick="closeModal('salaryArchiveModal')">&times;</span><h2>Архив удалённых начислений</h2><div id="salaryArchiveList"></div></div></div>
@@ -1725,10 +1726,53 @@ function objectResponsibleNames(o){
   if(Array.isArray(o.responsibles) && o.responsibles.length) return o.responsibles.map(function(r){return r.fio || r.name || '';}).filter(Boolean);
   return String(o.responsible || '').split(',').map(function(x){return x.trim();}).filter(Boolean);
 }
+function objectSalaryDebtData(objectName){
+  const key=String(objectName||'').trim().toLocaleLowerCase('ru-RU');
+  const rows={};
+  salaryRecords.filter(function(r){
+    return String(r.object_name||'').trim().toLocaleLowerCase('ru-RU')===key;
+  }).forEach(function(r){
+    const fio=String(r.employee_fio||'').trim()||'Без сотрудника';
+    if(!rows[fio])rows[fio]={fio:fio,total:0,paid:0,debt:0,overpayment:0};
+    rows[fio].total+=Number(r.total||0);
+    rows[fio].paid+=Number(r.paid||0);
+  });
+  const employeesRows=Object.values(rows).map(function(x){
+    const balance=x.total-x.paid;
+    x.debt=Math.max(balance,0);
+    x.overpayment=Math.max(-balance,0);
+    return x;
+  }).sort(function(a,b){return b.debt-a.debt || a.fio.localeCompare(b.fio,'ru');});
+  return {
+    rows:employeesRows,
+    total:employeesRows.reduce(function(s,x){return s+x.total;},0),
+    paid:employeesRows.reduce(function(s,x){return s+x.paid;},0),
+    debt:employeesRows.reduce(function(s,x){return s+x.debt;},0),
+    overpayment:employeesRows.reduce(function(s,x){return s+x.overpayment;},0)
+  };
+}
+function showObjectSalaryDebt(id){
+  const o=objects.find(function(x){return Number(x.id)===Number(id);});
+  if(!o)return;
+  const data=objectSalaryDebtData(o.name);
+  document.getElementById('objectSalaryDebtTitle').textContent='Задолженность по зарплате — '+(o.name||'Объект');
+  document.getElementById('objectSalaryDebtSummary').innerHTML=
+    '<div class="salary-summary-item"><label>Начислено</label><b>'+formatMoney(data.total)+' ₽</b></div>'+
+    '<div class="salary-summary-item"><label>Выплачено</label><b>'+formatMoney(data.paid)+' ₽</b></div>'+
+    '<div class="salary-summary-item"><label>Задолженность</label><b>'+formatMoney(data.debt)+' ₽</b></div>'+
+    '<div class="salary-summary-item"><label>Переплата</label><b>'+formatMoney(data.overpayment)+' ₽</b></div>';
+  document.getElementById('objectSalaryDebtBody').innerHTML=data.rows.length?data.rows.map(function(x){
+    return '<tr><td>'+escapeHtml(x.fio)+'</td><td>'+formatMoney(x.total)+' ₽</td><td>'+formatMoney(x.paid)+' ₽</td><td><b>'+formatMoney(x.debt)+' ₽</b></td><td>'+formatMoney(x.overpayment)+' ₽</td></tr>';
+  }).join(''):'<tr><td colspan="5" style="color:#777">По этому объекту начислений пока нет.</td></tr>';
+  document.getElementById('objectSalaryDebtModal').classList.add('show');
+}
 function renderObjects(){
   document.getElementById('objectsBody').innerHTML=objects.map(function(o){
-    const names=objectResponsibleNames(o);
-    return '<tr><td>'+escapeHtml(o.name||'')+'</td><td>'+escapeHtml(o.address||'')+'</td><td>'+escapeHtml(o.customer||'')+'</td><td>'+escapeHtml(o.organization||'')+'</td><td>'+(names.length ? names.map(function(n){return '<span class="responsible-chip">'+escapeHtml(n)+'</span>';}).join(' ') : '—')+'</td><td><button class="btn btn-blue btn-sm" onclick="editObj('+o.id+')">Изм.</button> <button class="btn btn-red btn-sm" onclick="deleteObj('+o.id+')">Удал.</button></td></tr>';
+    const names=objectResponsibleNames(o),salary=objectSalaryDebtData(o.name);
+    const debtHtml=salary.debt>0
+      ? '<button class="btn btn-red btn-sm" type="button" onclick="showObjectSalaryDebt('+o.id+')">'+formatMoney(salary.debt)+' ₽</button>'
+      : '<button class="btn btn-gray btn-sm" type="button" onclick="showObjectSalaryDebt('+o.id+')">'+formatMoney(0)+' ₽</button>';
+    return '<tr><td>'+escapeHtml(o.name||'')+'</td><td>'+escapeHtml(o.address||'')+'</td><td>'+escapeHtml(o.customer||'')+'</td><td>'+escapeHtml(o.organization||'')+'</td><td>'+(names.length ? names.map(function(n){return '<span class="responsible-chip">'+escapeHtml(n)+'</span>';}).join(' ') : '—')+'</td><td>'+debtHtml+'</td><td><button class="btn btn-blue btn-sm" onclick="editObj('+o.id+')">Изм.</button> <button class="btn btn-red btn-sm" onclick="deleteObj('+o.id+')">Удал.</button></td></tr>';
   }).join('');
 }
 function selectedResponsibleIds(){
