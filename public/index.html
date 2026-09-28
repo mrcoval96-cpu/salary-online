@@ -702,7 +702,7 @@ async function doLogin() {
   try {
     const user = await api('/api/login', 'POST', { login, password });
     currentUser = user;
-    if(user.email_verification_enabled!==false && !user.email_verified){showEmailRequired(user);return;}
+    // Email verification is temporarily disabled; do not block login on the client.
     showApp();
   } catch (e) {
     document.getElementById('loginError').textContent = e.message;
