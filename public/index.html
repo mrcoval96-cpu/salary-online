@@ -732,6 +732,10 @@ function parseJsonArray(value){
 function can(permission){
   return !!(currentUser&&currentUser.permissions&&currentUser.permissions[permission]);
 }
+function updateBrowserTitle(){
+  const organization=String(currentUser&&currentUser.organization||'').trim();
+  document.title=organization||'Зарплата: учёт и расчёт';
+}
 function canAny(){
   for(let i=0;i<arguments.length;i++)if(can(arguments[i]))return true;
   return false;
@@ -1112,12 +1116,14 @@ async function resetPasswordByEmail(){
 async function doLogout() {
   try { await api('/api/logout', 'POST'); } catch(e) {}
   currentUser = null;
+  updateBrowserTitle();
   document.getElementById('mainApp').style.display = 'none';
   document.getElementById('loginScreen').style.display = 'block';
 }
 
 // === INIT APP ===
 async function showApp(){
+  updateBrowserTitle();
   document.getElementById('loginScreen').style.display='none';
   document.getElementById('mainApp').style.display='block';
   document.getElementById('userFio').textContent=currentUser.fio;
