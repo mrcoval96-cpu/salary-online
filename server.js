@@ -70,6 +70,8 @@ async function ensureDatabaseSchema(){
   await pool.query("CREATE INDEX IF NOT EXISTS idx_security_log_event ON security_log(event)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_salary_records_deleted_at ON salary_records(deleted_at)");
   await pool.query("ALTER TABLE employees ADD COLUMN IF NOT EXISTS employment_status TEXT NOT NULL DEFAULT 'working'");
+  await pool.query("ALTER TABLE employees ADD COLUMN IF NOT EXISTS hr_profile JSONB NOT NULL DEFAULT '{}'::jsonb");
+  await pool.query("ALTER TABLE employees ADD COLUMN IF NOT EXISTS photo_data TEXT NOT NULL DEFAULT ''");
   await pool.query("CREATE TABLE IF NOT EXISTS object_responsibles (object_id INTEGER NOT NULL REFERENCES objects(id) ON DELETE CASCADE, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (object_id, employee_id))");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_object_responsibles_employee ON object_responsibles(employee_id)");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT");
@@ -852,16 +854,48 @@ app.get('/api/employees', requirePermission('employees.view'), async (req, res) 
     const user=req.accessUser||await refreshAccessUser(req);
     let result;
     if(isSiteWideUser(user)){
-      result=await pool.query('SELECT * FROM employees ORDER BY fio');
+      result=await pool.query('SELECT id,fio,organization,position,phone,birth_date,comments,employment_status FROM employees ORDER BY fio');
     }else if(isProjectScoped(user)){
-      result=await pool.query("SELECT DISTINCT e.* FROM employees e WHERE lower(trim(e.organization))=lower(trim($1)) AND (EXISTS(SELECT 1 FROM object_responsibles r JOIN objects o ON o.id=r.object_id WHERE r.employee_id=e.id AND lower(trim(o.name))=lower(trim($2))) OR EXISTS(SELECT 1 FROM salary_records s WHERE lower(trim(s.employee_fio))=lower(trim(e.fio)) AND lower(trim(COALESCE(s.object_name,'')))=lower(trim($2)))) ORDER BY e.fio",[accessOrganization(user),accessObject(user)]);
+      result=await pool.query("SELECT DISTINCT e.id,e.fio,e.organization,e.position,e.phone,e.birth_date,e.comments,e.employment_status FROM employees e WHERE lower(trim(e.organization))=lower(trim($1)) AND (EXISTS(SELECT 1 FROM object_responsibles r JOIN objects o ON o.id=r.object_id WHERE r.employee_id=e.id AND lower(trim(o.name))=lower(trim($2))) OR EXISTS(SELECT 1 FROM salary_records s WHERE lower(trim(s.employee_fio))=lower(trim(e.fio)) AND lower(trim(COALESCE(s.object_name,'')))=lower(trim($2)))) ORDER BY e.fio",[accessOrganization(user),accessObject(user)]);
     }else{
-      result=await pool.query('SELECT * FROM employees WHERE lower(trim(organization))=lower(trim($1)) ORDER BY fio',[accessOrganization(user)]);
+      result=await pool.query('SELECT id,fio,organization,position,phone,birth_date,comments,employment_status FROM employees WHERE lower(trim(organization))=lower(trim($1)) ORDER BY fio',[accessOrganization(user)]);
     }
     res.json(result.rows);
   } catch (err) {
     res.status(err.status||500).json({ error: err.message });
   }
+});
+
+app.get('/api/employees/:id/profile', requirePermission('employees.view'), async (req,res)=>{
+  const id=Number(req.params.id);
+  if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректный сотрудник'});
+  try{
+    const user=req.accessUser||await refreshAccessUser(req);
+    await ensureEmployeeAccess(user,id);
+    const r=await pool.query('SELECT id,fio,organization,position,phone,birth_date,comments,employment_status,hr_profile,photo_data FROM employees WHERE id=$1',[id]);
+    if(!r.rows.length)return res.status(404).json({error:'Сотрудник не найден'});
+    res.setHeader('Cache-Control','no-store');
+    res.json(r.rows[0]);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+
+app.put('/api/employees/:id/profile', requirePermission('employees.manage'), async (req,res)=>{
+  const id=Number(req.params.id);
+  if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректный сотрудник'});
+  try{
+    const user=req.accessUser||await refreshAccessUser(req);
+    const employee=await ensureEmployeeAccess(user,id);
+    const rawProfile=req.body&&req.body.profile;
+    const profile=rawProfile&&typeof rawProfile==='object'&&!Array.isArray(rawProfile)?rawProfile:{};
+    const photoData=String(req.body&&req.body.photo_data||'');
+    if(photoData && !/^data:image\/(jpeg|png|webp);base64,/i.test(photoData))return res.status(400).json({error:'Фото должно быть в формате JPG, PNG или WEBP'});
+    if(photoData.length>1600000)return res.status(400).json({error:'Фото слишком большое. Максимальный размер после обработки — около 1 МБ'});
+    const json=JSON.stringify(profile);
+    if(Buffer.byteLength(json,'utf8')>200000)return res.status(400).json({error:'Анкета слишком большая'});
+    const result=await pool.query('UPDATE employees SET hr_profile=$1::jsonb,photo_data=$2 WHERE id=$3 RETURNING id,fio,organization,position,phone,birth_date,comments,employment_status,hr_profile,photo_data',[json,photoData,id]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Обновлена кадровая анкета сотрудника: '+employee.fio]);
+    res.json(result.rows[0]);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
 });
 
 app.post('/api/employees', requirePermission('employees.manage'), async (req, res) => {
