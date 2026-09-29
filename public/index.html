@@ -662,7 +662,7 @@ button,input,select,textarea{max-width:100%}
   </div>
 </div></div>
 <div id="employeeProfilePrint" class="hr-print-sheet"></div>
-<div class="modal-overlay" id="objModal"><div class="modal"><span class="modal-close" onclick="closeModal('objModal')">&times;</span><h2>Объект</h2><div class="form-group"><label>Наименование</label><input type="text" id="objName"></div><div class="form-group"><label>Адрес</label><input type="text" id="objAddr"></div><div class="form-group"><label>Заказчик</label><input type="text" id="objCust"></div><div class="form-group"><label>Организация</label><input type="text" id="objOrg"></div><div class="form-group"><label>Ответственные сотрудники</label><input class="responsible-search" type="text" id="objRespSearch" placeholder="Поиск сотрудника" oninput="filterResponsiblePicker()"><div id="objRespList" class="responsible-picker"></div><div id="objRespChips" class="responsible-chips"></div></div><button class="btn btn-green" onclick="saveObj()">Сохранить</button></div></div>
+<div class="modal-overlay" id="objModal"><div class="modal"><span class="modal-close" onclick="closeModal('objModal')">&times;</span><h2>Объект</h2><div class="form-group"><label>Наименование</label><input type="text" id="objName"></div><div class="form-group"><label>Адрес</label><input type="text" id="objAddr"></div><div class="form-group"><label>Заказчик</label><input type="text" id="objCust"></div><div class="form-group"><label>Организация</label><select id="objOrg"><option value="">— Выберите организацию —</option></select></div><div class="form-group"><label>Ответственные сотрудники</label><input class="responsible-search" type="text" id="objRespSearch" placeholder="Поиск сотрудника" oninput="filterResponsiblePicker()"><div id="objRespList" class="responsible-picker"></div><div id="objRespChips" class="responsible-chips"></div></div><button class="btn btn-green" onclick="saveObj()">Сохранить</button></div></div>
 <div class="modal-overlay" id="objectSalaryDebtModal"><div class="modal" style="max-width:760px"><span class="modal-close" onclick="closeModal('objectSalaryDebtModal')">&times;</span><h2 id="objectSalaryDebtTitle">Зарплата по объекту</h2><div id="objectSalaryDebtSummary" class="salary-summary" style="margin:14px 0"></div><div class="balance-help" style="margin-bottom:12px">Показываются только начисления за выбранный месяц, которые непосредственно привязаны к этому объекту. Общая задолженность сотрудника и выплаты с других объектов сюда не переносятся, поэтому суммы между объектами не дублируются.</div><div style="overflow:auto;max-height:520px"><table style="min-width:520px"><thead><tr><th>Сотрудник</th><th>Начислено за месяц</th></tr></thead><tbody id="objectSalaryDebtBody"></tbody></table></div></div></div>
 <div class="modal-overlay" id="orgModal"><div class="modal"><span class="modal-close" onclick="closeModal('orgModal')">&times;</span><h2>Организация</h2><div class="form-group"><label>Наименование</label><input type="text" id="orgName"></div><div class="form-group"><label>Адрес</label><input type="text" id="orgAddr"></div><div class="form-group"><label>Контакты</label><input type="text" id="orgContacts"></div><button class="btn btn-green" onclick="saveOrg()">Сохранить</button></div></div>
 <div class="modal-overlay" id="salaryEditModal"><div class="modal"><span class="modal-close" onclick="closeModal('salaryEditModal')">&times;</span><h2>Редактирование записи</h2><div class="form-row"><div class="form-group" style="position:relative"><label>Сотрудник</label><input type="text" id="editFio" oninput="autocompleteFio(this)" onblur="setTimeout(()=>hideAutocomplete('fioAc2'),200)"><div class="autocomplete-list" id="fioAc2"></div></div><div class="form-group" style="position:relative"><label>Объект</label><input type="text" id="editObject" oninput="autocompleteObj(this)" onblur="setTimeout(()=>hideAutocomplete('objAc2'),200)"><div class="autocomplete-list" id="objAc2"></div></div></div><div class="form-row"><div class="form-group"><label>Месяц</label><select id="editMonth"><option value="">—</option><option>Январь</option><option>Февраль</option><option>Март</option><option>Апрель</option><option>Май</option><option>Июнь</option><option>Июль</option><option>Август</option><option>Сентябрь</option><option>Октябрь</option><option>Ноябрь</option><option>Декабрь</option></select></div><div class="form-group"><label>Год</label><input type="text" id="editYear"></div><div class="form-group"><label>Дата начисления</label><input type="text" id="editChargeDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div></div><div class="form-row"><div class="form-group"><label>Ставка за час</label><input type="number" id="editHourRate"></div><div class="form-group"><label>Часы</label><input type="number" id="editHours"></div><div class="form-group"><label>Дни суточных</label><input type="number" id="editPerDiemDays"></div><div class="form-group"><label>Ставка суточных</label><input type="number" id="editPerDiemRate"></div></div><div class="form-group"><label>Дополнительные начисления</label><div id="editExtraContainer"></div><button class="btn btn-blue btn-sm" type="button" onclick="addEditExtraCharge()">+ Начисление</button></div><div class="form-group"><label>Выплаты</label><div id="editPaymentsContainer"></div><button class="btn btn-blue btn-sm" type="button" onclick="addEditPayment()">+ Выплата</button></div><div class="form-row"><div class="form-group"><label>Итого</label><input type="number" id="editTotal" readonly></div><div class="form-group"><label>Выплачено</label><input type="number" id="editPaid"></div></div><button class="btn btn-green" onclick="saveEditSalary()">Сохранить изменения</button></div></div>
@@ -2261,9 +2261,23 @@ function renderResponsibleChips(){
   const chips=employees.filter(function(e){return ids.has(Number(e.id));}).sort(function(a,b){return a.fio.localeCompare(b.fio,'ru');}).map(function(e){return '<span class="responsible-chip">'+escapeHtml(e.fio)+'</span>';}).join('');
   target.innerHTML=chips || '<span style="font-size:12px;color:#777">Ответственные не выбраны</span>';
 }
+function fillObjectOrganizationOptions(selected){
+  const select=document.getElementById('objOrg');
+  if(!select)return;
+  let list=organizations.slice();
+  const siteManager=can('organizations.manage');
+  if(!siteManager){
+    list=list.filter(function(o){return String(o.name||'').trim().toLocaleLowerCase('ru-RU')===String(currentUser&&currentUser.organization||'').trim().toLocaleLowerCase('ru-RU');});
+  }
+  select.innerHTML='<option value="">— Выберите организацию —</option>'+list.map(function(o){return '<option value="'+escapeHtml(o.name||'')+'">'+escapeHtml(o.name||'')+'</option>';}).join('');
+  const wanted=selected||(!siteManager&&currentUser?currentUser.organization:'')||'';
+  if(wanted)select.value=wanted;
+  select.disabled=!siteManager;
+}
 function showObjModal(){
   editingObjId=null;
-  ['objName','objAddr','objCust','objOrg','objRespSearch'].forEach(function(id){document.getElementById(id).value='';});
+  ['objName','objAddr','objCust','objRespSearch'].forEach(function(id){document.getElementById(id).value='';});
+  fillObjectOrganizationOptions('');
   renderResponsiblePicker([]);
   document.getElementById('objModal').classList.add('show');
 }
@@ -2273,7 +2287,7 @@ function editObj(id){
   document.getElementById('objName').value=o.name||'';
   document.getElementById('objAddr').value=o.address||'';
   document.getElementById('objCust').value=o.customer||'';
-  document.getElementById('objOrg').value=o.organization||'';
+  fillObjectOrganizationOptions(o.organization||'');
   document.getElementById('objRespSearch').value='';
   const ids=Array.isArray(o.responsibles)?o.responsibles.map(function(r){return Number(r.id);}).filter(function(id){return Number.isInteger(id);}):[];
   renderResponsiblePicker(ids);
