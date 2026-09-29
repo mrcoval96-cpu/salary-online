@@ -99,6 +99,7 @@ async function ensureDatabaseSchema(){
   await pool.query("INSERT INTO object_responsibles (object_id,employee_id) SELECT o.id,e.id FROM objects o CROSS JOIN LATERAL regexp_split_to_table(COALESCE(o.responsible,''),',') AS part(name) JOIN employees e ON lower(trim(e.fio))=lower(trim(part.name)) WHERE trim(part.name)<>'' ON CONFLICT (object_id,employee_id) DO NOTHING");
   await pool.query("INSERT INTO object_user_responsibles(object_id,user_id) SELECT DISTINCT r.object_id,u.id FROM object_responsibles r JOIN objects o ON o.id=r.object_id JOIN employees e ON e.id=r.employee_id JOIN users u ON lower(trim(u.fio))=lower(trim(e.fio)) AND lower(trim(u.organization))=lower(trim(o.organization)) WHERE trim(COALESCE(o.organization,''))<>'' ON CONFLICT(object_id,user_id) DO NOTHING");
   await pool.query("INSERT INTO object_user_responsibles(object_id,user_id) SELECT DISTINCT o.id,u.id FROM objects o CROSS JOIN LATERAL regexp_split_to_table(COALESCE(o.responsible,''),',') AS part(name) JOIN users u ON lower(trim(u.fio))=lower(trim(part.name)) AND lower(trim(u.organization))=lower(trim(o.organization)) WHERE trim(part.name)<>'' AND trim(COALESCE(o.organization,''))<>'' ON CONFLICT(object_id,user_id) DO NOTHING");
+  await pool.query("INSERT INTO object_user_responsibles(object_id,user_id) SELECT DISTINCT o.id,u.id FROM users u JOIN objects o ON lower(trim(o.name))=lower(trim(u.object_name)) AND lower(trim(o.organization))=lower(trim(u.organization)) WHERE u.role='Руководитель проекта' AND trim(COALESCE(u.object_name,''))<>'' ON CONFLICT(object_id,user_id) DO NOTHING");
   await repairOrganizationReferences();
 }
 
@@ -510,15 +511,9 @@ function accessOrganization(user){return String(user&&user.organization||'').tri
 function accessObject(user){return String(user&&user.object_name||'').trim();}
 function isProjectScoped(user){return String(user&&user.role||'')==='Руководитель проекта'&&!isSiteWideUser(user);}
 async function projectObjectKeys(user){
-  if(!isProjectScoped(user))return [];
-  const keys=new Set();
-  if(user&&user.id){
-    const r=await pool.query("SELECT DISTINCT lower(trim(o.name)) AS object_key FROM object_user_responsibles ur JOIN objects o ON o.id=ur.object_id WHERE ur.user_id=$1 AND lower(trim(o.organization))=lower(trim($2))",[user.id,accessOrganization(user)]);
-    r.rows.forEach(function(row){if(row.object_key)keys.add(String(row.object_key));});
-  }
-  const legacy=normAccess(accessObject(user));
-  if(legacy)keys.add(legacy);
-  return Array.from(keys);
+  if(!isProjectScoped(user)||!user||!user.id)return [];
+  const r=await pool.query("SELECT DISTINCT lower(trim(o.name)) AS object_key FROM object_user_responsibles ur JOIN objects o ON o.id=ur.object_id WHERE ur.user_id=$1 AND lower(trim(o.organization))=lower(trim($2))",[user.id,accessOrganization(user)]);
+  return r.rows.map(function(row){return String(row.object_key||'');}).filter(Boolean);
 }
 async function requireProjectObjectKeys(user){
   const keys=await projectObjectKeys(user);
@@ -986,6 +981,9 @@ app.post('/api/users/role', requireUserManager, async (req, res) => {
     try { history = JSON.parse(user.role_history || '[]'); } catch(e) {}
     history.push({date:new Date().toISOString(),oldRole:user.role,newRole:role,oldOrg:user.organization,newOrg:organization,by:actor.login});
     await pool.query('UPDATE users SET role=$1, organization=$2, object_name=$3, role_history=$4 WHERE id=$5',[role,organization,objectName,JSON.stringify(history),userId]);
+    if(role==='Руководитель проекта'&&objectName){
+      await pool.query("INSERT INTO object_user_responsibles(object_id,user_id) SELECT o.id,$1 FROM objects o WHERE lower(trim(o.name))=lower(trim($2)) AND lower(trim(o.organization))=lower(trim($3)) ON CONFLICT(object_id,user_id) DO NOTHING",[userId,objectName,organization]);
+    }
     await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)',[actor.login,'Изменение роли пользователя ID='+userId+': '+(user.role||'без роли')+' → '+(role||'без роли')+', организация '+organization]);
     await logSecurityEvent(req,'role_changed',true,'Target user ID='+userId+'; role='+(role||'none')+'; organization='+organization,actor.login);
     res.json({ ok: true });
