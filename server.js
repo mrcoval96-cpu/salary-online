@@ -239,7 +239,7 @@ const PERMISSION_DEFINITIONS=[
   {key:'reports.export',group:'Отчёты',label:'Экспорт доступных данных'},
   {key:'users.manage',group:'Пользователи',label:'Просмотр пользователей и назначение ролей'},
   {key:'users.customize',group:'Пользователи',label:'Индивидуальная настройка прав пользователей'},
-  {key:'users.delete',group:'Пользователи',label:'Удаление аккаунтов'},
+  {key:'users.delete',group:'Пользователи',label:'Удаление аккаунтов',siteOnly:true},
   {key:'logs.view',group:'Журналы',label:'Просмотр журнала действий'},
   {key:'security.view',group:'Администрирование',label:'Журнал безопасности',siteOnly:true},
   {key:'backups.manage',group:'Администрирование',label:'Резервные копии, восстановление и полная очистка',siteOnly:true}
@@ -253,7 +253,7 @@ const ROLE_PERMISSION_DEFAULTS={
     'organizations.view':true,'organizations.manage':false,'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':true,
     'balances.manage':true,'bank.view':true,'bank.import':true,'bank.allocate':true,'bank.delete':true,
     'periods.close':true,'periods.reopen':true,'reports.export':true,
-    'users.manage':true,'users.customize':true,'users.delete':true,'logs.view':true,'security.view':false,'backups.manage':false
+    'users.manage':true,'users.customize':true,'users.delete':false,'logs.view':true,'security.view':false,'backups.manage':false
   },
   'Бухгалтер':{
     'employees.view':true,'employees.manage':false,'objects.view':true,'objects.manage':false,
@@ -828,7 +828,7 @@ app.put('/api/users/:id/organization', requireSiteManager, async (req,res)=>{
   }catch(err){res.status(err.status||500).json({error:err.message});}
 });
 
-app.delete('/api/users/:id', requirePermission('users.delete'), async (req,res)=>{
+app.delete('/api/users/:id', requireSiteManager, async (req,res)=>{
   const userId=Number(req.params.id);
   if(!Number.isInteger(userId)||userId<=0)return res.status(400).json({error:'Некорректный пользователь'});
   try{
