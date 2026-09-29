@@ -44,7 +44,21 @@ CREATE TABLE IF NOT EXISTS object_responsibles (
 CREATE TABLE IF NOT EXISTS organizations (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
+    full_name TEXT DEFAULT '',
+    inn VARCHAR(12) DEFAULT '',
+    kpp VARCHAR(9) DEFAULT '',
+    ogrn VARCHAR(15) DEFAULT '',
+    legal_address TEXT DEFAULT '',
     address VARCHAR(500) DEFAULT '',
+    postal_address TEXT DEFAULT '',
+    director_fio VARCHAR(255) DEFAULT '',
+    phone VARCHAR(100) DEFAULT '',
+    email VARCHAR(255) DEFAULT '',
+    website VARCHAR(255) DEFAULT '',
+    bank_name VARCHAR(500) DEFAULT '',
+    bik VARCHAR(9) DEFAULT '',
+    settlement_account VARCHAR(20) DEFAULT '',
+    correspondent_account VARCHAR(20) DEFAULT '',
     contacts VARCHAR(500) DEFAULT '',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
