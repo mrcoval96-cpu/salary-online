@@ -1186,6 +1186,16 @@ app.post('/api/employees/bulk-delete', requirePermission('employees.manage'), as
 });
 
 // === OBJECTS ===
+app.get('/api/object-responsible-users', requirePermission('objects.manage'), async (req,res)=>{
+  try{
+    const actor=req.accessUser||await refreshAccessUser(req);
+    const fields='id,fio,role,organization';
+    const result=isSiteWideUser(actor)
+      ? await pool.query("SELECT "+fields+" FROM users WHERE upper(trim(login))<>'ADMIN' AND trim(COALESCE(organization,''))<>'' ORDER BY organization,fio")
+      : await pool.query("SELECT "+fields+" FROM users WHERE upper(trim(login))<>'ADMIN' AND lower(trim(organization))=lower(trim($1)) ORDER BY fio",[accessOrganization(actor)]);
+    res.json(result.rows);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
 async function normalizeResponsibleIds(body,targetOrg){
   let ids=Array.isArray(body.responsible_ids) ? body.responsible_ids : [];
   ids=Array.from(new Set(ids.map(function(v){return Number(v);}).filter(function(v){return Number.isInteger(v)&&v>0;})));
