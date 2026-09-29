@@ -185,6 +185,24 @@ async function repairOrganizationReferences(){
       AND (trim(COALESCE(o.organization,''))='' OR NOT EXISTS(SELECT 1 FROM organizations x WHERE lower(trim(x.name))=lower(trim(o.organization))))
   `);
 
+  // Legacy registered users can inherit organization from a uniquely matched employee profile.
+  await pool.query(`
+    WITH employee_org AS (
+      SELECT lower(trim(fio)) AS fio_key, MIN(organization) AS organization
+      FROM employees
+      WHERE trim(COALESCE(organization,''))<>''
+        AND EXISTS(SELECT 1 FROM organizations x WHERE lower(trim(x.name))=lower(trim(employees.organization)))
+      GROUP BY lower(trim(fio))
+      HAVING COUNT(DISTINCT lower(trim(organization)))=1
+    )
+    UPDATE users u SET organization=e.organization
+    FROM employee_org e
+    WHERE lower(trim(u.fio))=e.fio_key
+      AND upper(trim(u.login))<>'ADMIN'
+      AND u.role<>'Руководитель сайта'
+      AND (trim(COALESCE(u.organization,''))='' OR NOT EXISTS(SELECT 1 FROM organizations x WHERE lower(trim(x.name))=lower(trim(u.organization))))
+  `);
+
   // Users with an assigned object inherit the object's organization when their old organization is orphaned.
   await pool.query(`
     WITH object_org AS (
