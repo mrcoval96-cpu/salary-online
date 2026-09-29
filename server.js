@@ -509,6 +509,22 @@ function sameAccessValue(a,b){return normAccess(a)===normAccess(b);}
 function accessOrganization(user){return String(user&&user.organization||'').trim();}
 function accessObject(user){return String(user&&user.object_name||'').trim();}
 function isProjectScoped(user){return String(user&&user.role||'')==='Руководитель проекта'&&!isSiteWideUser(user);}
+async function projectObjectKeys(user){
+  if(!isProjectScoped(user))return [];
+  const keys=new Set();
+  if(user&&user.id){
+    const r=await pool.query("SELECT DISTINCT lower(trim(o.name)) AS object_key FROM object_user_responsibles ur JOIN objects o ON o.id=ur.object_id WHERE ur.user_id=$1 AND lower(trim(o.organization))=lower(trim($2))",[user.id,accessOrganization(user)]);
+    r.rows.forEach(function(row){if(row.object_key)keys.add(String(row.object_key));});
+  }
+  const legacy=normAccess(accessObject(user));
+  if(legacy)keys.add(legacy);
+  return Array.from(keys);
+}
+async function requireProjectObjectKeys(user){
+  const keys=await projectObjectKeys(user);
+  if(!keys.length){const err=new Error('Для руководителя проекта не назначен объект');err.status=403;throw err;}
+  return keys;
+}
 async function ensureOrganizationAccess(user,organization){
   if(isSiteWideUser(user))return true;
   const own=accessOrganization(user);
@@ -526,10 +542,9 @@ async function ensureEmployeeAccess(user,employee){
   if(!row){const err=new Error('Сотрудник не найден');err.status=404;throw err;}
   await ensureOrganizationAccess(user,row.organization);
   if(isProjectScoped(user)){
-    const obj=accessObject(user);
-    if(!obj){const err=new Error('Для пользователя не назначен объект');err.status=403;throw err;}
-    const linked=await pool.query("SELECT 1 FROM object_responsibles r JOIN objects o ON o.id=r.object_id WHERE r.employee_id=$1 AND lower(trim(o.name))=lower(trim($2)) UNION SELECT 1 FROM salary_records s WHERE lower(trim(s.employee_fio))=lower(trim($3)) AND lower(trim(COALESCE(s.object_name,'')))=lower(trim($2)) LIMIT 1",[row.id,obj,row.fio]);
-    if(!linked.rows.length){const err=new Error('Нет доступа к этому сотруднику в рамках назначенного объекта');err.status=403;throw err;}
+    const objectKeys=await requireProjectObjectKeys(user);
+    const linked=await pool.query("SELECT 1 FROM salary_records s WHERE lower(trim(s.employee_fio))=lower(trim($1)) AND lower(trim(COALESCE(s.object_name,'')))=ANY($2::text[]) LIMIT 1",[row.fio,objectKeys]);
+    if(!linked.rows.length){const err=new Error('Нет доступа к этому сотруднику в рамках назначенных объектов');err.status=403;throw err;}
   }
   return row;
 }
@@ -543,7 +558,10 @@ async function ensureObjectAccess(user,objectValue){
   }
   if(!row){const err=new Error('Объект не найден');err.status=404;throw err;}
   await ensureOrganizationAccess(user,row.organization);
-  if(isProjectScoped(user)&&!sameAccessValue(row.name,accessObject(user))){const err=new Error('Нет доступа к этому объекту');err.status=403;throw err;}
+  if(isProjectScoped(user)){
+    const objectKeys=await requireProjectObjectKeys(user);
+    if(!objectKeys.includes(normAccess(row.name))){const err=new Error('Нет доступа к этому объекту');err.status=403;throw err;}
+  }
   return row;
 }
 async function salaryOrganization(employeeFio,objectName){
@@ -581,7 +599,10 @@ async function ensureSalaryAccess(user,employeeFio,objectName){
     }else{
       objectsResult=await pool.query('SELECT id,name,organization FROM objects WHERE lower(trim(name))=lower(trim($1)) AND lower(trim(organization))=lower(trim($2)) ORDER BY id',[object,accessOrganization(user)]);
     }
-    if(isProjectScoped(user))objectsResult.rows=objectsResult.rows.filter(o=>sameAccessValue(o.name,accessObject(user)));
+    if(isProjectScoped(user)){
+      const objectKeys=await requireProjectObjectKeys(user);
+      objectsResult.rows=objectsResult.rows.filter(o=>objectKeys.includes(normAccess(o.name)));
+    }
     if(!objectsResult.rows.length){const err=new Error('Объект не найден в организации сотрудника');err.status=400;throw err;}
     const matches=[];
     for(const e of candidates)for(const o of objectsResult.rows)if(sameAccessValue(e.organization,o.organization))matches.push({employee:e,object:o});
@@ -1058,7 +1079,8 @@ app.get('/api/employees', requirePermission('employees.view'), async (req, res) 
     if(isSiteWideUser(user)){
       result=await pool.query('SELECT id,fio,organization,position,phone,birth_date,comments,employment_status FROM employees ORDER BY fio');
     }else if(isProjectScoped(user)){
-      result=await pool.query("SELECT DISTINCT e.id,e.fio,e.organization,e.position,e.phone,e.birth_date,e.comments,e.employment_status FROM employees e WHERE lower(trim(e.organization))=lower(trim($1)) AND (EXISTS(SELECT 1 FROM object_responsibles r JOIN objects o ON o.id=r.object_id WHERE r.employee_id=e.id AND lower(trim(o.name))=lower(trim($2))) OR EXISTS(SELECT 1 FROM salary_records s WHERE lower(trim(s.employee_fio))=lower(trim(e.fio)) AND lower(trim(COALESCE(s.object_name,'')))=lower(trim($2)))) ORDER BY e.fio",[accessOrganization(user),accessObject(user)]);
+      const objectKeys=await requireProjectObjectKeys(user);
+      result=await pool.query("SELECT DISTINCT e.id,e.fio,e.organization,e.position,e.phone,e.birth_date,e.comments,e.employment_status FROM employees e WHERE lower(trim(e.organization))=lower(trim($1)) AND EXISTS(SELECT 1 FROM salary_records s WHERE lower(trim(s.employee_fio))=lower(trim(e.fio)) AND lower(trim(COALESCE(s.object_name,'')))=ANY($2::text[])) ORDER BY e.fio",[accessOrganization(user),objectKeys]);
     }else{
       result=await pool.query('SELECT id,fio,organization,position,phone,birth_date,comments,employment_status FROM employees WHERE lower(trim(organization))=lower(trim($1)) ORDER BY fio',[accessOrganization(user)]);
     }
@@ -1223,7 +1245,10 @@ app.get('/api/objects',requirePermission('objects.view'),async(req,res)=>{
     let result;
     const base="SELECT o.*,COALESCE(json_agg(json_build_object('id',u.id,'fio',u.fio,'role',u.role) ORDER BY u.fio) FILTER (WHERE u.id IS NOT NULL),'[]'::json) AS responsibles FROM objects o LEFT JOIN object_user_responsibles r ON r.object_id=o.id LEFT JOIN users u ON u.id=r.user_id";
     if(isSiteWideUser(user))result=await pool.query(base+" GROUP BY o.id ORDER BY o.name");
-    else if(isProjectScoped(user))result=await pool.query(base+" WHERE lower(trim(o.organization))=lower(trim($1)) AND lower(trim(o.name))=lower(trim($2)) GROUP BY o.id ORDER BY o.name",[accessOrganization(user),accessObject(user)]);
+    else if(isProjectScoped(user)){
+      const objectKeys=await requireProjectObjectKeys(user);
+      result=await pool.query(base+" WHERE lower(trim(o.organization))=lower(trim($1)) AND lower(trim(o.name))=ANY($2::text[]) GROUP BY o.id ORDER BY o.name",[accessOrganization(user),objectKeys]);
+    }
     else result=await pool.query(base+" WHERE lower(trim(o.organization))=lower(trim($1)) GROUP BY o.id ORDER BY o.name",[accessOrganization(user)]);
     res.json(result.rows);
   }catch(err){res.status(err.status||500).json({error:err.message});}
@@ -1240,7 +1265,10 @@ async function saveObject(id,data,res,req){
   await ensureOrganizationAccess(user,targetOrg);
   const responsibleIds=await normalizeResponsibleIds(data,targetOrg);
   if(id)await ensureObjectAccess(user,Number(id));
-  if(isProjectScoped(user)&&!sameAccessValue(name,accessObject(user))){const err=new Error('Руководитель проекта может изменять только назначенный объект');err.status=403;throw err;}
+  if(isProjectScoped(user)){
+    const objectKeys=await requireProjectObjectKeys(user);
+    if(!objectKeys.includes(normAccess(name))){const err=new Error('Руководитель проекта может изменять только назначенный объект');err.status=403;throw err;}
+  }
   const client=await pool.connect();
   try{
     await client.query('BEGIN');
@@ -1392,7 +1420,8 @@ async function prepareBankStatementTransactions(transactions,user){
   if(!isSiteWideUser(user)){
     allowedEmployees=allowedEmployees.filter(e=>sameAccessValue(e.organization,accessOrganization(user)));
     if(isProjectScoped(user)){
-      const projectNames=new Set(salaryResult.rows.filter(r=>sameAccessValue(r.object_name,accessObject(user))).map(r=>normalizeEmployeeMatchName(r.employee_fio)));
+      const objectKeys=await requireProjectObjectKeys(user);
+      const projectNames=new Set(salaryResult.rows.filter(r=>objectKeys.includes(normAccess(r.object_name))).map(r=>normalizeEmployeeMatchName(r.employee_fio)));
       allowedEmployees=allowedEmployees.filter(e=>projectNames.has(normalizeEmployeeMatchName(e.fio)));
     }
   }
@@ -1475,7 +1504,8 @@ app.get('/api/salary', requirePermission('salary.view'), async (req, res) => {
     if(isSiteWideUser(user)){
       result=await pool.query('SELECT * FROM salary_records WHERE deleted_at IS NULL ORDER BY employee_fio, year, month');
     }else if(isProjectScoped(user)){
-      result=await pool.query("SELECT s.* FROM salary_records s WHERE s.deleted_at IS NULL AND lower(trim(COALESCE(s.object_name,'')))=lower(trim($1)) AND (lower(trim(COALESCE(s.organization,'')))=lower(trim($2)) OR ((trim(COALESCE(s.organization,''))='' OR NOT EXISTS(SELECT 1 FROM organizations og WHERE lower(trim(og.name))=lower(trim(s.organization)))) AND EXISTS(SELECT 1 FROM employees e WHERE lower(trim(e.fio))=lower(trim(s.employee_fio)) AND lower(trim(e.organization))=lower(trim($2))))) ORDER BY s.employee_fio,s.year,s.month",[accessObject(user),accessOrganization(user)]);
+      const objectKeys=await requireProjectObjectKeys(user);
+      result=await pool.query("SELECT s.* FROM salary_records s WHERE s.deleted_at IS NULL AND lower(trim(COALESCE(s.object_name,'')))=ANY($1::text[]) AND (lower(trim(COALESCE(s.organization,'')))=lower(trim($2)) OR ((trim(COALESCE(s.organization,''))='' OR NOT EXISTS(SELECT 1 FROM organizations og WHERE lower(trim(og.name))=lower(trim(s.organization)))) AND EXISTS(SELECT 1 FROM employees e WHERE lower(trim(e.fio))=lower(trim(s.employee_fio)) AND lower(trim(e.organization))=lower(trim($2))))) ORDER BY s.employee_fio,s.year,s.month",[objectKeys,accessOrganization(user)]);
     }else{
       result=await pool.query("SELECT s.* FROM salary_records s WHERE s.deleted_at IS NULL AND (lower(trim(COALESCE(s.organization,'')))=lower(trim($1)) OR ((trim(COALESCE(s.organization,''))='' OR NOT EXISTS(SELECT 1 FROM organizations og WHERE lower(trim(og.name))=lower(trim(s.organization)))) AND EXISTS(SELECT 1 FROM employees e WHERE lower(trim(e.fio))=lower(trim(s.employee_fio)) AND lower(trim(e.organization))=lower(trim($1))))) ORDER BY s.employee_fio,s.year,s.month",[accessOrganization(user)]);
     }
@@ -1493,7 +1523,8 @@ app.get('/api/bank-payments', requirePermission('bank.view'), async (req,res)=>{
     if(isSiteWideUser(user)){
       result=await pool.query('SELECT * FROM bank_statement_payments ORDER BY transaction_date,id');
     }else if(isProjectScoped(user)){
-      result=await pool.query("SELECT p.* FROM bank_statement_payments p WHERE EXISTS(SELECT 1 FROM employees e WHERE e.id=p.employee_id AND lower(trim(e.organization))=lower(trim($1)) AND EXISTS(SELECT 1 FROM salary_records s WHERE lower(trim(s.employee_fio))=lower(trim(e.fio)) AND lower(trim(COALESCE(s.object_name,'')))=lower(trim($2)))) ORDER BY p.transaction_date,p.id",[accessOrganization(user),accessObject(user)]);
+      const objectKeys=await requireProjectObjectKeys(user);
+      result=await pool.query("SELECT p.* FROM bank_statement_payments p WHERE EXISTS(SELECT 1 FROM employees e WHERE e.id=p.employee_id AND lower(trim(e.organization))=lower(trim($1)) AND EXISTS(SELECT 1 FROM salary_records s WHERE lower(trim(s.employee_fio))=lower(trim(e.fio)) AND lower(trim(COALESCE(s.object_name,'')))=ANY($2::text[]))) ORDER BY p.transaction_date,p.id",[accessOrganization(user),objectKeys]);
     }else{
       result=await pool.query("SELECT p.* FROM bank_statement_payments p WHERE EXISTS(SELECT 1 FROM employees e WHERE e.id=p.employee_id AND lower(trim(e.organization))=lower(trim($1))) ORDER BY p.transaction_date,p.id",[accessOrganization(user)]);
     }
@@ -1508,7 +1539,8 @@ app.get('/api/financial-payments', requirePermission('salary.view'), async (req,
     if(isSiteWideUser(user)){
       result=await pool.query('SELECT '+fields+' FROM bank_statement_payments p ORDER BY p.transaction_date,p.id');
     }else if(isProjectScoped(user)){
-      result=await pool.query("SELECT "+fields+" FROM bank_statement_payments p WHERE EXISTS(SELECT 1 FROM employees e WHERE e.id=p.employee_id AND lower(trim(e.organization))=lower(trim($1)) AND EXISTS(SELECT 1 FROM salary_records s WHERE lower(trim(s.employee_fio))=lower(trim(e.fio)) AND lower(trim(COALESCE(s.object_name,'')))=lower(trim($2)))) ORDER BY p.transaction_date,p.id",[accessOrganization(user),accessObject(user)]);
+      const objectKeys=await requireProjectObjectKeys(user);
+      result=await pool.query("SELECT "+fields+" FROM bank_statement_payments p WHERE EXISTS(SELECT 1 FROM employees e WHERE e.id=p.employee_id AND lower(trim(e.organization))=lower(trim($1)) AND EXISTS(SELECT 1 FROM salary_records s WHERE lower(trim(s.employee_fio))=lower(trim(e.fio)) AND lower(trim(COALESCE(s.object_name,'')))=ANY($2::text[]))) ORDER BY p.transaction_date,p.id",[accessOrganization(user),objectKeys]);
     }else{
       result=await pool.query("SELECT "+fields+" FROM bank_statement_payments p WHERE EXISTS(SELECT 1 FROM employees e WHERE e.id=p.employee_id AND lower(trim(e.organization))=lower(trim($1))) ORDER BY p.transaction_date,p.id",[accessOrganization(user)]);
     }
@@ -1615,7 +1647,8 @@ app.get('/api/employee-balances', requirePermission('salary.view'), async (req,r
     if(isSiteWideUser(user)){
       result=await pool.query('SELECT * FROM employee_balances ORDER BY employee_fio,balance_date,id');
     }else if(isProjectScoped(user)){
-      result=await pool.query("SELECT b.* FROM employee_balances b WHERE EXISTS(SELECT 1 FROM employees e WHERE e.id=b.employee_id AND lower(trim(e.organization))=lower(trim($1)) AND EXISTS(SELECT 1 FROM salary_records s WHERE lower(trim(s.employee_fio))=lower(trim(e.fio)) AND lower(trim(COALESCE(s.object_name,'')))=lower(trim($2)))) ORDER BY b.employee_fio,b.balance_date,b.id",[accessOrganization(user),accessObject(user)]);
+      const objectKeys=await requireProjectObjectKeys(user);
+      result=await pool.query("SELECT b.* FROM employee_balances b WHERE EXISTS(SELECT 1 FROM employees e WHERE e.id=b.employee_id AND lower(trim(e.organization))=lower(trim($1)) AND EXISTS(SELECT 1 FROM salary_records s WHERE lower(trim(s.employee_fio))=lower(trim(e.fio)) AND lower(trim(COALESCE(s.object_name,'')))=ANY($2::text[]))) ORDER BY b.employee_fio,b.balance_date,b.id",[accessOrganization(user),objectKeys]);
     }else{
       result=await pool.query("SELECT b.* FROM employee_balances b WHERE EXISTS(SELECT 1 FROM employees e WHERE e.id=b.employee_id AND lower(trim(e.organization))=lower(trim($1))) ORDER BY b.employee_fio,b.balance_date,b.id",[accessOrganization(user)]);
     }
@@ -1744,7 +1777,10 @@ app.get('/api/salary-archive', requirePermission('salary.delete'), async (req,re
   try{
     const user=req.accessUser||await refreshAccessUser(req);let r;
     if(isSiteWideUser(user))r=await pool.query('SELECT * FROM salary_records WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC');
-    else if(isProjectScoped(user))r=await pool.query("SELECT s.* FROM salary_records s WHERE s.deleted_at IS NOT NULL AND lower(trim(COALESCE(s.object_name,'')))=lower(trim($1)) AND (lower(trim(COALESCE(s.organization,'')))=lower(trim($2)) OR ((trim(COALESCE(s.organization,''))='' OR NOT EXISTS(SELECT 1 FROM organizations og WHERE lower(trim(og.name))=lower(trim(s.organization)))) AND EXISTS(SELECT 1 FROM employees e WHERE lower(trim(e.fio))=lower(trim(s.employee_fio)) AND lower(trim(e.organization))=lower(trim($2))))) ORDER BY s.deleted_at DESC",[accessObject(user),accessOrganization(user)]);
+    else if(isProjectScoped(user)){
+      const objectKeys=await requireProjectObjectKeys(user);
+      r=await pool.query("SELECT s.* FROM salary_records s WHERE s.deleted_at IS NOT NULL AND lower(trim(COALESCE(s.object_name,'')))=ANY($1::text[]) AND (lower(trim(COALESCE(s.organization,'')))=lower(trim($2)) OR ((trim(COALESCE(s.organization,''))='' OR NOT EXISTS(SELECT 1 FROM organizations og WHERE lower(trim(og.name))=lower(trim(s.organization)))) AND EXISTS(SELECT 1 FROM employees e WHERE lower(trim(e.fio))=lower(trim(s.employee_fio)) AND lower(trim(e.organization))=lower(trim($2))))) ORDER BY s.deleted_at DESC",[objectKeys,accessOrganization(user)]);
+    }
     else r=await pool.query("SELECT s.* FROM salary_records s WHERE s.deleted_at IS NOT NULL AND (lower(trim(COALESCE(s.organization,'')))=lower(trim($1)) OR ((trim(COALESCE(s.organization,''))='' OR NOT EXISTS(SELECT 1 FROM organizations og WHERE lower(trim(og.name))=lower(trim(s.organization)))) AND EXISTS(SELECT 1 FROM employees e WHERE lower(trim(e.fio))=lower(trim(s.employee_fio)) AND lower(trim(e.organization))=lower(trim($1))))) ORDER BY s.deleted_at DESC",[accessOrganization(user)]);
     res.json(r.rows);
   }catch(e){res.status(e.status||500).json({error:e.message});}
