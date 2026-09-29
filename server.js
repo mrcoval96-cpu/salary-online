@@ -1109,6 +1109,10 @@ app.get('/api/employees/:id/profile', requirePermission('employees.view'), async
   if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректный сотрудник'});
   try{
     const user=req.accessUser||await refreshAccessUser(req);
+    if(isProjectScoped(user)){
+      await logSecurityEvent(req,'hr_profile_denied',false,'Employee ID='+id,user.login);
+      return res.status(403).json({error:'Кадровые анкеты недоступны руководителю проекта'});
+    }
     await ensureEmployeeAccess(user,id);
     const r=await pool.query('SELECT id,fio,organization,position,phone,birth_date,comments,employment_status,hr_profile,photo_data FROM employees WHERE id=$1',[id]);
     if(!r.rows.length)return res.status(404).json({error:'Сотрудник не найден'});
@@ -1122,6 +1126,10 @@ app.put('/api/employees/:id/profile', requirePermission('employees.manage'), asy
   if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректный сотрудник'});
   try{
     const user=req.accessUser||await refreshAccessUser(req);
+    if(isProjectScoped(user)){
+      await logSecurityEvent(req,'hr_profile_denied',false,'Employee ID='+id,user.login);
+      return res.status(403).json({error:'Кадровые анкеты недоступны руководителю проекта'});
+    }
     const employee=await ensureEmployeeAccess(user,id);
     const rawProfile=req.body&&req.body.profile;
     const profile=rawProfile&&typeof rawProfile==='object'&&!Array.isArray(rawProfile)?rawProfile:{};
