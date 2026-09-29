@@ -1920,7 +1920,8 @@ function renderEmployees() {
     const status=e.employment_status==='dismissed'?'<span class="badge badge-orange">Уволен</span>':'<span class="badge badge-green">Работает</span>';
     const selector=can('employees.manage')?'<input type="checkbox" class="employee-row-check" aria-label="Выбрать сотрудника '+escapeHtml(e.fio||'')+'" '+(selectedEmployeeIds.has(id)?'checked':'')+' onchange="toggleEmployeeSelection('+id+',this.checked)">':'';
     const actions=can('employees.manage')?'<button class="btn btn-blue btn-sm" onclick="editEmp(' + id + ')">Изм.</button> <button class="btn btn-red btn-sm" onclick="deleteEmp(' + id + ')">Удал.</button>':'—';
-    return '<tr class="employee-click-row" onclick="openEmployeeProfile('+id+')"><td style="text-align:center" onclick="event.stopPropagation()">'+selector+'</td><td>' + escapeHtml(e.fio||'') + '</td><td>' + escapeHtml(e.organization||'') + '</td><td>' + escapeHtml(e.position||'') + '</td><td>' + escapeHtml(e.phone||'') + '</td><td>' + escapeHtml(e.birth_date||'') + '</td><td>'+status+'</td><td>' + escapeHtml(e.comments||'') + '</td><td onclick="event.stopPropagation()">'+actions+'</td></tr>';
+    const canOpenProfile=currentUser&&currentUser.role!=='Руководитель проекта';
+    return '<tr class="'+(canOpenProfile?'employee-click-row':'')+'" '+(canOpenProfile?'onclick="openEmployeeProfile('+id+')"':'')+'><td style="text-align:center" onclick="event.stopPropagation()">'+selector+'</td><td>' + escapeHtml(e.fio||'') + '</td><td>' + escapeHtml(e.organization||'') + '</td><td>' + escapeHtml(e.position||'') + '</td><td>' + escapeHtml(e.phone||'') + '</td><td>' + escapeHtml(e.birth_date||'') + '</td><td>'+status+'</td><td>' + escapeHtml(e.comments||'') + '</td><td onclick="event.stopPropagation()">'+actions+'</td></tr>';
   }).join('');
   updateEmployeeSelectionUi();
 }
@@ -1987,6 +1988,10 @@ function setHrReadonly(readonly){
   document.getElementById('hrProfileSaveBtn').style.display=readonly?'none':'inline-block';
 }
 async function openEmployeeProfile(id){
+  if(currentUser&&currentUser.role==='Руководитель проекта'){
+    toast('Кадровые анкеты недоступны руководителю проекта','error');
+    return;
+  }
   hrProfileEmployeeId=Number(id);
   try{
     const data=await api('/api/employees/'+hrProfileEmployeeId+'/profile');
