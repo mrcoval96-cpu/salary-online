@@ -1122,7 +1122,7 @@ async function loadAll(){
     organizations=can('organizations.view')?await api('/api/organizations'):[];
     salaryRecords=can('salary.view')?await api('/api/salary'):[];
     employeeBalances=can('salary.view')?await api('/api/employee-balances'):[];
-    bankStatementPayments=can('bank.view')?await api('/api/bank-payments'):[];
+    bankStatementPayments=can('bank.view')?await api('/api/bank-payments'):(can('salary.view')?await api('/api/financial-payments'):[]);
     closedSalaryPeriods=can('salary.view')?await api('/api/salary-periods'):[];
     users=can('users.manage')?await api('/api/users'):[];
     permissionCatalog=can('users.manage')?await api('/api/permissions/catalog'):null;
