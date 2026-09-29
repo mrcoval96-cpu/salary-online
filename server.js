@@ -1488,6 +1488,21 @@ app.get('/api/bank-payments', requirePermission('bank.view'), async (req,res)=>{
     res.json(result.rows);
   }catch(err){res.status(err.status||500).json({error:err.message});}
 });
+app.get('/api/financial-payments', requirePermission('salary.view'), async (req,res)=>{
+  try{
+    const user=req.accessUser||await refreshAccessUser(req);
+    const fields='p.id,p.employee_id,p.employee_fio,p.transaction_date,p.amount,p.bank,p.purpose,p.document_number,p.allocations';
+    let result;
+    if(isSiteWideUser(user)){
+      result=await pool.query('SELECT '+fields+' FROM bank_statement_payments p ORDER BY p.transaction_date,p.id');
+    }else if(isProjectScoped(user)){
+      result=await pool.query("SELECT "+fields+" FROM bank_statement_payments p WHERE EXISTS(SELECT 1 FROM employees e WHERE e.id=p.employee_id AND lower(trim(e.organization))=lower(trim($1)) AND EXISTS(SELECT 1 FROM salary_records s WHERE lower(trim(s.employee_fio))=lower(trim(e.fio)) AND lower(trim(COALESCE(s.object_name,'')))=lower(trim($2)))) ORDER BY p.transaction_date,p.id",[accessOrganization(user),accessObject(user)]);
+    }else{
+      result=await pool.query("SELECT "+fields+" FROM bank_statement_payments p WHERE EXISTS(SELECT 1 FROM employees e WHERE e.id=p.employee_id AND lower(trim(e.organization))=lower(trim($1))) ORDER BY p.transaction_date,p.id",[accessOrganization(user)]);
+    }
+    res.json(result.rows);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
 app.post('/api/bank-payments/preview', requirePermission('bank.import'), async (req,res)=>{
   try{
     const user=req.accessUser||await refreshAccessUser(req);
@@ -1587,8 +1602,6 @@ app.get('/api/employee-balances', requirePermission('salary.view'), async (req,r
     let result;
     if(isSiteWideUser(user)){
       result=await pool.query('SELECT * FROM employee_balances ORDER BY employee_fio,balance_date,id');
-    }else if(isProjectScoped(user)&&!effectivePermissions(user)['balances.manage']){
-      result={rows:[]};
     }else if(isProjectScoped(user)){
       result=await pool.query("SELECT b.* FROM employee_balances b WHERE EXISTS(SELECT 1 FROM employees e WHERE e.id=b.employee_id AND lower(trim(e.organization))=lower(trim($1)) AND EXISTS(SELECT 1 FROM salary_records s WHERE lower(trim(s.employee_fio))=lower(trim(e.fio)) AND lower(trim(COALESCE(s.object_name,'')))=lower(trim($2)))) ORDER BY b.employee_fio,b.balance_date,b.id",[accessOrganization(user),accessObject(user)]);
     }else{
