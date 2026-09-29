@@ -20,7 +20,7 @@ if (!process.env.SESSION_SECRET) {
   console.warn('SECURITY WARNING: SESSION_SECRET is not set. Using a random per-process secret; all sessions will be invalidated after restart. Set SESSION_SECRET in Timeweb.');
 }
 
-// Deployment retry marker.  
+// Deployment retry marker.   
 
 // Deployment retry after registry pull failure.
 
