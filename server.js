@@ -60,6 +60,8 @@ async function ensureDatabaseSchema(){
   await pool.query("ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS charge_date DATE");
   await pool.query("ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP");
   await pool.query("ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS deleted_by TEXT");
+  await pool.query("ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS organization TEXT NOT NULL DEFAULT ''");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_salary_records_organization ON salary_records(lower(trim(organization)))");
   await pool.query("CREATE TABLE IF NOT EXISTS closed_salary_periods (month TEXT NOT NULL, year TEXT NOT NULL, organization TEXT NOT NULL DEFAULT '', closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, closed_by TEXT)");
   await pool.query("ALTER TABLE closed_salary_periods ADD COLUMN IF NOT EXISTS organization TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE closed_salary_periods DROP CONSTRAINT IF EXISTS closed_salary_periods_pkey");
@@ -90,9 +92,138 @@ async function ensureDatabaseSchema(){
   await pool.query("ALTER TABLE bank_statement_payments ADD COLUMN IF NOT EXISTS allocations JSONB NOT NULL DEFAULT '[]'::jsonb");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_bank_statement_payments_employee_date ON bank_statement_payments(lower(employee_fio), transaction_date, id)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_bank_statement_payments_transaction_key ON bank_statement_payments(transaction_key)");
+  await pool.query("CREATE TABLE IF NOT EXISTS organization_aliases (alias TEXT PRIMARY KEY, organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_organization_aliases_norm ON organization_aliases(lower(trim(alias)))");
   await pool.query("INSERT INTO object_responsibles (object_id,employee_id) SELECT o.id,e.id FROM objects o CROSS JOIN LATERAL regexp_split_to_table(COALESCE(o.responsible,''),',') AS part(name) JOIN employees e ON lower(trim(e.fio))=lower(trim(part.name)) WHERE trim(part.name)<>'' ON CONFLICT (object_id,employee_id) DO NOTHING");
+  await repairOrganizationReferences();
 }
 
+
+async function repairOrganizationReferences(){
+  const orgResult=await pool.query("SELECT id,name FROM organizations WHERE trim(name)<>'' ORDER BY id");
+  if(!orgResult.rows.length)return;
+  const canonical=new Map(orgResult.rows.map(o=>[normAccess(o.name),o]));
+  const discovered=new Map();
+  function rememberAlias(oldValue,newValue){
+    const oldKey=normAccess(oldValue),newKey=normAccess(newValue);
+    if(!oldKey||!newKey||oldKey===newKey||!canonical.has(newKey))return;
+    const current=discovered.get(oldKey);
+    if(current&&current!==newKey){discovered.set(oldKey,'');return;}
+    if(current!=='')discovered.set(oldKey,newKey);
+  }
+  try{
+    const histories=await pool.query("SELECT role_history FROM users WHERE role_history IS NOT NULL AND trim(role_history)<>''");
+    for(const row of histories.rows){
+      let history=[];try{history=Array.isArray(row.role_history)?row.role_history:JSON.parse(row.role_history||'[]');}catch(e){}
+      for(const item of history)rememberAlias(item&&item.oldOrg,item&&item.newOrg);
+    }
+    const logs=await pool.query("SELECT action FROM action_log WHERE action LIKE 'Изменена организация пользователя %→%' ORDER BY id");
+    for(const row of logs.rows){
+      const m=String(row.action||'').match(/:\s*(.*?)\s*→\s*(.*?)\s*$/);
+      if(m)rememberAlias(m[1],m[2]);
+    }
+    for(const [oldKey,newKey] of discovered){
+      if(!newKey)continue;
+      const oldSample=oldKey, target=canonical.get(newKey);
+      await pool.query("INSERT INTO organization_aliases(alias,organization_id) VALUES($1,$2) ON CONFLICT(alias) DO UPDATE SET organization_id=EXCLUDED.organization_id",[oldSample,target.id]);
+    }
+  }catch(e){console.warn('Organization alias discovery:',e.message);}
+
+  for(const table of ['users','employees','objects','salary_records']){
+    await pool.query("UPDATE "+table+" t SET organization=o.name FROM organizations o WHERE trim(COALESCE(t.organization,''))<>'' AND lower(trim(t.organization))=lower(trim(o.name)) AND t.organization<>o.name");
+    await pool.query("UPDATE "+table+" t SET organization=o.name FROM organization_aliases a JOIN organizations o ON o.id=a.organization_id WHERE lower(trim(COALESCE(t.organization,'')))=lower(trim(a.alias)) AND t.organization<>o.name");
+  }
+  await pool.query("UPDATE closed_salary_periods p SET organization=o.name FROM organizations o WHERE trim(COALESCE(p.organization,''))<>'' AND lower(trim(p.organization))=lower(trim(o.name)) AND p.organization<>o.name");
+  await pool.query("UPDATE closed_salary_periods p SET organization=o.name FROM organization_aliases a JOIN organizations o ON o.id=a.organization_id WHERE lower(trim(COALESCE(p.organization,'')))=lower(trim(a.alias)) AND p.organization<>o.name");
+
+  // Recover orphan objects from responsible employees when they all belong to one organization.
+  await pool.query(`
+    WITH inferred AS (
+      SELECT r.object_id, MIN(e.organization) AS organization
+      FROM object_responsibles r
+      JOIN employees e ON e.id=r.employee_id
+      JOIN organizations og ON lower(trim(og.name))=lower(trim(e.organization))
+      GROUP BY r.object_id
+      HAVING COUNT(DISTINCT lower(trim(e.organization)))=1
+    )
+    UPDATE objects o SET organization=i.organization
+    FROM inferred i
+    WHERE o.id=i.object_id
+      AND (trim(COALESCE(o.organization,''))='' OR NOT EXISTS(SELECT 1 FROM organizations x WHERE lower(trim(x.name))=lower(trim(o.organization))))
+  `);
+
+  // Recover orphan objects from salary records whose employees point to one organization.
+  await pool.query(`
+    WITH inferred AS (
+      SELECT lower(trim(s.object_name)) AS object_key, MIN(e.organization) AS organization
+      FROM salary_records s
+      JOIN employees e ON lower(trim(e.fio))=lower(trim(s.employee_fio))
+      JOIN organizations og ON lower(trim(og.name))=lower(trim(e.organization))
+      WHERE trim(COALESCE(s.object_name,''))<>''
+      GROUP BY lower(trim(s.object_name))
+      HAVING COUNT(DISTINCT lower(trim(e.organization)))=1
+    )
+    UPDATE objects o SET organization=i.organization
+    FROM inferred i
+    WHERE lower(trim(o.name))=i.object_key
+      AND (trim(COALESCE(o.organization,''))='' OR NOT EXISTS(SELECT 1 FROM organizations x WHERE lower(trim(x.name))=lower(trim(o.organization))))
+  `);
+
+  // Users with an assigned object inherit the object's organization when their old organization is orphaned.
+  await pool.query(`
+    WITH object_org AS (
+      SELECT lower(trim(name)) AS object_key, MIN(organization) AS organization
+      FROM objects
+      WHERE trim(COALESCE(organization,''))<>''
+        AND EXISTS(SELECT 1 FROM organizations x WHERE lower(trim(x.name))=lower(trim(objects.organization)))
+      GROUP BY lower(trim(name))
+      HAVING COUNT(DISTINCT lower(trim(organization)))=1
+    )
+    UPDATE users u SET organization=o.organization
+    FROM object_org o
+    WHERE trim(COALESCE(u.object_name,''))<>''
+      AND lower(trim(u.object_name))=o.object_key
+      AND (trim(COALESCE(u.organization,''))='' OR NOT EXISTS(SELECT 1 FROM organizations x WHERE lower(trim(x.name))=lower(trim(u.organization))))
+  `);
+
+  // If the installation has one organization, orphaned legacy records can be assigned safely.
+  if(orgResult.rows.length===1){
+    const onlyOrg=orgResult.rows[0].name;
+    await pool.query("UPDATE users u SET organization=$1 WHERE upper(trim(login))<>'ADMIN' AND role<>'Руководитель сайта' AND (trim(COALESCE(organization,''))='' OR NOT EXISTS(SELECT 1 FROM organizations x WHERE lower(trim(x.name))=lower(trim(u.organization))))",[onlyOrg]);
+    await pool.query("UPDATE employees e SET organization=$1 WHERE trim(COALESCE(organization,''))='' OR NOT EXISTS(SELECT 1 FROM organizations x WHERE lower(trim(x.name))=lower(trim(e.organization)))",[onlyOrg]);
+    await pool.query("UPDATE objects o SET organization=$1 WHERE trim(COALESCE(organization,''))='' OR NOT EXISTS(SELECT 1 FROM organizations x WHERE lower(trim(x.name))=lower(trim(o.organization)))",[onlyOrg]);
+  }
+
+  // Salary rows belong to the employee's organization; object is only an additional dimension.
+  await pool.query(`
+    WITH employee_org AS (
+      SELECT lower(trim(fio)) AS fio_key, MIN(organization) AS organization
+      FROM employees
+      WHERE trim(COALESCE(organization,''))<>''
+        AND EXISTS(SELECT 1 FROM organizations x WHERE lower(trim(x.name))=lower(trim(employees.organization)))
+      GROUP BY lower(trim(fio))
+      HAVING COUNT(DISTINCT lower(trim(organization)))=1
+    )
+    UPDATE salary_records s SET organization=e.organization
+    FROM employee_org e
+    WHERE lower(trim(s.employee_fio))=e.fio_key
+      AND (trim(COALESCE(s.organization,''))='' OR NOT EXISTS(SELECT 1 FROM organizations x WHERE lower(trim(x.name))=lower(trim(s.organization))))
+  `);
+  await pool.query(`
+    WITH object_org AS (
+      SELECT lower(trim(name)) AS object_key, MIN(organization) AS organization
+      FROM objects
+      WHERE trim(COALESCE(organization,''))<>''
+      GROUP BY lower(trim(name))
+      HAVING COUNT(DISTINCT lower(trim(organization)))=1
+    )
+    UPDATE salary_records s SET organization=o.organization
+    FROM object_org o
+    WHERE trim(COALESCE(s.object_name,''))<>''
+      AND lower(trim(s.object_name))=o.object_key
+      AND trim(COALESCE(s.organization,''))=''
+  `);
+}
 
 
 pool.on('error', (err) => {
@@ -378,13 +509,14 @@ async function ensureObjectAccess(user,objectValue){
   return row;
 }
 async function salaryOrganization(employeeFio,objectName){
+  const e=await pool.query("SELECT DISTINCT organization FROM employees WHERE lower(trim(fio))=lower(trim($1)) AND trim(COALESCE(organization,''))<>''",[String(employeeFio||'')]);
+  if(e.rows.length===1)return String(e.rows[0].organization||'').trim();
   const object=String(objectName||'').trim();
   if(object){
-    const o=await pool.query('SELECT organization FROM objects WHERE lower(trim(name))=lower(trim($1)) LIMIT 1',[object]);
-    if(o.rows.length)return String(o.rows[0].organization||'').trim();
+    const o=await pool.query("SELECT DISTINCT organization FROM objects WHERE lower(trim(name))=lower(trim($1)) AND trim(COALESCE(organization,''))<>''",[object]);
+    if(o.rows.length===1)return String(o.rows[0].organization||'').trim();
   }
-  const e=await pool.query('SELECT organization FROM employees WHERE lower(trim(fio))=lower(trim($1)) LIMIT 1',[String(employeeFio||'')]);
-  return e.rows.length?String(e.rows[0].organization||'').trim():'';
+  return '';
 }
 async function ensureEmployeeOrganizationAccess(user,fio){
   const r=await pool.query('SELECT id,fio,organization FROM employees WHERE lower(trim(fio))=lower(trim($1)) LIMIT 1',[String(fio||'')]);
@@ -393,19 +525,51 @@ async function ensureEmployeeOrganizationAccess(user,fio){
   return r.rows[0];
 }
 async function ensureSalaryAccess(user,employeeFio,objectName){
-  if(isSiteWideUser(user))return true;
-  await ensureEmployeeOrganizationAccess(user,employeeFio);
-  const object=String(objectName||'').trim();
-  if(object)await ensureObjectAccess(user,object);
-  if(isProjectScoped(user)){
-    if(!object||!sameAccessValue(object,accessObject(user))){const err=new Error('Нет доступа к начислению другого объекта');err.status=403;throw err;}
+  const fio=String(employeeFio||'').trim(),object=String(objectName||'').trim();
+  if(!fio){const err=new Error('Выберите сотрудника');err.status=400;throw err;}
+  let employeesResult;
+  if(isSiteWideUser(user)){
+    employeesResult=await pool.query('SELECT id,fio,organization FROM employees WHERE lower(trim(fio))=lower(trim($1)) ORDER BY id',[fio]);
+  }else{
+    const ownOrg=accessOrganization(user);
+    employeesResult=await pool.query('SELECT id,fio,organization FROM employees WHERE lower(trim(fio))=lower(trim($1)) AND lower(trim(organization))=lower(trim($2)) ORDER BY id',[fio,ownOrg]);
   }
-  return true;
+  if(!employeesResult.rows.length){const err=new Error(isSiteWideUser(user)?'Сотрудник не найден':'Сотрудник не найден в вашей организации');err.status=isSiteWideUser(user)?404:403;throw err;}
+  let candidates=employeesResult.rows,obj=null;
+  if(object){
+    let objectsResult;
+    if(isSiteWideUser(user)){
+      objectsResult=await pool.query('SELECT id,name,organization FROM objects WHERE lower(trim(name))=lower(trim($1)) ORDER BY id',[object]);
+    }else{
+      objectsResult=await pool.query('SELECT id,name,organization FROM objects WHERE lower(trim(name))=lower(trim($1)) AND lower(trim(organization))=lower(trim($2)) ORDER BY id',[object,accessOrganization(user)]);
+    }
+    if(isProjectScoped(user))objectsResult.rows=objectsResult.rows.filter(o=>sameAccessValue(o.name,accessObject(user)));
+    if(!objectsResult.rows.length){const err=new Error('Объект не найден в организации сотрудника');err.status=400;throw err;}
+    const matches=[];
+    for(const e of candidates)for(const o of objectsResult.rows)if(sameAccessValue(e.organization,o.organization))matches.push({employee:e,object:o});
+    const orgKeys=Array.from(new Set(matches.map(x=>normAccess(x.employee.organization))));
+    if(!matches.length){const err=new Error('Сотрудник и объект относятся к разным организациям');err.status=400;throw err;}
+    if(orgKeys.length>1){const err=new Error('Невозможно однозначно определить организацию начисления. Уточните сотрудника или объект.');err.status=409;throw err;}
+    candidates=matches.filter(x=>normAccess(x.employee.organization)===orgKeys[0]).map(x=>x.employee);
+    obj=matches.find(x=>normAccess(x.employee.organization)===orgKeys[0]).object;
+  }else if(isProjectScoped(user)){
+    const err=new Error('Для руководителя проекта начисление должно быть привязано к назначенному объекту');err.status=400;throw err;
+  }
+  const orgKeys=Array.from(new Set(candidates.map(e=>normAccess(e.organization))));
+  if(orgKeys.length>1){const err=new Error('Найдено несколько сотрудников с одинаковым ФИО в разных организациях. Выберите объект для уточнения.');err.status=409;throw err;}
+  const employee=candidates[0];
+  if(!isSiteWideUser(user))await ensureOrganizationAccess(user,employee.organization);
+  return {employee,object:obj,organization:String(employee.organization||'').trim()};
 }
 async function ensureFinancialEmployeeAccess(user,fio){
-  if(isSiteWideUser(user))return true;
-  const emp=await ensureEmployeeAccess(user,String(fio||''));
-  return emp;
+  const name=String(fio||'').trim();
+  if(isSiteWideUser(user)){
+    const r=await pool.query('SELECT id,fio,organization FROM employees WHERE lower(trim(fio))=lower(trim($1)) ORDER BY id LIMIT 2',[name]);
+    if(!r.rows.length){const err=new Error('Сотрудник не найден');err.status=404;throw err;}
+    if(r.rows.length>1&&!sameAccessValue(r.rows[0].organization,r.rows[1].organization)){const err=new Error('Несколько сотрудников имеют одинаковое ФИО. Уточните организацию.');err.status=409;throw err;}
+    return r.rows[0];
+  }
+  return ensureEmployeeAccess(user,name);
 }
 
 
@@ -1018,12 +1182,16 @@ async function saveObject(id,data,res,req){
   if(!name)return res.status(400).json({error:'Наименование обязательно'});
   const responsibleIds=await normalizeResponsibleIds(data);
   const user=req.accessUser||await refreshAccessUser(req);
-  const targetOrg=isSiteWideUser(user)?String(data.organization||'').trim():accessOrganization(user);
+  const requestedOrg=isSiteWideUser(user)?String(data.organization||'').trim():accessOrganization(user);
+  if(!requestedOrg)return res.status(400).json({error:'Выберите организацию объекта'});
+  const orgResult=await pool.query('SELECT id,name FROM organizations WHERE lower(trim(name))=lower(trim($1)) LIMIT 1',[requestedOrg]);
+  if(!orgResult.rows.length)return res.status(400).json({error:'Выбранная организация не найдена'});
+  const targetOrg=String(orgResult.rows[0].name||'').trim();
   await ensureOrganizationAccess(user,targetOrg);
-  if(responsibleIds.length&&!isSiteWideUser(user)){
+  if(responsibleIds.length){
     const rr=await pool.query('SELECT id,organization FROM employees WHERE id=ANY($1::int[])',[responsibleIds]);
-    if(rr.rows.some(function(e){return !sameAccessValue(e.organization,targetOrg);})){
-      const err=new Error('Ответственными можно назначать только сотрудников своей организации');err.status=403;throw err;
+    if(rr.rows.length!==responsibleIds.length||rr.rows.some(function(e){return !sameAccessValue(e.organization,targetOrg);})){
+      const err=new Error('Ответственными можно назначать только сотрудников организации объекта');err.status=403;throw err;
     }
   }
   if(id)await ensureObjectAccess(user,Number(id));
@@ -1087,18 +1255,34 @@ app.post('/api/organizations', requirePermission('organizations.manage'), async 
 });
 
 app.put('/api/organizations/:id', requirePermission('organizations.manage'), async (req, res) => {
-  const { name, address, contacts } = req.body;
+  const name=String(req.body.name||'').trim(),address=String(req.body.address||''),contacts=String(req.body.contacts||'');
+  if(!name)return res.status(400).json({error:'Наименование обязательно'});
+  const client=await pool.connect();
   try {
-    const result = await pool.query(
-      'UPDATE organizations SET name=$1, address=$2, contacts=$3 WHERE id=$4 RETURNING *',
-      [name, address||'', contacts||'', req.params.id]
-    );
-    if(!result.rows.length)return res.status(404).json({error:'Организация не найдена'});
-    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Изменена организация: '+name]);
+    await client.query('BEGIN');
+    const before=await client.query('SELECT * FROM organizations WHERE id=$1 FOR UPDATE',[req.params.id]);
+    if(!before.rows.length){await client.query('ROLLBACK');return res.status(404).json({error:'Организация не найдена'});}
+    const oldName=String(before.rows[0].name||'').trim();
+    const duplicate=await client.query('SELECT id FROM organizations WHERE lower(trim(name))=lower(trim($1)) AND id<>$2 LIMIT 1',[name,req.params.id]);
+    if(duplicate.rows.length){await client.query('ROLLBACK');return res.status(409).json({error:'Организация с таким наименованием уже существует'});}
+    const result=await client.query('UPDATE organizations SET name=$1,address=$2,contacts=$3 WHERE id=$4 RETURNING *',[name,address,contacts,req.params.id]);
+    if(oldName&&oldName!==name){
+      await client.query('INSERT INTO organization_aliases(alias,organization_id) VALUES($1,$2) ON CONFLICT(alias) DO UPDATE SET organization_id=EXCLUDED.organization_id',[oldName,req.params.id]);
+    }
+    for(const table of ['users','employees','objects','salary_records']){
+      await client.query("UPDATE "+table+" SET organization=$1 WHERE lower(trim(COALESCE(organization,'')))=lower(trim($2))",[name,oldName]);
+    }
+    if(oldName!==name){
+      await client.query("INSERT INTO closed_salary_periods(month,year,organization,closed_at,closed_by) SELECT month,year,$1,closed_at,closed_by FROM closed_salary_periods WHERE lower(trim(organization))=lower(trim($2)) ON CONFLICT(month,year,organization) DO UPDATE SET closed_at=GREATEST(closed_salary_periods.closed_at,EXCLUDED.closed_at),closed_by=EXCLUDED.closed_by",[name,oldName]);
+      await client.query("DELETE FROM closed_salary_periods WHERE lower(trim(organization))=lower(trim($1))",[oldName]);
+    }
+    await client.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Изменена организация: '+oldName+' → '+name]);
+    await client.query('COMMIT');
     res.json(result.rows[0]);
   } catch (err) {
+    try{await client.query('ROLLBACK');}catch(e){}
     res.status(err.status||500).json({ error: err.message });
-  }
+  } finally { client.release(); }
 });
 
 app.delete('/api/organizations/:id', requirePermission('organizations.manage'), async (req, res) => {
@@ -1245,9 +1429,9 @@ app.get('/api/salary', requirePermission('salary.view'), async (req, res) => {
     if(isSiteWideUser(user)){
       result=await pool.query('SELECT * FROM salary_records WHERE deleted_at IS NULL ORDER BY employee_fio, year, month');
     }else if(isProjectScoped(user)){
-      result=await pool.query("SELECT * FROM salary_records WHERE deleted_at IS NULL AND lower(trim(COALESCE(object_name,'')))=lower(trim($1)) ORDER BY employee_fio,year,month",[accessObject(user)]);
+      result=await pool.query("SELECT s.* FROM salary_records s WHERE s.deleted_at IS NULL AND lower(trim(COALESCE(s.object_name,'')))=lower(trim($1)) AND (lower(trim(COALESCE(s.organization,'')))=lower(trim($2)) OR ((trim(COALESCE(s.organization,''))='' OR NOT EXISTS(SELECT 1 FROM organizations og WHERE lower(trim(og.name))=lower(trim(s.organization)))) AND EXISTS(SELECT 1 FROM employees e WHERE lower(trim(e.fio))=lower(trim(s.employee_fio)) AND lower(trim(e.organization))=lower(trim($2))))) ORDER BY s.employee_fio,s.year,s.month",[accessObject(user),accessOrganization(user)]);
     }else{
-      result=await pool.query("SELECT s.* FROM salary_records s WHERE s.deleted_at IS NULL AND ((trim(COALESCE(s.object_name,''))<>'' AND EXISTS(SELECT 1 FROM objects o WHERE lower(trim(o.name))=lower(trim(s.object_name)) AND lower(trim(o.organization))=lower(trim($1)))) OR (trim(COALESCE(s.object_name,''))='' AND EXISTS(SELECT 1 FROM employees e WHERE lower(trim(e.fio))=lower(trim(s.employee_fio)) AND lower(trim(e.organization))=lower(trim($1))))) ORDER BY s.employee_fio,s.year,s.month",[accessOrganization(user)]);
+      result=await pool.query("SELECT s.* FROM salary_records s WHERE s.deleted_at IS NULL AND (lower(trim(COALESCE(s.organization,'')))=lower(trim($1)) OR ((trim(COALESCE(s.organization,''))='' OR NOT EXISTS(SELECT 1 FROM organizations og WHERE lower(trim(og.name))=lower(trim(s.organization)))) AND EXISTS(SELECT 1 FROM employees e WHERE lower(trim(e.fio))=lower(trim(s.employee_fio)) AND lower(trim(e.organization))=lower(trim($1))))) ORDER BY s.employee_fio,s.year,s.month",[accessOrganization(user)]);
     }
     res.json(result.rows);
   } catch (err) {
@@ -1438,15 +1622,15 @@ app.post('/api/salary', requirePermission('salary.create'), async (req, res) => 
   const { employee_fio, object_name, month, year, charge_date, hour_rate, hours, per_diem_days, per_diem_rate, extra_charges, payments, total, paid } = req.body;
   try {
     const user=req.accessUser||await refreshAccessUser(req);
-    await ensureSalaryAccess(user,employee_fio,object_name);
-    const org=await salaryOrganization(employee_fio,object_name);
+    const scope=await ensureSalaryAccess(user,employee_fio,object_name);
+    const org=scope.organization;
     await assertSalaryPeriodOpen(month,year,org);
-    const duplicate=await pool.query('SELECT id FROM salary_records WHERE deleted_at IS NULL AND lower(employee_fio)=lower($1) AND lower(COALESCE(object_name,\'\'))=lower($2) AND month=$3 AND year=$4 LIMIT 1',[employee_fio||'',object_name||'',month||'',String(year||'')]);
+    const duplicate=await pool.query("SELECT id FROM salary_records WHERE deleted_at IS NULL AND lower(employee_fio)=lower($1) AND lower(COALESCE(object_name,''))=lower($2) AND month=$3 AND year=$4 AND (trim(COALESCE(organization,''))='' OR lower(trim(organization))=lower(trim($5))) LIMIT 1",[employee_fio||'',object_name||'',month||'',String(year||''),org]);
     if(duplicate.rows.length && !req.body.allow_duplicate)return res.status(409).json({error:'За '+month+' '+year+' уже есть начисление для '+employee_fio+(object_name?' по объекту «'+object_name+'»':'')+'.',duplicate:true});
     const result = await pool.query(
-      `INSERT INTO salary_records (employee_fio, object_name, month, year, charge_date, hour_rate, hours, per_diem_days, per_diem_rate, extra_charges, payments, total, paid)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
-      [employee_fio||'', object_name||'', month||'', year||'', charge_date||null, hour_rate||0, hours||0, per_diem_days||0, per_diem_rate||0,
+      `INSERT INTO salary_records (employee_fio, object_name, organization, month, year, charge_date, hour_rate, hours, per_diem_days, per_diem_rate, extra_charges, payments, total, paid)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+      [employee_fio||'', object_name||'', org, month||'', year||'', charge_date||null, hour_rate||0, hours||0, per_diem_days||0, per_diem_rate||0,
        JSON.stringify(extra_charges||[]), JSON.stringify(payments||[]), total||0, paid||0]
     );
     await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)',
@@ -1466,14 +1650,14 @@ app.put('/api/salary/:id', requirePermission('salary.edit'), async (req, res) =>
     const before=beforeRes.rows[0];
     const user=req.accessUser||await refreshAccessUser(req);
     await ensureSalaryAccess(user,before.employee_fio,before.object_name);
-    await ensureSalaryAccess(user,employee_fio,object_name);
-    const beforeOrg=await salaryOrganization(before.employee_fio,before.object_name);
-    const nextOrg=await salaryOrganization(employee_fio,object_name);
+    const nextScope=await ensureSalaryAccess(user,employee_fio,object_name);
+    const beforeOrg=String(before.organization||'').trim()||await salaryOrganization(before.employee_fio,before.object_name);
+    const nextOrg=nextScope.organization;
     await assertSalaryPeriodOpen(before.month,before.year,beforeOrg);
     if(before.month!==month||String(before.year)!==String(year)||!sameAccessValue(beforeOrg,nextOrg))await assertSalaryPeriodOpen(month,year,nextOrg);
     const result = await pool.query(
-      `UPDATE salary_records SET employee_fio=$1, object_name=$2, month=$3, year=$4, charge_date=$5, hour_rate=$6, hours=$7, per_diem_days=$8, per_diem_rate=$9, extra_charges=$10, payments=$11, total=$12, paid=$13 WHERE id=$14 AND deleted_at IS NULL RETURNING *`,
-      [employee_fio||'', object_name||'', month||'', year||'', charge_date||null, hour_rate||0, hours||0, per_diem_days||0, per_diem_rate||0,
+      `UPDATE salary_records SET employee_fio=$1, object_name=$2, organization=$3, month=$4, year=$5, charge_date=$6, hour_rate=$7, hours=$8, per_diem_days=$9, per_diem_rate=$10, extra_charges=$11, payments=$12, total=$13, paid=$14 WHERE id=$15 AND deleted_at IS NULL RETURNING *`,
+      [employee_fio||'', object_name||'', nextOrg, month||'', year||'', charge_date||null, hour_rate||0, hours||0, per_diem_days||0, per_diem_rate||0,
        JSON.stringify(extra_charges||[]), JSON.stringify(payments||[]), total||0, paid||0, id]
     );
     const oldPaid=paymentSummary(before.payments),newPaid=paymentSummary(payments);
@@ -1490,7 +1674,7 @@ app.delete('/api/salary/:id', requirePermission('salary.delete'), async (req, re
     if(!before.rows.length)return res.status(404).json({error:'Запись не найдена'});
     const user=req.accessUser||await refreshAccessUser(req);
     await ensureSalaryAccess(user,before.rows[0].employee_fio,before.rows[0].object_name);
-    const org=await salaryOrganization(before.rows[0].employee_fio,before.rows[0].object_name);
+    const org=String(before.rows[0].organization||'').trim()||await salaryOrganization(before.rows[0].employee_fio,before.rows[0].object_name);
     await assertSalaryPeriodOpen(before.rows[0].month,before.rows[0].year,org);
     await pool.query('UPDATE salary_records SET deleted_at=CURRENT_TIMESTAMP,deleted_by=$1 WHERE id=$2',[req.session.user.login,req.params.id]);
     await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)',[req.session.user.login,'Запись зарплаты отправлена в архив ID='+req.params.id+' — '+before.rows[0].employee_fio]);
@@ -1501,8 +1685,8 @@ app.get('/api/salary-archive', requirePermission('salary.delete'), async (req,re
   try{
     const user=req.accessUser||await refreshAccessUser(req);let r;
     if(isSiteWideUser(user))r=await pool.query('SELECT * FROM salary_records WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC');
-    else if(isProjectScoped(user))r=await pool.query("SELECT * FROM salary_records WHERE deleted_at IS NOT NULL AND lower(trim(COALESCE(object_name,'')))=lower(trim($1)) ORDER BY deleted_at DESC",[accessObject(user)]);
-    else r=await pool.query("SELECT s.* FROM salary_records s WHERE s.deleted_at IS NOT NULL AND ((trim(COALESCE(s.object_name,''))<>'' AND EXISTS(SELECT 1 FROM objects o WHERE lower(trim(o.name))=lower(trim(s.object_name)) AND lower(trim(o.organization))=lower(trim($1)))) OR (trim(COALESCE(s.object_name,''))='' AND EXISTS(SELECT 1 FROM employees e WHERE lower(trim(e.fio))=lower(trim(s.employee_fio)) AND lower(trim(e.organization))=lower(trim($1))))) ORDER BY s.deleted_at DESC",[accessOrganization(user)]);
+    else if(isProjectScoped(user))r=await pool.query("SELECT s.* FROM salary_records s WHERE s.deleted_at IS NOT NULL AND lower(trim(COALESCE(s.object_name,'')))=lower(trim($1)) AND (lower(trim(COALESCE(s.organization,'')))=lower(trim($2)) OR ((trim(COALESCE(s.organization,''))='' OR NOT EXISTS(SELECT 1 FROM organizations og WHERE lower(trim(og.name))=lower(trim(s.organization)))) AND EXISTS(SELECT 1 FROM employees e WHERE lower(trim(e.fio))=lower(trim(s.employee_fio)) AND lower(trim(e.organization))=lower(trim($2))))) ORDER BY s.deleted_at DESC",[accessObject(user),accessOrganization(user)]);
+    else r=await pool.query("SELECT s.* FROM salary_records s WHERE s.deleted_at IS NOT NULL AND (lower(trim(COALESCE(s.organization,'')))=lower(trim($1)) OR ((trim(COALESCE(s.organization,''))='' OR NOT EXISTS(SELECT 1 FROM organizations og WHERE lower(trim(og.name))=lower(trim(s.organization)))) AND EXISTS(SELECT 1 FROM employees e WHERE lower(trim(e.fio))=lower(trim(s.employee_fio)) AND lower(trim(e.organization))=lower(trim($1))))) ORDER BY s.deleted_at DESC",[accessOrganization(user)]);
     res.json(r.rows);
   }catch(e){res.status(e.status||500).json({error:e.message});}
 });
@@ -1512,7 +1696,7 @@ app.post('/api/salary/:id/restore', requirePermission('salary.delete'), async (r
     if(!before.rows.length)return res.status(404).json({error:'Архивная запись не найдена'});
     const user=req.accessUser||await refreshAccessUser(req);
     await ensureSalaryAccess(user,before.rows[0].employee_fio,before.rows[0].object_name);
-    const org=await salaryOrganization(before.rows[0].employee_fio,before.rows[0].object_name);
+    const org=String(before.rows[0].organization||'').trim()||await salaryOrganization(before.rows[0].employee_fio,before.rows[0].object_name);
     await assertSalaryPeriodOpen(before.rows[0].month,before.rows[0].year,org);
     const r=await pool.query('UPDATE salary_records SET deleted_at=NULL,deleted_by=NULL WHERE id=$1 RETURNING *',[req.params.id]);
     await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Восстановлена запись зарплаты ID='+req.params.id+' — '+before.rows[0].employee_fio]);
@@ -1619,9 +1803,9 @@ app.post('/api/import', requirePermission('backups.manage'), async (req, res) =>
     if (data.salary) {
       for (const rec of data.salary) {
         await pool.query(
-          `INSERT INTO salary_records (employee_fio, object_name, month, year, charge_date, hour_rate, hours, per_diem_days, per_diem_rate, extra_charges, payments, total, paid)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-          [rec.employee_fio||'', rec.object_name||'', rec.month||'', rec.year||'', rec.charge_date||null, rec.hour_rate||0, rec.hours||0,
+          `INSERT INTO salary_records (employee_fio, object_name, organization, month, year, charge_date, hour_rate, hours, per_diem_days, per_diem_rate, extra_charges, payments, total, paid)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+          [rec.employee_fio||'', rec.object_name||'', rec.organization||await salaryOrganization(rec.employee_fio,rec.object_name), rec.month||'', rec.year||'', rec.charge_date||null, rec.hour_rate||0, rec.hours||0,
            rec.per_diem_days||0, rec.per_diem_rate||0, rec.extra_charges||'[]', rec.payments||'[]', rec.total||0, rec.paid||0]
         );
       }
@@ -1714,8 +1898,8 @@ app.post('/api/restore', requirePermission('backups.manage'), async (req, res) =
         [r.object_id,r.employee_id,r.created_at||new Date()]);
     }
     for(const s of data.salary){
-      await client.query('INSERT INTO salary_records (id,employee_fio,object_name,month,year,charge_date,hour_rate,hours,per_diem_days,per_diem_rate,extra_charges,payments,total,paid) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)',
-        [s.id,s.employee_fio||'',s.object_name||'',s.month||'',s.year||'',s.charge_date||null,s.hour_rate||0,s.hours||0,s.per_diem_days||0,s.per_diem_rate||0,
+      await client.query('INSERT INTO salary_records (id,employee_fio,object_name,organization,month,year,charge_date,hour_rate,hours,per_diem_days,per_diem_rate,extra_charges,payments,total,paid) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)',
+        [s.id,s.employee_fio||'',s.object_name||'',s.organization||await salaryOrganization(s.employee_fio,s.object_name),s.month||'',s.year||'',s.charge_date||null,s.hour_rate||0,s.hours||0,s.per_diem_days||0,s.per_diem_rate||0,
          typeof s.extra_charges==='string'?s.extra_charges:JSON.stringify(s.extra_charges||[]),typeof s.payments==='string'?s.payments:JSON.stringify(s.payments||[]),s.total||0,s.paid||0]);
     }
     for(const b of (data.employee_balances||[])){
