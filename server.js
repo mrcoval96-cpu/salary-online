@@ -133,8 +133,24 @@ async function repairOrganizationReferences(){
     await pool.query("UPDATE "+table+" t SET organization=o.name FROM organizations o WHERE trim(COALESCE(t.organization,''))<>'' AND lower(trim(t.organization))=lower(trim(o.name)) AND t.organization<>o.name");
     await pool.query("UPDATE "+table+" t SET organization=o.name FROM organization_aliases a JOIN organizations o ON o.id=a.organization_id WHERE lower(trim(COALESCE(t.organization,'')))=lower(trim(a.alias)) AND t.organization<>o.name");
   }
-  await pool.query("UPDATE closed_salary_periods p SET organization=o.name FROM organizations o WHERE trim(COALESCE(p.organization,''))<>'' AND lower(trim(p.organization))=lower(trim(o.name)) AND p.organization<>o.name");
-  await pool.query("UPDATE closed_salary_periods p SET organization=o.name FROM organization_aliases a JOIN organizations o ON o.id=a.organization_id WHERE lower(trim(COALESCE(p.organization,'')))=lower(trim(a.alias)) AND p.organization<>o.name");
+  await pool.query(`
+    INSERT INTO closed_salary_periods(month,year,organization,closed_at,closed_by)
+    SELECT p.month,p.year,o.name,p.closed_at,p.closed_by
+    FROM closed_salary_periods p JOIN organizations o ON lower(trim(p.organization))=lower(trim(o.name))
+    WHERE p.organization<>o.name
+    ON CONFLICT(month,year,organization) DO UPDATE SET closed_at=GREATEST(closed_salary_periods.closed_at,EXCLUDED.closed_at),closed_by=EXCLUDED.closed_by
+  `);
+  await pool.query("DELETE FROM closed_salary_periods p USING organizations o WHERE lower(trim(p.organization))=lower(trim(o.name)) AND p.organization<>o.name");
+  await pool.query(`
+    INSERT INTO closed_salary_periods(month,year,organization,closed_at,closed_by)
+    SELECT p.month,p.year,o.name,p.closed_at,p.closed_by
+    FROM closed_salary_periods p
+    JOIN organization_aliases a ON lower(trim(p.organization))=lower(trim(a.alias))
+    JOIN organizations o ON o.id=a.organization_id
+    WHERE p.organization<>o.name
+    ON CONFLICT(month,year,organization) DO UPDATE SET closed_at=GREATEST(closed_salary_periods.closed_at,EXCLUDED.closed_at),closed_by=EXCLUDED.closed_by
+  `);
+  await pool.query("DELETE FROM closed_salary_periods p USING organization_aliases a,organizations o WHERE o.id=a.organization_id AND lower(trim(p.organization))=lower(trim(a.alias)) AND p.organization<>o.name");
 
   // Recover orphan objects from responsible employees when they all belong to one organization.
   await pool.query(`
@@ -1267,7 +1283,7 @@ app.put('/api/organizations/:id', requirePermission('organizations.manage'), asy
     if(duplicate.rows.length){await client.query('ROLLBACK');return res.status(409).json({error:'Организация с таким наименованием уже существует'});}
     const result=await client.query('UPDATE organizations SET name=$1,address=$2,contacts=$3 WHERE id=$4 RETURNING *',[name,address,contacts,req.params.id]);
     if(oldName&&oldName!==name){
-      await client.query('INSERT INTO organization_aliases(alias,organization_id) VALUES($1,$2) ON CONFLICT(alias) DO UPDATE SET organization_id=EXCLUDED.organization_id',[oldName,req.params.id]);
+      await client.query('INSERT INTO organization_aliases(alias,organization_id) VALUES($1,$2) ON CONFLICT(alias) DO UPDATE SET organization_id=EXCLUDED.organization_id',[normAccess(oldName),req.params.id]);
     }
     for(const table of ['users','employees','objects','salary_records']){
       await client.query("UPDATE "+table+" SET organization=$1 WHERE lower(trim(COALESCE(organization,'')))=lower(trim($2))",[name,oldName]);
