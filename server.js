@@ -94,6 +94,22 @@ async function ensureDatabaseSchema(){
   await pool.query("ALTER TABLE bank_statement_payments ADD COLUMN IF NOT EXISTS allocations JSONB NOT NULL DEFAULT '[]'::jsonb");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_bank_statement_payments_employee_date ON bank_statement_payments(lower(employee_fio), transaction_date, id)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_bank_statement_payments_transaction_key ON bank_statement_payments(transaction_key)");
+  await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS full_name TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS inn TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS kpp TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS ogrn TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS legal_address TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS postal_address TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS director_fio TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS website TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS bank_name TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS bik TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS settlement_account TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS correspondent_account TEXT NOT NULL DEFAULT ''");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_organizations_inn ON organizations(inn) WHERE trim(inn)<>''");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_organizations_ogrn ON organizations(ogrn) WHERE trim(ogrn)<>''");
   await pool.query("CREATE TABLE IF NOT EXISTS organization_aliases (alias TEXT PRIMARY KEY, organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_organization_aliases_norm ON organization_aliases(lower(trim(alias)))");
   await pool.query("INSERT INTO object_responsibles (object_id,employee_id) SELECT o.id,e.id FROM objects o CROSS JOIN LATERAL regexp_split_to_table(COALESCE(o.responsible,''),',') AS part(name) JOIN employees e ON lower(trim(e.fio))=lower(trim(part.name)) WHERE trim(part.name)<>'' ON CONFLICT (object_id,employee_id) DO NOTHING");
@@ -1298,6 +1314,46 @@ app.delete('/api/objects/:id',requirePermission('objects.manage'),async(req,res)
 });
 
 // === ORGANIZATIONS ===
+function organizationPayload(body){
+  const src=body&&typeof body==='object'?body:{};
+  const digits=function(value){return String(value||'').replace(/\D/g,'');};
+  return {
+    name:String(src.name||'').trim(),
+    full_name:String(src.full_name||'').trim(),
+    inn:digits(src.inn),
+    kpp:digits(src.kpp),
+    ogrn:digits(src.ogrn),
+    legal_address:String(src.legal_address||'').trim(),
+    address:String(src.address||'').trim(),
+    postal_address:String(src.postal_address||'').trim(),
+    director_fio:String(src.director_fio||'').trim(),
+    phone:String(src.phone||'').trim(),
+    email:normalizeEmail(src.email),
+    website:String(src.website||'').trim(),
+    bank_name:String(src.bank_name||'').trim(),
+    bik:digits(src.bik),
+    settlement_account:digits(src.settlement_account),
+    correspondent_account:digits(src.correspondent_account),
+    contacts:String(src.contacts||'').trim()
+  };
+}
+function validateOrganizationPayload(data,requireExtended){
+  if(!data.name)return 'Наименование обязательно';
+  if(requireExtended&&!data.full_name)return 'Полное наименование обязательно';
+  if(requireExtended&&!data.inn)return 'ИНН обязателен';
+  if(data.inn&&!/^(?:\d{10}|\d{12})$/.test(data.inn))return 'ИНН должен содержать 10 или 12 цифр';
+  if(data.kpp&&!/^\d{9}$/.test(data.kpp))return 'КПП должен содержать 9 цифр';
+  if(requireExtended&&!data.ogrn)return 'ОГРН обязателен';
+  if(data.ogrn&&!/^(?:\d{13}|\d{15})$/.test(data.ogrn))return 'ОГРН/ОГРНИП должен содержать 13 или 15 цифр';
+  if(requireExtended&&!data.legal_address)return 'Юридический адрес обязателен';
+  if(data.email&&!validEmail(data.email))return 'Некорректный e-mail организации';
+  if(data.bik&&!/^\d{9}$/.test(data.bik))return 'БИК должен содержать 9 цифр';
+  if(data.settlement_account&&!/^\d{20}$/.test(data.settlement_account))return 'Расчётный счёт должен содержать 20 цифр';
+  if(data.correspondent_account&&!/^\d{20}$/.test(data.correspondent_account))return 'Корреспондентский счёт должен содержать 20 цифр';
+  return '';
+}
+const ORGANIZATION_COLUMNS='name,full_name,inn,kpp,ogrn,legal_address,address,postal_address,director_fio,phone,email,website,bank_name,bik,settlement_account,correspondent_account,contacts';
+
 app.get('/api/organizations', requirePermission('organizations.view'), async (req, res) => {
   try {
     const user=req.accessUser||await refreshAccessUser(req);
@@ -1310,44 +1366,53 @@ app.get('/api/organizations', requirePermission('organizations.view'), async (re
   }
 });
 
-app.post('/api/organizations', requirePermission('organizations.manage'), async (req, res) => {
-  const { name, address, contacts } = req.body;
-  if (!name) return res.status(400).json({ error: 'Наименование обязательно' });
+app.post('/api/organizations', requireSiteManager, async (req, res) => {
+  const data=organizationPayload(req.body);
+  const validation=validateOrganizationPayload(data,true);
+  if(validation)return res.status(400).json({error:validation});
   try {
-    const result = await pool.query(
-      'INSERT INTO organizations (name, address, contacts) VALUES ($1,$2,$3) RETURNING *',
-      [name, address||'', contacts||'']
+    const duplicate=await pool.query("SELECT id,name FROM organizations WHERE lower(trim(name))=lower(trim($1)) OR (trim($2)<>'' AND inn=$2) OR (trim($3)<>'' AND ogrn=$3) LIMIT 1",[data.name,data.inn,data.ogrn]);
+    if(duplicate.rows.length)return res.status(409).json({error:'Организация с таким наименованием, ИНН или ОГРН уже существует'});
+    const values=ORGANIZATION_COLUMNS.split(',').map(function(key){return data[key]||'';});
+    const result=await pool.query(
+      'INSERT INTO organizations ('+ORGANIZATION_COLUMNS+') VALUES ('+values.map(function(_,i){return '$'+(i+1);}).join(',')+') RETURNING *',
+      values
     );
-    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Добавлена организация: '+name]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Добавлена организация: '+data.name+(data.inn?' · ИНН '+data.inn:'')]);
     res.json(result.rows[0]);
   } catch (err) {
     res.status(err.status||500).json({ error: err.message });
   }
 });
 
-app.put('/api/organizations/:id', requirePermission('organizations.manage'), async (req, res) => {
-  const name=String(req.body.name||'').trim(),address=String(req.body.address||''),contacts=String(req.body.contacts||'');
-  if(!name)return res.status(400).json({error:'Наименование обязательно'});
+app.put('/api/organizations/:id', requireSiteManager, async (req, res) => {
+  const data=organizationPayload(req.body);
+  const validation=validateOrganizationPayload(data,false);
+  if(validation)return res.status(400).json({error:validation});
   const client=await pool.connect();
   try {
     await client.query('BEGIN');
     const before=await client.query('SELECT * FROM organizations WHERE id=$1 FOR UPDATE',[req.params.id]);
     if(!before.rows.length){await client.query('ROLLBACK');return res.status(404).json({error:'Организация не найдена'});}
     const oldName=String(before.rows[0].name||'').trim();
-    const duplicate=await client.query('SELECT id FROM organizations WHERE lower(trim(name))=lower(trim($1)) AND id<>$2 LIMIT 1',[name,req.params.id]);
-    if(duplicate.rows.length){await client.query('ROLLBACK');return res.status(409).json({error:'Организация с таким наименованием уже существует'});}
-    const result=await client.query('UPDATE organizations SET name=$1,address=$2,contacts=$3 WHERE id=$4 RETURNING *',[name,address,contacts,req.params.id]);
-    if(oldName&&oldName!==name){
+    const duplicate=await client.query("SELECT id FROM organizations WHERE id<>$1 AND (lower(trim(name))=lower(trim($2)) OR (trim($3)<>'' AND inn=$3) OR (trim($4)<>'' AND ogrn=$4)) LIMIT 1",[req.params.id,data.name,data.inn,data.ogrn]);
+    if(duplicate.rows.length){await client.query('ROLLBACK');return res.status(409).json({error:'Другая организация уже использует это наименование, ИНН или ОГРН'});}
+    const columns=ORGANIZATION_COLUMNS.split(',');
+    const values=columns.map(function(key){return data[key]||'';});
+    const assignments=columns.map(function(key,i){return key+'=$'+(i+1);}).join(',');
+    values.push(req.params.id);
+    const result=await client.query('UPDATE organizations SET '+assignments+' WHERE id=$'+values.length+' RETURNING *',values);
+    if(oldName&&oldName!==data.name){
       await client.query('INSERT INTO organization_aliases(alias,organization_id) VALUES($1,$2) ON CONFLICT(alias) DO UPDATE SET organization_id=EXCLUDED.organization_id',[normAccess(oldName),req.params.id]);
     }
     for(const table of ['users','employees','objects','salary_records']){
-      await client.query("UPDATE "+table+" SET organization=$1 WHERE lower(trim(COALESCE(organization,'')))=lower(trim($2))",[name,oldName]);
+      await client.query("UPDATE "+table+" SET organization=$1 WHERE lower(trim(COALESCE(organization,'')))=lower(trim($2))",[data.name,oldName]);
     }
-    if(oldName!==name){
-      await client.query("INSERT INTO closed_salary_periods(month,year,organization,closed_at,closed_by) SELECT month,year,$1,closed_at,closed_by FROM closed_salary_periods WHERE lower(trim(organization))=lower(trim($2)) ON CONFLICT(month,year,organization) DO UPDATE SET closed_at=GREATEST(closed_salary_periods.closed_at,EXCLUDED.closed_at),closed_by=EXCLUDED.closed_by",[name,oldName]);
+    if(oldName!==data.name){
+      await client.query("INSERT INTO closed_salary_periods(month,year,organization,closed_at,closed_by) SELECT month,year,$1,closed_at,closed_by FROM closed_salary_periods WHERE lower(trim(organization))=lower(trim($2)) ON CONFLICT(month,year,organization) DO UPDATE SET closed_at=GREATEST(closed_salary_periods.closed_at,EXCLUDED.closed_at),closed_by=EXCLUDED.closed_by",[data.name,oldName]);
       await client.query("DELETE FROM closed_salary_periods WHERE lower(trim(organization))=lower(trim($1))",[oldName]);
     }
-    await client.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Изменена организация: '+oldName+' → '+name]);
+    await client.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Изменена организация: '+oldName+' → '+data.name]);
     await client.query('COMMIT');
     res.json(result.rows[0]);
   } catch (err) {
@@ -1356,7 +1421,7 @@ app.put('/api/organizations/:id', requirePermission('organizations.manage'), asy
   } finally { client.release(); }
 });
 
-app.delete('/api/organizations/:id', requirePermission('organizations.manage'), async (req, res) => {
+app.delete('/api/organizations/:id', requireSiteManager, async (req, res) => {
   try {
     await pool.query('DELETE FROM organizations WHERE id=$1', [req.params.id]);
     res.json({ ok: true });
@@ -1889,8 +1954,8 @@ app.post('/api/import', requirePermission('backups.manage'), async (req, res) =>
     }
     if (data.organizations) {
       for (const org of data.organizations) {
-        await pool.query('INSERT INTO organizations (name, address, contacts) VALUES ($1,$2,$3)',
-          [org.name||'', org.address||'', org.contacts||'']);
+        await pool.query('INSERT INTO organizations (name,full_name,inn,kpp,ogrn,legal_address,address,postal_address,director_fio,phone,email,website,bank_name,bik,settlement_account,correspondent_account,contacts) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)',
+          [org.name||'',org.full_name||'',org.inn||'',org.kpp||'',org.ogrn||'',org.legal_address||'',org.address||'',org.postal_address||'',org.director_fio||'',org.phone||'',org.email||'',org.website||'',org.bank_name||'',org.bik||'',org.settlement_account||'',org.correspondent_account||'',org.contacts||'']);
       }
     }
     if (data.salary) {
@@ -1985,8 +2050,8 @@ app.post('/api/restore', requirePermission('backups.manage'), async (req, res) =
         [o.id,o.name||'',o.address||'',o.customer||'',o.organization||'',o.responsible||'']);
     }
     for(const o of (data.organizations||[])){
-      await client.query('INSERT INTO organizations (id,name,address,contacts) VALUES ($1,$2,$3,$4)',
-        [o.id,o.name||'',o.address||'',o.contacts||'']);
+      await client.query('INSERT INTO organizations (id,name,full_name,inn,kpp,ogrn,legal_address,address,postal_address,director_fio,phone,email,website,bank_name,bik,settlement_account,correspondent_account,contacts) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)',
+        [o.id,o.name||'',o.full_name||'',o.inn||'',o.kpp||'',o.ogrn||'',o.legal_address||'',o.address||'',o.postal_address||'',o.director_fio||'',o.phone||'',o.email||'',o.website||'',o.bank_name||'',o.bik||'',o.settlement_account||'',o.correspondent_account||'',o.contacts||'']);
     }
     for(const r of (data.object_responsibles||[])){
       await client.query('INSERT INTO object_responsibles (object_id,employee_id,created_at) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING',
