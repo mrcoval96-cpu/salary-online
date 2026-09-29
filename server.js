@@ -76,6 +76,8 @@ async function ensureDatabaseSchema(){
   await pool.query("ALTER TABLE employees ADD COLUMN IF NOT EXISTS photo_data TEXT NOT NULL DEFAULT ''");
   await pool.query("CREATE TABLE IF NOT EXISTS object_responsibles (object_id INTEGER NOT NULL REFERENCES objects(id) ON DELETE CASCADE, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (object_id, employee_id))");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_object_responsibles_employee ON object_responsibles(employee_id)");
+  await pool.query("CREATE TABLE IF NOT EXISTS object_user_responsibles (object_id INTEGER NOT NULL REFERENCES objects(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (object_id, user_id))");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_object_user_responsibles_user ON object_user_responsibles(user_id)");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS permission_overrides JSONB NOT NULL DEFAULT '{}'::jsonb");
@@ -95,6 +97,8 @@ async function ensureDatabaseSchema(){
   await pool.query("CREATE TABLE IF NOT EXISTS organization_aliases (alias TEXT PRIMARY KEY, organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_organization_aliases_norm ON organization_aliases(lower(trim(alias)))");
   await pool.query("INSERT INTO object_responsibles (object_id,employee_id) SELECT o.id,e.id FROM objects o CROSS JOIN LATERAL regexp_split_to_table(COALESCE(o.responsible,''),',') AS part(name) JOIN employees e ON lower(trim(e.fio))=lower(trim(part.name)) WHERE trim(part.name)<>'' ON CONFLICT (object_id,employee_id) DO NOTHING");
+  await pool.query("INSERT INTO object_user_responsibles(object_id,user_id) SELECT DISTINCT r.object_id,u.id FROM object_responsibles r JOIN objects o ON o.id=r.object_id JOIN employees e ON e.id=r.employee_id JOIN users u ON lower(trim(u.fio))=lower(trim(e.fio)) AND lower(trim(u.organization))=lower(trim(o.organization)) WHERE trim(COALESCE(o.organization,''))<>'' ON CONFLICT(object_id,user_id) DO NOTHING");
+  await pool.query("INSERT INTO object_user_responsibles(object_id,user_id) SELECT DISTINCT o.id,u.id FROM objects o CROSS JOIN LATERAL regexp_split_to_table(COALESCE(o.responsible,''),',') AS part(name) JOIN users u ON lower(trim(u.fio))=lower(trim(part.name)) AND lower(trim(u.organization))=lower(trim(o.organization)) WHERE trim(part.name)<>'' AND trim(COALESCE(o.organization,''))<>'' ON CONFLICT(object_id,user_id) DO NOTHING");
   await repairOrganizationReferences();
 }
 
@@ -1182,29 +1186,32 @@ app.post('/api/employees/bulk-delete', requirePermission('employees.manage'), as
 });
 
 // === OBJECTS ===
-async function normalizeResponsibleIds(body){
+async function normalizeResponsibleIds(body,targetOrg){
   let ids=Array.isArray(body.responsible_ids) ? body.responsible_ids : [];
   ids=Array.from(new Set(ids.map(function(v){return Number(v);}).filter(function(v){return Number.isInteger(v)&&v>0;})));
   if(!Array.isArray(body.responsible_ids) && body.responsible){
     const names=String(body.responsible).split(',').map(function(x){return x.trim();}).filter(Boolean);
     if(names.length){
-      const found=await pool.query("SELECT id FROM employees WHERE lower(fio)=ANY($1::text[])",[names.map(function(n){return n.toLowerCase();})]);
+      const found=await pool.query("SELECT id FROM users WHERE lower(trim(organization))=lower(trim($1)) AND lower(trim(fio))=ANY($2::text[])",[targetOrg,names.map(function(n){return n.toLocaleLowerCase('ru-RU');})]);
       ids=found.rows.map(function(r){return Number(r.id);});
     }
   }
   if(!ids.length)return [];
-  const valid=await pool.query("SELECT id FROM employees WHERE id=ANY($1::int[])",[ids]);
+  const valid=await pool.query("SELECT id FROM users WHERE id=ANY($1::int[]) AND lower(trim(organization))=lower(trim($2))",[ids,targetOrg]);
+  if(valid.rows.length!==ids.length){
+    const err=new Error('Ответственным можно назначить только зарегистрированного пользователя организации объекта');err.status=400;throw err;
+  }
   return valid.rows.map(function(r){return Number(r.id);});
 }
 async function getObjectWithResponsibles(id){
-  const result=await pool.query("SELECT o.*,COALESCE(json_agg(json_build_object('id',e.id,'fio',e.fio) ORDER BY e.fio) FILTER (WHERE e.id IS NOT NULL),'[]'::json) AS responsibles FROM objects o LEFT JOIN object_responsibles r ON r.object_id=o.id LEFT JOIN employees e ON e.id=r.employee_id WHERE o.id=$1 GROUP BY o.id",[id]);
+  const result=await pool.query("SELECT o.*,COALESCE(json_agg(json_build_object('id',u.id,'fio',u.fio,'role',u.role) ORDER BY u.fio) FILTER (WHERE u.id IS NOT NULL),'[]'::json) AS responsibles FROM objects o LEFT JOIN object_user_responsibles r ON r.object_id=o.id LEFT JOIN users u ON u.id=r.user_id WHERE o.id=$1 GROUP BY o.id",[id]);
   return result.rows[0] || null;
 }
 app.get('/api/objects',requirePermission('objects.view'),async(req,res)=>{
   try{
     const user=req.accessUser||await refreshAccessUser(req);
     let result;
-    const base="SELECT o.*,COALESCE(json_agg(json_build_object('id',e.id,'fio',e.fio) ORDER BY e.fio) FILTER (WHERE e.id IS NOT NULL),'[]'::json) AS responsibles FROM objects o LEFT JOIN object_responsibles r ON r.object_id=o.id LEFT JOIN employees e ON e.id=r.employee_id";
+    const base="SELECT o.*,COALESCE(json_agg(json_build_object('id',u.id,'fio',u.fio,'role',u.role) ORDER BY u.fio) FILTER (WHERE u.id IS NOT NULL),'[]'::json) AS responsibles FROM objects o LEFT JOIN object_user_responsibles r ON r.object_id=o.id LEFT JOIN users u ON u.id=r.user_id";
     if(isSiteWideUser(user))result=await pool.query(base+" GROUP BY o.id ORDER BY o.name");
     else if(isProjectScoped(user))result=await pool.query(base+" WHERE lower(trim(o.organization))=lower(trim($1)) AND lower(trim(o.name))=lower(trim($2)) GROUP BY o.id ORDER BY o.name",[accessOrganization(user),accessObject(user)]);
     else result=await pool.query(base+" WHERE lower(trim(o.organization))=lower(trim($1)) GROUP BY o.id ORDER BY o.name",[accessOrganization(user)]);
@@ -1214,7 +1221,6 @@ app.get('/api/objects',requirePermission('objects.view'),async(req,res)=>{
 async function saveObject(id,data,res,req){
   const name=String(data.name||'').trim();
   if(!name)return res.status(400).json({error:'Наименование обязательно'});
-  const responsibleIds=await normalizeResponsibleIds(data);
   const user=req.accessUser||await refreshAccessUser(req);
   const requestedOrg=isSiteWideUser(user)?String(data.organization||'').trim():accessOrganization(user);
   if(!requestedOrg)return res.status(400).json({error:'Выберите организацию объекта'});
@@ -1222,12 +1228,7 @@ async function saveObject(id,data,res,req){
   if(!orgResult.rows.length)return res.status(400).json({error:'Выбранная организация не найдена'});
   const targetOrg=String(orgResult.rows[0].name||'').trim();
   await ensureOrganizationAccess(user,targetOrg);
-  if(responsibleIds.length){
-    const rr=await pool.query('SELECT id,organization FROM employees WHERE id=ANY($1::int[])',[responsibleIds]);
-    if(rr.rows.length!==responsibleIds.length||rr.rows.some(function(e){return !sameAccessValue(e.organization,targetOrg);})){
-      const err=new Error('Ответственными можно назначать только сотрудников организации объекта');err.status=403;throw err;
-    }
-  }
+  const responsibleIds=await normalizeResponsibleIds(data,targetOrg);
   if(id)await ensureObjectAccess(user,Number(id));
   if(isProjectScoped(user)&&!sameAccessValue(name,accessObject(user))){const err=new Error('Руководитель проекта может изменять только назначенный объект');err.status=403;throw err;}
   const client=await pool.connect();
@@ -1241,9 +1242,9 @@ async function saveObject(id,data,res,req){
       result=await client.query('INSERT INTO objects (name,address,customer,organization,responsible) VALUES ($1,$2,$3,$4,$5) RETURNING id',[name,data.address||'',data.customer||'',targetOrg,'']);
       id=result.rows[0].id;
     }
-    await client.query('DELETE FROM object_responsibles WHERE object_id=$1',[id]);
-    if(responsibleIds.length)await client.query('INSERT INTO object_responsibles (object_id,employee_id) SELECT $1,unnest($2::int[]) ON CONFLICT DO NOTHING',[id,responsibleIds]);
-    const names=responsibleIds.length ? await client.query('SELECT fio FROM employees WHERE id=ANY($1::int[]) ORDER BY fio',[responsibleIds]) : {rows:[]};
+    await client.query('DELETE FROM object_user_responsibles WHERE object_id=$1',[id]);
+    if(responsibleIds.length)await client.query('INSERT INTO object_user_responsibles (object_id,user_id) SELECT $1,unnest($2::int[]) ON CONFLICT DO NOTHING',[id,responsibleIds]);
+    const names=responsibleIds.length ? await client.query('SELECT fio FROM users WHERE id=ANY($1::int[]) ORDER BY fio',[responsibleIds]) : {rows:[]};
     const responsibleText=names.rows.map(function(r){return r.fio;}).join(', ');
     await client.query('UPDATE objects SET responsible=$1 WHERE id=$2',[responsibleText,id]);
     await client.query('COMMIT');
@@ -1436,15 +1437,16 @@ async function prepareBankStatementTransactions(transactions,user){
   });
 }
 async function createAutomaticBackup(){
-  const [employees,objects,orgs,salary,responsibles,periods,balances,bankPayments]=await Promise.all([
+  const [employees,objects,orgs,salary,responsibles,userResponsibles,periods,balances,bankPayments]=await Promise.all([
     pool.query('SELECT * FROM employees ORDER BY id'),pool.query('SELECT * FROM objects ORDER BY id'),
     pool.query('SELECT * FROM organizations ORDER BY id'),pool.query('SELECT * FROM salary_records ORDER BY id'),
     pool.query('SELECT object_id,employee_id,created_at FROM object_responsibles ORDER BY object_id,employee_id'),
+    pool.query('SELECT object_id,user_id,created_at FROM object_user_responsibles ORDER BY object_id,user_id'),
     pool.query('SELECT * FROM closed_salary_periods ORDER BY year,month'),
     pool.query('SELECT * FROM employee_balances ORDER BY id'),
     pool.query('SELECT * FROM bank_statement_payments ORDER BY id')
   ]);
-  const data={format:'salary-online-auto-backup',version:2,created_at:new Date().toISOString(),employees:employees.rows,objects:objects.rows,organizations:orgs.rows,salary:salary.rows,employee_balances:balances.rows,bank_statement_payments:bankPayments.rows,object_responsibles:responsibles.rows,closed_periods:periods.rows};
+  const data={format:'salary-online-auto-backup',version:3,created_at:new Date().toISOString(),employees:employees.rows,objects:objects.rows,organizations:orgs.rows,salary:salary.rows,employee_balances:balances.rows,bank_statement_payments:bankPayments.rows,object_responsibles:responsibles.rows,object_user_responsibles:userResponsibles.rows,closed_periods:periods.rows};
   await pool.query('INSERT INTO automatic_backups(data) VALUES($1)',[JSON.stringify(data)]);
   await pool.query('DELETE FROM automatic_backups WHERE id NOT IN (SELECT id FROM automatic_backups ORDER BY created_at DESC LIMIT 7)');
 }
@@ -1881,7 +1883,7 @@ app.post('/api/import', requirePermission('backups.manage'), async (req, res) =>
 // === FULL BACKUP / RESTORE ===
 app.get('/api/backup', requirePermission('backups.manage'), async (req, res) => {
   try {
-    const [users, employees, objects, orgs, salary, balances, bankPayments, objectResponsibles, log, securityLog] = await Promise.all([
+    const [users, employees, objects, orgs, salary, balances, bankPayments, objectResponsibles, objectUserResponsibles, log, securityLog] = await Promise.all([
       pool.query('SELECT * FROM users ORDER BY id'),
       pool.query('SELECT * FROM employees ORDER BY id'),
       pool.query('SELECT * FROM objects ORDER BY id'),
@@ -1890,17 +1892,18 @@ app.get('/api/backup', requirePermission('backups.manage'), async (req, res) => 
       pool.query('SELECT * FROM employee_balances ORDER BY id'),
       pool.query('SELECT * FROM bank_statement_payments ORDER BY id'),
       pool.query('SELECT object_id, employee_id, created_at FROM object_responsibles ORDER BY object_id, employee_id'),
+      pool.query('SELECT object_id, user_id, created_at FROM object_user_responsibles ORDER BY object_id, user_id'),
       pool.query('SELECT * FROM action_log ORDER BY id'),
       pool.query('SELECT * FROM security_log ORDER BY id')
     ]);
     res.json({
       format: 'salary-online-backup',
-      version: 2,
+      version: 3,
       created_at: new Date().toISOString(),
       users: users.rows, employees: employees.rows, objects: objects.rows,
       organizations: orgs.rows, salary: salary.rows, employee_balances: balances.rows,
       bank_statement_payments: bankPayments.rows,
-      object_responsibles: objectResponsibles.rows, log: log.rows, security_log: securityLog.rows
+      object_responsibles: objectResponsibles.rows, object_user_responsibles: objectUserResponsibles.rows, log: log.rows, security_log: securityLog.rows
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1916,6 +1919,7 @@ app.post('/api/restore', requirePermission('backups.manage'), async (req, res) =
     await client.query('DELETE FROM salary_records');
     await client.query('DELETE FROM employee_balances');
     await client.query('DELETE FROM bank_statement_payments');
+    await client.query('DELETE FROM object_user_responsibles');
     await client.query('DELETE FROM object_responsibles');
     await client.query('DELETE FROM objects');
     await client.query('DELETE FROM employees');
@@ -1943,6 +1947,13 @@ app.post('/api/restore', requirePermission('backups.manage'), async (req, res) =
     for(const r of (data.object_responsibles||[])){
       await client.query('INSERT INTO object_responsibles (object_id,employee_id,created_at) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING',
         [r.object_id,r.employee_id,r.created_at||new Date()]);
+    }
+    for(const r of (data.object_user_responsibles||[])){
+      await client.query('INSERT INTO object_user_responsibles (object_id,user_id,created_at) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING',
+        [r.object_id,r.user_id,r.created_at||new Date()]);
+    }
+    if(!Array.isArray(data.object_user_responsibles)){
+      await client.query("INSERT INTO object_user_responsibles(object_id,user_id) SELECT DISTINCT r.object_id,u.id FROM object_responsibles r JOIN objects o ON o.id=r.object_id JOIN employees e ON e.id=r.employee_id JOIN users u ON lower(trim(u.fio))=lower(trim(e.fio)) AND lower(trim(u.organization))=lower(trim(o.organization)) ON CONFLICT(object_id,user_id) DO NOTHING");
     }
     for(const s of data.salary){
       await client.query('INSERT INTO salary_records (id,employee_fio,object_name,organization,month,year,charge_date,hour_rate,hours,per_diem_days,per_diem_rate,extra_charges,payments,total,paid) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)',
@@ -1983,6 +1994,7 @@ app.post('/api/clear', requirePermission('backups.manage'), async (req, res) => 
     await pool.query('DELETE FROM salary_records');
     await pool.query('DELETE FROM employee_balances');
     await pool.query('DELETE FROM bank_statement_payments');
+    await pool.query('DELETE FROM object_user_responsibles');
     await pool.query('DELETE FROM action_log');
     await pool.query('DELETE FROM security_log');
     await pool.query('DELETE FROM employees');
