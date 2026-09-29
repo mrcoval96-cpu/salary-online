@@ -546,7 +546,7 @@ button,input,select,textarea{max-width:100%}
         <h2>Организации</h2>
         <button class="btn btn-green btn-sm" id="orgAddBtn" onclick="showOrgModal()">+ Добавить организацию</button>
       </div>
-      <table><thead><tr><th>Наименование</th><th>Адрес</th><th>Контакты</th><th>Действия</th></tr></thead>
+      <table id="organizationsTable"><thead><tr><th>Организация</th><th>Реквизиты</th><th>Адреса</th><th>Контакты</th><th>Действия</th></tr></thead>
       <tbody id="orgsBody"></tbody></table>
     </div>
   </div>
@@ -664,7 +664,20 @@ button,input,select,textarea{max-width:100%}
 <div id="employeeProfilePrint" class="hr-print-sheet"></div>
 <div class="modal-overlay" id="objModal"><div class="modal"><span class="modal-close" onclick="closeModal('objModal')">&times;</span><h2>Объект</h2><div class="form-group"><label>Наименование</label><input type="text" id="objName"></div><div class="form-group"><label>Адрес</label><input type="text" id="objAddr"></div><div class="form-group"><label>Заказчик</label><input type="text" id="objCust"></div><div class="form-group"><label>Организация</label><select id="objOrg" onchange="renderResponsiblePicker([])"><option value="">— Выберите организацию —</option></select></div><div class="form-group"><label>Ответственные пользователи</label><input class="responsible-search" type="text" id="objRespSearch" placeholder="Поиск зарегистрированного пользователя" oninput="filterResponsiblePicker()"><div id="objRespList" class="responsible-picker"></div><div id="objRespChips" class="responsible-chips"></div></div><button class="btn btn-green" onclick="saveObj()">Сохранить</button></div></div>
 <div class="modal-overlay" id="objectSalaryDebtModal"><div class="modal" style="max-width:760px"><span class="modal-close" onclick="closeModal('objectSalaryDebtModal')">&times;</span><h2 id="objectSalaryDebtTitle">Зарплата по объекту</h2><div id="objectSalaryDebtSummary" class="salary-summary" style="margin:14px 0"></div><div class="balance-help" style="margin-bottom:12px">Показываются только начисления за выбранный месяц, которые непосредственно привязаны к этому объекту. Общая задолженность сотрудника и выплаты с других объектов сюда не переносятся, поэтому суммы между объектами не дублируются.</div><div style="overflow:auto;max-height:520px"><table style="min-width:520px"><thead><tr><th>Сотрудник</th><th>Начислено за месяц</th></tr></thead><tbody id="objectSalaryDebtBody"></tbody></table></div></div></div>
-<div class="modal-overlay" id="orgModal"><div class="modal"><span class="modal-close" onclick="closeModal('orgModal')">&times;</span><h2>Организация</h2><div class="form-group"><label>Наименование</label><input type="text" id="orgName"></div><div class="form-group"><label>Адрес</label><input type="text" id="orgAddr"></div><div class="form-group"><label>Контакты</label><input type="text" id="orgContacts"></div><button class="btn btn-green" onclick="saveOrg()">Сохранить</button></div></div>
+<div class="modal-overlay" id="orgModal"><div class="modal" style="max-width:920px"><span class="modal-close" onclick="closeModal('orgModal')">&times;</span><h2 id="orgModalTitle">Карточка организации</h2>
+  <div class="balance-help" style="margin:10px 0 14px">Поля со звёздочкой обязательны при создании новой организации. Добавлять организации может только руководитель сайта.</div>
+  <div class="form-row"><div class="form-group"><label>Краткое наименование *</label><input type="text" id="orgName" maxlength="255" placeholder="ООО «Компания»"></div><div class="form-group"><label>Полное наименование *</label><input type="text" id="orgFullName" maxlength="500" placeholder="Общество с ограниченной ответственностью «Компания»"></div></div>
+  <div class="form-row"><div class="form-group"><label>ИНН *</label><input type="text" id="orgInn" inputmode="numeric" maxlength="12" placeholder="10 или 12 цифр"></div><div class="form-group"><label>КПП</label><input type="text" id="orgKpp" inputmode="numeric" maxlength="9" placeholder="9 цифр"></div><div class="form-group"><label>ОГРН / ОГРНИП *</label><input type="text" id="orgOgrn" inputmode="numeric" maxlength="15" placeholder="13 или 15 цифр"></div></div>
+  <div class="form-group"><label>Юридический адрес *</label><input type="text" id="orgLegalAddress" maxlength="1000"></div>
+  <div class="form-row"><div class="form-group"><label>Фактический адрес</label><input type="text" id="orgAddr" maxlength="1000"></div><div class="form-group"><label>Почтовый адрес</label><input type="text" id="orgPostalAddress" maxlength="1000"></div></div>
+  <div class="form-row"><div class="form-group"><label>Руководитель / директор</label><input type="text" id="orgDirector" maxlength="255"></div><div class="form-group"><label>Телефон</label><input type="tel" id="orgPhone" class="phone-input" maxlength="18" placeholder="7 (900) 900-90-90" oninput="formatPhoneInput(this)"></div></div>
+  <div class="form-row"><div class="form-group"><label>E-mail</label><input type="email" id="orgEmail" maxlength="255" autocomplete="email"></div><div class="form-group"><label>Сайт</label><input type="text" id="orgWebsite" maxlength="255" placeholder="https://example.ru"></div></div>
+  <h3 style="margin:10px 0">Банковские реквизиты</h3>
+  <div class="form-row"><div class="form-group"><label>Банк</label><input type="text" id="orgBankName" maxlength="500"></div><div class="form-group"><label>БИК</label><input type="text" id="orgBik" inputmode="numeric" maxlength="9" placeholder="9 цифр"></div></div>
+  <div class="form-row"><div class="form-group"><label>Расчётный счёт</label><input type="text" id="orgSettlementAccount" inputmode="numeric" maxlength="20" placeholder="20 цифр"></div><div class="form-group"><label>Корреспондентский счёт</label><input type="text" id="orgCorrespondentAccount" inputmode="numeric" maxlength="20" placeholder="20 цифр"></div></div>
+  <div class="form-group"><label>Дополнительные контакты / примечание</label><textarea id="orgContacts" maxlength="1000"></textarea></div>
+  <button class="btn btn-green" onclick="saveOrg()">Сохранить</button>
+</div></div>
 <div class="modal-overlay" id="salaryEditModal"><div class="modal"><span class="modal-close" onclick="closeModal('salaryEditModal')">&times;</span><h2>Редактирование записи</h2><div class="form-row"><div class="form-group" style="position:relative"><label>Сотрудник</label><input type="text" id="editFio" oninput="autocompleteFio(this)" onblur="setTimeout(()=>hideAutocomplete('fioAc2'),200)"><div class="autocomplete-list" id="fioAc2"></div></div><div class="form-group" style="position:relative"><label>Объект</label><input type="text" id="editObject" oninput="autocompleteObj(this)" onblur="setTimeout(()=>hideAutocomplete('objAc2'),200)"><div class="autocomplete-list" id="objAc2"></div></div></div><div class="form-row"><div class="form-group"><label>Месяц</label><select id="editMonth"><option value="">—</option><option>Январь</option><option>Февраль</option><option>Март</option><option>Апрель</option><option>Май</option><option>Июнь</option><option>Июль</option><option>Август</option><option>Сентябрь</option><option>Октябрь</option><option>Ноябрь</option><option>Декабрь</option></select></div><div class="form-group"><label>Год</label><input type="text" id="editYear"></div><div class="form-group"><label>Дата начисления</label><input type="text" id="editChargeDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div></div><div class="form-row"><div class="form-group"><label>Ставка за час</label><input type="number" id="editHourRate"></div><div class="form-group"><label>Часы</label><input type="number" id="editHours"></div><div class="form-group"><label>Дни суточных</label><input type="number" id="editPerDiemDays"></div><div class="form-group"><label>Ставка суточных</label><input type="number" id="editPerDiemRate"></div></div><div class="form-group"><label>Дополнительные начисления</label><div id="editExtraContainer"></div><button class="btn btn-blue btn-sm" type="button" onclick="addEditExtraCharge()">+ Начисление</button></div><div class="form-group"><label>Выплаты</label><div id="editPaymentsContainer"></div><button class="btn btn-blue btn-sm" type="button" onclick="addEditPayment()">+ Выплата</button></div><div class="form-row"><div class="form-group"><label>Итого</label><input type="number" id="editTotal" readonly></div><div class="form-group"><label>Выплачено</label><input type="number" id="editPaid"></div></div><button class="btn btn-green" onclick="saveEditSalary()">Сохранить изменения</button></div></div>
 <div class="modal-overlay" id="salaryArchiveModal"><div class="modal"><span class="modal-close" onclick="closeModal('salaryArchiveModal')">&times;</span><h2>Архив удалённых начислений</h2><div id="salaryArchiveList"></div></div></div>
 <div class="modal-overlay" id="quickPaymentModal"><div class="modal"><span class="modal-close" onclick="closeModal('quickPaymentModal')">&times;</span><h2 id="quickPaymentTitle">Добавить выплату</h2><div class="form-group"><label>Запись начисления</label><select id="quickPaymentRecord"></select></div><div class="form-row"><div class="form-group"><label>Дата</label><input type="text" id="quickPaymentDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div><div class="form-group"><label>Сумма</label><input type="number" id="quickPaymentAmount" min="0" step="0.01" placeholder="0,00"></div></div><button class="btn btn-green" id="quickPaymentSave" onclick="saveQuickPayment()">Сохранить выплату</button></div></div>
@@ -755,7 +768,7 @@ function applyPermissionsToUi(){
   setVisibleById('employeeImportBtn',can('employees.manage'));
   setVisibleById('employeeExportBtn',can('reports.export'));
   setVisibleById('objectAddBtn',can('objects.manage'));
-  setVisibleById('orgAddBtn',can('organizations.manage'));
+  setVisibleById('orgAddBtn',currentUser.role==='Руководитель сайта');
 }
 function firstAccessibleTab(){
   const order=['dashboard','input','salary','employees','objects','organizations','users','data'];
@@ -2312,51 +2325,95 @@ async function deleteObj(id){
 }
 
 // === ORGANIZATIONS ===
+const organizationFieldMap={
+  name:'orgName',full_name:'orgFullName',inn:'orgInn',kpp:'orgKpp',ogrn:'orgOgrn',
+  legal_address:'orgLegalAddress',address:'orgAddr',postal_address:'orgPostalAddress',
+  director_fio:'orgDirector',phone:'orgPhone',email:'orgEmail',website:'orgWebsite',
+  bank_name:'orgBankName',bik:'orgBik',settlement_account:'orgSettlementAccount',
+  correspondent_account:'orgCorrespondentAccount',contacts:'orgContacts'
+};
+function setOrganizationForm(data){
+  const source=data||{};
+  Object.keys(organizationFieldMap).forEach(function(key){
+    const el=document.getElementById(organizationFieldMap[key]);
+    if(el)el.value=source[key]||'';
+  });
+}
+function getOrganizationForm(){
+  const data={};
+  Object.keys(organizationFieldMap).forEach(function(key){
+    const el=document.getElementById(organizationFieldMap[key]);
+    data[key]=el?el.value.trim():'';
+  });
+  ['inn','kpp','ogrn','bik','settlement_account','correspondent_account'].forEach(function(key){data[key]=String(data[key]||'').replace(/\D/g,'');});
+  return data;
+}
+function organizationContactHtml(o){
+  const rows=[];
+  if(o.director_fio)rows.push('<div><b>Руководитель:</b> '+escapeHtml(o.director_fio)+'</div>');
+  if(o.phone)rows.push('<div>'+escapeHtml(o.phone)+'</div>');
+  if(o.email)rows.push('<div>'+escapeHtml(o.email)+'</div>');
+  if(o.website)rows.push('<div>'+escapeHtml(o.website)+'</div>');
+  if(o.contacts)rows.push('<div style="color:#667085">'+escapeHtml(o.contacts)+'</div>');
+  return rows.join('')||'—';
+}
 function renderOrganizations() {
-  const canEdit=can('organizations.manage');
+  const canEdit=currentUser&&currentUser.role==='Руководитель сайта';
   document.getElementById('orgsBody').innerHTML = organizations.map(function(o){
-    const actions=canEdit?'<button class="btn btn-blue btn-sm" onclick="editOrg(' + o.id + ')">Изм.</button> <button class="btn btn-red btn-sm" onclick="deleteOrg(' + o.id + ')">Удал.</button>':'—';
-    return '<tr><td>' + escapeHtml(o.name||'') + '</td><td>' + escapeHtml(o.address||'') + '</td><td>' + escapeHtml(o.contacts||'') + '</td><td>'+actions+'</td></tr>';
+    const actions=canEdit?'<button class="btn btn-blue btn-sm" onclick="editOrg(' + o.id + ')">Карточка</button> <button class="btn btn-red btn-sm" onclick="deleteOrg(' + o.id + ')">Удал.</button>':'—';
+    const title='<b>'+escapeHtml(o.name||'')+'</b>'+(o.full_name&&o.full_name!==o.name?'<div style="font-size:12px;color:#667085;margin-top:3px">'+escapeHtml(o.full_name)+'</div>':'');
+    const req='<div><b>ИНН:</b> '+escapeHtml(o.inn||'—')+'</div>'+(o.kpp?'<div><b>КПП:</b> '+escapeHtml(o.kpp)+'</div>':'')+'<div><b>ОГРН:</b> '+escapeHtml(o.ogrn||'—')+'</div>'+(o.bik?'<div style="margin-top:4px"><b>БИК:</b> '+escapeHtml(o.bik)+'</div>':'');
+    const addresses='<div><b>Юр.:</b> '+escapeHtml(o.legal_address||'—')+'</div>'+(o.address?'<div><b>Факт.:</b> '+escapeHtml(o.address)+'</div>':'')+(o.postal_address?'<div><b>Почт.:</b> '+escapeHtml(o.postal_address)+'</div>':'');
+    return '<tr><td>'+title+'</td><td>'+req+'</td><td>'+addresses+'</td><td>'+organizationContactHtml(o)+'</td><td>'+actions+'</td></tr>';
   }).join('');
 }
 
 function showOrgModal() {
-  if(!can('organizations.manage')){toast('Недостаточно прав для добавления организации','error');return;}
+  if(!currentUser||currentUser.role!=='Руководитель сайта'){toast('Добавлять организации может только руководитель сайта','error');return;}
   editingOrgId = null;
-  ['orgName','orgAddr','orgContacts'].forEach(id => document.getElementById(id).value = '');
+  setOrganizationForm({});
+  const title=document.getElementById('orgModalTitle');if(title)title.textContent='Новая организация';
   document.getElementById('orgModal').classList.add('show');
 }
 
 function editOrg(id) {
-  if(!can('organizations.manage')){toast('Недостаточно прав для изменения организации','error');return;}
-  const o = organizations.find(x => x.id === id);
+  if(!currentUser||currentUser.role!=='Руководитель сайта'){toast('Изменять карточку организации может только руководитель сайта','error');return;}
+  const o = organizations.find(function(x){return Number(x.id)===Number(id);});
   if (!o) return;
-  editingOrgId = id;
-  document.getElementById('orgName').value = o.name || '';
-  document.getElementById('orgAddr').value = o.address || '';
-  document.getElementById('orgContacts').value = o.contacts || '';
+  editingOrgId = Number(id);
+  setOrganizationForm(o);
+  const title=document.getElementById('orgModalTitle');if(title)title.textContent='Карточка организации';
   document.getElementById('orgModal').classList.add('show');
 }
 
 async function saveOrg() {
-  if(!can('organizations.manage')){toast('Недостаточно прав для сохранения организации','error');return;}
-  const data = {
-    name: document.getElementById('orgName').value,
-    address: document.getElementById('orgAddr').value,
-    contacts: document.getElementById('orgContacts').value
-  };
+  if(!currentUser||currentUser.role!=='Руководитель сайта'){toast('Сохранять организации может только руководитель сайта','error');return;}
+  const data=getOrganizationForm();
+  if(!data.name){toast('Укажите краткое наименование','error');return;}
+  if(!editingOrgId){
+    if(!data.full_name){toast('Укажите полное наименование','error');return;}
+    if(!data.inn){toast('Укажите ИНН','error');return;}
+    if(!data.ogrn){toast('Укажите ОГРН или ОГРНИП','error');return;}
+    if(!data.legal_address){toast('Укажите юридический адрес','error');return;}
+  }
+  if(data.inn&&!/^(?:\d{10}|\d{12})$/.test(data.inn)){toast('ИНН должен содержать 10 или 12 цифр','error');return;}
+  if(data.kpp&&!/^\d{9}$/.test(data.kpp)){toast('КПП должен содержать 9 цифр','error');return;}
+  if(data.ogrn&&!/^(?:\d{13}|\d{15})$/.test(data.ogrn)){toast('ОГРН/ОГРНИП должен содержать 13 или 15 цифр','error');return;}
+  if(data.bik&&!/^\d{9}$/.test(data.bik)){toast('БИК должен содержать 9 цифр','error');return;}
+  if(data.settlement_account&&!/^\d{20}$/.test(data.settlement_account)){toast('Расчётный счёт должен содержать 20 цифр','error');return;}
+  if(data.correspondent_account&&!/^\d{20}$/.test(data.correspondent_account)){toast('Корреспондентский счёт должен содержать 20 цифр','error');return;}
   try {
     if (editingOrgId) await api('/api/organizations/' + editingOrgId, 'PUT', data);
     else await api('/api/organizations', 'POST', data);
     organizations = await api('/api/organizations');
     closeModal('orgModal');
     renderOrganizations();
-    toast('Организация сохранена');
+    toast(editingOrgId?'Карточка организации сохранена':'Организация добавлена');
   } catch (e) { toast(e.message, 'error'); }
 }
 
 async function deleteOrg(id) {
-  if(!can('organizations.manage')){toast('Недостаточно прав для удаления организации','error');return;}
+  if(!currentUser||currentUser.role!=='Руководитель сайта'){toast('Удалять организации может только руководитель сайта','error');return;}
   if (!confirm('Удалить организацию?')) return;
   try {
     await api('/api/organizations/' + id, 'DELETE');
