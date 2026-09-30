@@ -72,7 +72,10 @@
 - DSAR dashboard.
 - Incident register.
 - Audit view.
-- Integration/subprocessor registry backend.
+- Integration/subprocessor registry backend + UI.
+- Retention rules registry backend + UI.
+- Deletion jobs workflow backend + UI; завершение требует result + evidence_ref.
+- Из DSAR типа deletion создаётся отдельная deletion job.
 - Legal document version/hash backend.
 - Пользовательская история согласий.
 - Active sessions.
@@ -116,7 +119,7 @@ npm run security:preflight теперь проверяет:
 
 ### P0/P1 gaps
 - Полное отделение platform control plane от tenant content и обязательный JIT workflow для технического support/admin. Таблица admin_access_sessions создана, но enforcement пока не включён, чтобы не заблокировать действующий ADMIN без согласованной операционной процедуры.
-- Полная deletion orchestration по DB/files/cache/search с актом/выгрузкой уничтожения. deletion_jobs и DSAR deletion workflow существуют как baseline, но автоматическое физическое уничтожение intentionally не запускается без retention/legal-hold правил.
+- Полная автоматическая deletion orchestration по DB/files/cache/search с фактическим purge. Управляемые retention rules, deletion jobs, DSAR→deletion job и обязательное evidence уже реализованы, но автоматическое физическое уничтожение intentionally не запускается без утверждённых retention/legal-hold правил.
 - Tombstone/replay mechanism после restore, исключающий «воскрешение» ранее уничтоженных субъектов.
 - Автоматический календарь рабочих/праздничных дней РФ для DSAR deadlines.
 - Локальное размещение frontend vendor libraries вместо cdnjs.
