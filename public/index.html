@@ -616,6 +616,11 @@ button,input,select,textarea{max-width:100%}
         <div id="myDsarList" class="compliance-list"></div>
       </div>
     </div>
+    <div class="card">
+      <h2 style="margin-bottom:10px">Активные сессии</h2>
+      <p style="font-size:12px;color:#667085">Можно принудительно завершить другие серверные сессии аккаунта.</p>
+      <div id="activeSessionsList" class="compliance-list"></div>
+    </div>
     <div id="complianceAdminSection" style="display:none">
       <div class="card">
         <h2 style="margin-bottom:10px">Состояние 152-ФЗ baseline</h2>
@@ -1224,9 +1229,10 @@ function dsarTypeLabel(type){
 async function loadCompliance(){
   if(!currentUser)return;
   try{
-    const parts=await Promise.all([api('/api/compliance/my-consents'),api('/api/compliance/dsar/my')]);
+    const parts=await Promise.all([api('/api/compliance/my-consents'),api('/api/compliance/dsar/my'),api('/api/sessions')]);
     renderMyConsents(parts[0]||[]);
     renderMyDsar(parts[1]||[]);
+    renderActiveSessions(parts[2]||[]);
     const admin=can('compliance.view');
     document.getElementById('complianceAdminSection').style.display=admin?'block':'none';
     if(admin){
@@ -1238,6 +1244,17 @@ async function loadCompliance(){
     if(incidentAllowed)renderIncidents(await api('/api/compliance/incidents'));
     complianceLoaded=true;
   }catch(e){toast(e.message,'error');}
+}
+function renderActiveSessions(rows){
+  const el=document.getElementById('activeSessionsList');if(!el)return;
+  el.innerHTML=rows.length?rows.map(function(r){
+    return '<div class="compliance-item"><b>'+(r.current?'Текущая сессия':'Активная сессия')+'</b><div class="meta">Обновлена: '+complianceDate(r.updated_at)+' · истекает: '+complianceDate(r.expire)+'</div>'+
+      (!r.current?'<button class="btn btn-red btn-sm" style="margin-top:7px" onclick="terminateSession(\''+String(r.sid).replace(/'/g,'')+'\')">Завершить</button>':'')+'</div>';
+  }).join(''):'<div class="compliance-item">Активные сессии не найдены.</div>';
+}
+async function terminateSession(sid){
+  if(!confirm('Завершить выбранную сессию?'))return;
+  try{await api('/api/sessions/'+encodeURIComponent(sid),'DELETE');toast('Сессия завершена');loadCompliance();}catch(e){toast(e.message,'error');}
 }
 function renderMyConsents(rows){
   const el=document.getElementById('myConsentsList');if(!el)return;
