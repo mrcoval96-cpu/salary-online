@@ -539,6 +539,20 @@ async function refreshAccessUser(req){
   req.session.user=buildSessionUser(req.accessUser);
   return req.accessUser;
 }
+function currentConsentEnforcementEnabled(){
+  return String(process.env.COMPLIANCE_ENFORCE_CURRENT_CONSENTS||'false').trim().toLowerCase()==='true';
+}
+async function requireCurrentLegalConsents(user){
+  if(!currentConsentEnforcementEnabled()||isTechnicalAdmin(user))return true;
+  const status=await compliance.requiredConsentStatus(pool,user.id);
+  if(status.ready)return true;
+  const err=new Error('Необходимо отдельно принять актуальное Пользовательское соглашение и согласие на обработку персональных данных');
+  err.status=403;
+  err.code='LEGAL_CONSENT_REQUIRED';
+  err.consent_status=status;
+  throw err;
+}
+
 function requirePermission(key){
   return async function(req,res,next){
     if(!req.session||!req.session.user)return res.status(401).json({error:'Не авторизован'});
@@ -546,6 +560,9 @@ function requirePermission(key){
       const user=await refreshAccessUser(req);
       if(!user){req.session.destroy(()=>{});return res.status(401).json({error:'Аккаунт не найден'});}
       if(EMAIL_VERIFY_ENABLED&&!isTechnicalAdmin(user)&&!user.email_verified)return res.status(403).json({error:'Сначала подтвердите электронную почту',code:'EMAIL_VERIFICATION_REQUIRED'});
+      try{await requireCurrentLegalConsents(user);}catch(legalErr){
+        return res.status(legalErr.status||403).json({error:legalErr.message,code:legalErr.code||'LEGAL_CONSENT_REQUIRED',consent_status:legalErr.consent_status||null});
+      }
       const permissions=effectivePermissions(user);
       if(!permissions[key]){
         await logSecurityEvent(req,'permission_denied',false,key,user.login);
@@ -693,6 +710,9 @@ async function requireSiteManager(req, res, next) {
     const user=await refreshAccessUser(req);
     if(!user)return res.status(401).json({error:'Аккаунт не найден'});
     if (EMAIL_VERIFY_ENABLED && !isTechnicalAdmin(user) && !user.email_verified) return res.status(403).json({ error: 'Сначала подтвердите электронную почту', code: 'EMAIL_VERIFICATION_REQUIRED' });
+    try{await requireCurrentLegalConsents(user);}catch(legalErr){
+      return res.status(legalErr.status||403).json({error:legalErr.message,code:legalErr.code||'LEGAL_CONSENT_REQUIRED',consent_status:legalErr.consent_status||null});
+    }
     if (!isSiteWideUser(user)) {
       await logSecurityEvent(req,'forbidden_admin',false,req.method+' '+req.originalUrl,user.login);
       return res.status(403).json({ error: 'Доступ только для руководителя сайта' });
