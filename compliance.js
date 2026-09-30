@@ -386,11 +386,36 @@ async function getActiveLegalDocuments(queryable){
   return out;
 }
 
+async function requiredConsentStatus(queryable,userId){
+  const docs=await getActiveLegalDocuments(queryable);
+  const required=['terms','pd_consent'];
+  const items=[];
+  let ready=true;
+  for(const type of required){
+    const doc=docs[type];
+    if(!doc){items.push({type,ready:false,missing_document:true});ready=false;continue;}
+    const purpose=type==='terms'?'service_terms':'account_processing';
+    const r=await queryable.query(
+      `SELECT consent_id,given_at,status,withdrawn_at FROM consents
+       WHERE user_id=$1 AND purpose_id=$2 AND document_type=$3
+         AND document_version=$4 AND document_hash=$5
+         AND status='given' AND withdrawn_at IS NULL
+       ORDER BY given_at DESC,consent_id DESC LIMIT 1`,
+      [userId,purpose,type,doc.version,doc.content_hash]
+    );
+    const accepted=!!r.rows.length;
+    if(!accepted)ready=false;
+    items.push({type,title:doc.title,version:doc.version,hash:doc.content_hash,url:'/legal/'+type,ready:accepted,given_at:accepted?r.rows[0].given_at:null});
+  }
+  return {ready,items};
+}
+
 async function recordRegistrationConsents(client,req,user,options){
   const docs=await getActiveLegalDocuments(client);
   if(!options||options.termsAccepted!==true||options.pdConsent!==true)throw new Error('Необходимо отдельно принять пользовательское соглашение и дать согласие на обработку персональных данных');
   for(const required of ['terms','pd_consent'])if(!docs[required])throw new Error('Не опубликован обязательный юридический документ: '+required);
   const evidenceIp=requestIp(req),ua=String(req.get&&req.get('user-agent')||'').slice(0,500),subject=normalizeEmail(user.email)||String(user.login||'');
+  const sourceForm=String(options.sourceForm||'registration').slice(0,120);
   const records=[
     {purpose:'service_terms',type:'terms',method:'checkbox'},
     {purpose:'account_processing',type:'pd_consent',method:'checkbox'}
@@ -398,10 +423,18 @@ async function recordRegistrationConsents(client,req,user,options){
   if(options.marketingConsent===true&&docs.marketing_consent)records.push({purpose:'marketing',type:'marketing_consent',method:'optional_checkbox'});
   for(const item of records){
     const doc=docs[item.type];
+    const existing=await client.query(
+      `SELECT consent_id FROM consents
+       WHERE user_id=$1 AND purpose_id=$2 AND document_type=$3 AND document_version=$4 AND document_hash=$5
+         AND status='given' AND withdrawn_at IS NULL
+       LIMIT 1`,
+      [user.id,item.purpose,item.type,doc.version,doc.content_hash]
+    );
+    if(existing.rows.length)continue;
     await client.query(
       `INSERT INTO consents(tenant_id,user_id,subject_ref,purpose_id,document_type,document_version,document_hash,channel,source_form,method,evidence_ip,evidence_user_agent,status,metadata)
-       VALUES($1,$2,$3,$4,$5,$6,$7,'web','registration',$8,$9,$10,'given',$11::jsonb)`,
-      [user.tenant_id||null,user.id,subject,item.purpose,item.type,doc.version,doc.content_hash,item.method,evidenceIp,ua,JSON.stringify({document_id:doc.id})]
+       VALUES($1,$2,$3,$4,$5,$6,$7,'web',$8,$9,$10,$11,'given',$12::jsonb)`,
+      [user.tenant_id||null,user.id,subject,item.purpose,item.type,doc.version,doc.content_hash,sourceForm,item.method,evidenceIp,ua,JSON.stringify({document_id:doc.id})]
     );
   }
 }
@@ -487,6 +520,35 @@ function installComplianceRoutes(app,deps){
       res.setHeader('Cache-Control','no-store');
       res.type('html').send(legalDocumentHtml(r.rows[0]));
     }catch(err){res.status(500).send('Ошибка загрузки документа');}
+  });
+
+  app.get('/api/compliance/required-consents',requireAuth,async(req,res)=>{
+    try{
+      const operator=operatorDetails();
+      const status=await requiredConsentStatus(pool,req.session.user.id);
+      res.json({
+        enforced:String(process.env.COMPLIANCE_ENFORCE_CURRENT_CONSENTS||'false').trim().toLowerCase()==='true',
+        operator_ready:operatorReady(operator),
+        ...status
+      });
+    }catch(err){res.status(500).json({error:'Не удалось проверить актуальность согласий'});}
+  });
+
+  app.post('/api/compliance/accept-required',requireAuth,async(req,res)=>{
+    const operator=operatorDetails();
+    if(!operatorReady(operator))return res.status(503).json({error:'Реквизиты оператора персональных данных ещё не настроены'});
+    if(req.body.terms_accepted!==true||req.body.pd_consent!==true)return res.status(400).json({error:'Оба обязательных юридических действия должны быть подтверждены отдельно'});
+    const client=await pool.connect();
+    try{
+      await client.query('BEGIN');
+      const user=(await client.query('SELECT id,login,email,tenant_id FROM users WHERE id=$1 FOR UPDATE',[req.session.user.id])).rows[0];
+      if(!user){await client.query('ROLLBACK');return res.status(401).json({error:'Аккаунт не найден'});}
+      await recordRegistrationConsents(client,req,user,{termsAccepted:true,pdConsent:true,marketingConsent:false,sourceForm:'existing_account_legal_gate'});
+      await client.query('COMMIT');
+      const status=await requiredConsentStatus(pool,user.id);
+      res.json({ok:true,...status});
+    }catch(err){try{await client.query('ROLLBACK');}catch(e){}res.status(500).json({error:err.message});}
+    finally{client.release();}
   });
 
   app.get('/api/compliance/my-consents',requireAuth,async(req,res)=>{
@@ -759,6 +821,7 @@ async function restoreComplianceBackup(client,data){
 module.exports={
   ensureComplianceSchema,
   getActiveLegalDocuments,
+  requiredConsentStatus,
   recordRegistrationConsents,
   correlationMiddleware,
   auditMutationMiddleware,
