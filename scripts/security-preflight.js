@@ -12,18 +12,24 @@ const criticalTables=[
   'users','employees','objects','organizations','salary_records','action_log',
   'object_responsibles','object_user_responsibles','closed_salary_periods',
   'automatic_backups','security_log','email_codes','employee_balances',
-  'bank_statement_payments','organization_aliases'
+  'bank_statement_payments','organization_aliases','processing_purposes','legal_documents',
+  'consents','marketing_suppression','data_subject_requests','audit_events','incidents',
+  'admin_access_sessions','exports','deletion_jobs','retention_rules','subprocessors_integrations'
 ];
 
 const requiredColumns={
-  users:['id','login','password','fio','role','organization','email','email_verified','permission_overrides','last_login_at','login_count'],
-  employees:['id','fio','organization','employment_status','hr_profile','photo_data'],
-  objects:['id','name','organization'],
+  users:['id','login','password','fio','role','organization','tenant_id','status','email','email_verified','permission_overrides','last_login_at','login_count'],
+  employees:['id','fio','organization','tenant_id','employment_status','hr_profile','photo_data'],
+  objects:['id','name','organization','tenant_id'],
   organizations:['id','name','full_name','inn','ogrn','legal_address','address','contacts'],
-  salary_records:['id','employee_fio','object_name','organization','month','year','charge_date','extra_charges','payments','deleted_at','deleted_by'],
+  salary_records:['id','employee_fio','object_name','organization','tenant_id','month','year','charge_date','extra_charges','payments','deleted_at','deleted_by'],
   object_user_responsibles:['object_id','user_id'],
   employee_balances:['id','employee_fio','balance_date','amount','direction'],
-  bank_statement_payments:['id','employee_fio','transaction_date','amount','transaction_key','allocations']
+  bank_statement_payments:['id','employee_fio','tenant_id','transaction_date','amount','transaction_key','allocations'],
+  consents:['consent_id','tenant_id','user_id','purpose_id','document_version','document_hash','given_at','withdrawn_at','status'],
+  data_subject_requests:['request_id','tenant_id','request_type','received_at','due_at','status'],
+  audit_events:['event_id','occurred_at','actor_id','tenant_id','action','correlation_id'],
+  incidents:['incident_id','severity','detected_at','confirmed_at','due_24h','due_72h','status']
 };
 
 function sslOptions(urlString){
@@ -101,6 +107,12 @@ async function main(){
 
     for(const table of criticalTables){
       if(existing.has(table))counts[table]=await scalar(client,'SELECT COUNT(*) FROM "'+table+'"');
+    }
+
+    for(const table of ['users','employees','objects','salary_records']){
+      if(!existing.has(table))continue;
+      const n=await scalar(client,`SELECT COUNT(*) FROM "${table}" WHERE trim(COALESCE(organization,''))<>'' AND tenant_id IS NULL`);
+      if(n)blockers.push('Tenant IDs missing after organization backfill in '+table+': '+n);
     }
 
     if(existing.has('organizations')){
