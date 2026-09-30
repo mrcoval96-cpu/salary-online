@@ -949,7 +949,7 @@ function normalizePhone(phone) {
 }
 app.get('/api/public/organizations', async (req,res)=>{
   try{
-    const result=await pool.query("SELECT id,name FROM organizations WHERE trim(name)<>'' ORDER BY name");
+    const result=await pool.query("SELECT id,name FROM organizations WHERE trim(name)<>'' AND status='active' ORDER BY name");
     res.setHeader('Cache-Control','no-store');
     res.json(result.rows);
   }catch(err){res.status(500).json({error:'Не удалось загрузить список организаций'});}
