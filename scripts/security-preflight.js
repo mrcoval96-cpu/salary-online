@@ -130,6 +130,7 @@ async function main(){
       if(!String(process.env[key]||'').trim())blockers.push('Missing legal operator setting: '+key);
     }
     if(String(process.env.PLATFORM_MFA_ENABLED||'false').trim().toLowerCase()!=='true')blockers.push('Platform administrator MFA is not enabled (PLATFORM_MFA_ENABLED=true required for P0)');
+    if(String(process.env.COMPLIANCE_ENFORCE_CURRENT_CONSENTS||'false').trim().toLowerCase()!=='true')blockers.push('Legacy/current user consent enforcement is disabled (COMPLIANCE_ENFORCE_CURRENT_CONSENTS=true required after legal rollout)');
     if(String(process.env.SESSION_SECRET||'').length<32)blockers.push('SESSION_SECRET must be configured with at least 32 characters');
 
     if(existing.has('users')){
@@ -148,7 +149,24 @@ async function main(){
         if(n!==1)blockers.push('Exactly one active legal document is required for '+type+'; found '+n);
       }
     }
-    if(existing.has('consents')&&existing.has('legal_documents')){
+    if(existing.has('consents')&&existing.has('legal_documents')&&existing.has('users')){
+      const usersWithoutCurrent=await scalar(client,`
+        SELECT COUNT(*) FROM users u
+        WHERE upper(trim(u.login))<>'ADMIN' AND u.deleted_at IS NULL AND COALESCE(u.status,'active')='active'
+          AND (
+            NOT EXISTS(
+              SELECT 1 FROM legal_documents d
+              JOIN consents c ON c.document_type=d.doc_type AND c.document_version=d.version AND c.document_hash=d.content_hash
+              WHERE d.doc_type='terms' AND d.active=TRUE AND c.user_id=u.id AND c.status='given' AND c.withdrawn_at IS NULL
+            )
+            OR NOT EXISTS(
+              SELECT 1 FROM legal_documents d
+              JOIN consents c ON c.document_type=d.doc_type AND c.document_version=d.version AND c.document_hash=d.content_hash
+              WHERE d.doc_type='pd_consent' AND d.active=TRUE AND c.user_id=u.id AND c.status='given' AND c.withdrawn_at IS NULL
+            )
+          )
+      `);
+      if(usersWithoutCurrent)warnings.push('Active legacy users still need current consent evidence: '+usersWithoutCurrent);
       const orphanConsent=await scalar(client,`
         SELECT COUNT(*) FROM consents c
         WHERE NOT EXISTS(
