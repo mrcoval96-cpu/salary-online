@@ -11,6 +11,8 @@
 *{margin:0;padding:0;box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif}
 body{background:#f0f2f5;color:#1a1a2e}
 .login-screen{max-width:400px;margin:80px auto;padding:30px;background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1)}
+.login-brand{width:100%;margin:0 0 18px}
+.login-logo{display:block;width:100%;height:auto}
 .login-screen h1{text-align:center;margin-bottom:20px;font-size:22px;color:#16213e}
 .login-screen input,.login-screen select{width:100%;padding:10px 12px;margin:6px 0;border:1px solid #ddd;border-radius:6px;font-size:14px}
 .login-screen button{width:100%;padding:12px;margin:8px 0;border:none;border-radius:6px;font-size:14px;cursor:pointer}
@@ -334,6 +336,9 @@ button,input,select,textarea{max-width:100%}
 
 <!-- LOGIN SCREEN -->
 <div id="loginScreen" class="login-screen">
+  <div class="login-brand">
+    <img src="/korvex-logo.svg?v=1" alt="КОРВЕКС" class="login-logo">
+  </div>
   <h1>Зарплата: учёт и расчёт</h1>
   <div id="loginForm">
     <input type="text" id="loginInput" placeholder="Логин" value="">
