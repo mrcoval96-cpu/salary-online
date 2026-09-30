@@ -518,3 +518,22 @@ CREATE TABLE IF NOT EXISTS app_sessions (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_app_sessions_expire ON app_sessions(expire);
+
+
+-- Append-only защита юридически значимого audit trail.
+CREATE OR REPLACE FUNCTION protect_audit_events() RETURNS trigger AS $$
+BEGIN
+  IF current_setting('app.allow_audit_mutation', TRUE)='on' THEN
+    RETURN CASE WHEN TG_OP='DELETE' THEN OLD ELSE NEW END;
+  END IF;
+  RAISE EXCEPTION 'audit_events is append-only';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_audit_events_no_update ON audit_events;
+CREATE TRIGGER trg_audit_events_no_update BEFORE UPDATE ON audit_events
+FOR EACH ROW EXECUTE FUNCTION protect_audit_events();
+
+DROP TRIGGER IF EXISTS trg_audit_events_no_delete ON audit_events;
+CREATE TRIGGER trg_audit_events_no_delete BEFORE DELETE ON audit_events
+FOR EACH ROW EXECUTE FUNCTION protect_audit_events();
