@@ -98,7 +98,6 @@ async function main(){
       '--compress=9',
       '--no-owner',
       '--no-privileges',
-      '--serializable-deferrable',
       '--snapshot='+snapshot,
       '--verbose',
       '--file='+dumpPath
