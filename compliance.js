@@ -753,6 +753,132 @@ function installComplianceRoutes(app,deps){
     }catch(err){res.status(err.status||500).json({error:err.message});}
   });
 
+
+  app.get('/api/compliance/retention-rules',requirePermission('compliance.view'),async(req,res)=>{
+    try{
+      const actor=await refreshAccessUser(req);
+      const r=isSiteWideUser(actor)
+        ?await pool.query('SELECT * FROM retention_rules ORDER BY active DESC,created_at DESC,id DESC')
+        :await pool.query('SELECT * FROM retention_rules WHERE tenant_id=$1 ORDER BY active DESC,created_at DESC,id DESC',[actor.tenant_id||null]);
+      res.json(r.rows);
+    }catch(err){res.status(err.status||500).json({error:err.message});}
+  });
+
+  app.post('/api/compliance/retention-rules',requirePermission('compliance.manage'),async(req,res)=>{
+    try{
+      const actor=await refreshAccessUser(req);
+      const tenantId=isSiteWideUser(actor)&&Number.isInteger(Number(req.body.tenant_id))?Number(req.body.tenant_id):actor.tenant_id||null;
+      const dataCategory=String(req.body.data_category||'').trim().slice(0,200);
+      const purposeId=String(req.body.purpose_id||'').trim().slice(0,120);
+      const durationRule=String(req.body.duration_rule||'').trim().slice(0,500);
+      const triggerEvent=String(req.body.trigger_event||'').trim().slice(0,200);
+      const action=String(req.body.action||'').trim().slice(0,120);
+      const exceptionHold=String(req.body.exception_hold||'').trim().slice(0,1000);
+      const version=String(req.body.version||'').trim().slice(0,120);
+      if(!dataCategory||!purposeId||!durationRule||!triggerEvent||!action||!version)return res.status(400).json({error:'Заполните категорию данных, цель, срок, триггер, действие и версию правила'});
+      const r=await pool.query(
+        `INSERT INTO retention_rules(tenant_id,data_category,purpose_id,duration_rule,trigger_event,action,exception_hold,version,active)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,TRUE) RETURNING *`,
+        [tenantId,dataCategory,purposeId,durationRule,triggerEvent,action,exceptionHold,version]
+      );
+      res.status(201).json(r.rows[0]);
+    }catch(err){res.status(err.status||500).json({error:err.message});}
+  });
+
+  app.patch('/api/compliance/retention-rules/:id',requirePermission('compliance.manage'),async(req,res)=>{
+    const id=Number(req.params.id);
+    if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректное правило'});
+    try{
+      const actor=await refreshAccessUser(req);
+      const check=isSiteWideUser(actor)
+        ?await pool.query('SELECT * FROM retention_rules WHERE id=$1',[id])
+        :await pool.query('SELECT * FROM retention_rules WHERE id=$1 AND tenant_id=$2',[id,actor.tenant_id||null]);
+      if(!check.rows.length)return res.status(404).json({error:'Правило не найдено'});
+      const active=req.body.active===undefined?check.rows[0].active:req.body.active===true;
+      const exceptionHold=req.body.exception_hold===undefined?check.rows[0].exception_hold:String(req.body.exception_hold||'').trim().slice(0,1000);
+      const r=await pool.query('UPDATE retention_rules SET active=$1,exception_hold=$2 WHERE id=$3 RETURNING *',[active,exceptionHold,id]);
+      res.json(r.rows[0]);
+    }catch(err){res.status(err.status||500).json({error:err.message});}
+  });
+
+  app.get('/api/compliance/deletion-jobs',requirePermission('compliance.view'),async(req,res)=>{
+    try{
+      const actor=await refreshAccessUser(req);
+      const r=isSiteWideUser(actor)
+        ?await pool.query('SELECT * FROM deletion_jobs ORDER BY created_at DESC,id DESC LIMIT 1000')
+        :await pool.query('SELECT * FROM deletion_jobs WHERE tenant_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1000',[actor.tenant_id||null]);
+      res.json(r.rows);
+    }catch(err){res.status(err.status||500).json({error:err.message});}
+  });
+
+  app.post('/api/compliance/deletion-jobs',requirePermission('compliance.manage'),async(req,res)=>{
+    try{
+      const actor=await refreshAccessUser(req);
+      const tenantId=isSiteWideUser(actor)&&Number.isInteger(Number(req.body.tenant_id))?Number(req.body.tenant_id):actor.tenant_id||null;
+      const subjectRef=String(req.body.subject_ref||'').trim().slice(0,500);
+      const legalReason=String(req.body.legal_reason||'').trim().slice(0,2000);
+      const stores=Array.isArray(req.body.stores_targeted)?req.body.stores_targeted.map(x=>String(x||'').trim().slice(0,120)).filter(Boolean):[];
+      if(!subjectRef||!legalReason||!stores.length)return res.status(400).json({error:'Укажите субъект, правовое основание и хотя бы одно хранилище'});
+      const r=await pool.query(
+        `INSERT INTO deletion_jobs(tenant_id,subject_ref,legal_reason,stores_targeted,status)
+         VALUES($1,$2,$3,$4::jsonb,'queued') RETURNING *`,
+        [tenantId,subjectRef,legalReason,JSON.stringify(stores)]
+      );
+      res.status(201).json(r.rows[0]);
+    }catch(err){res.status(err.status||500).json({error:err.message});}
+  });
+
+  app.post('/api/compliance/dsar/:id/deletion-job',requirePermission('compliance.manage'),async(req,res)=>{
+    const id=Number(req.params.id);
+    if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректный запрос'});
+    try{
+      const actor=await refreshAccessUser(req);
+      const q=isSiteWideUser(actor)
+        ?await pool.query('SELECT * FROM data_subject_requests WHERE request_id=$1',[id])
+        :await pool.query('SELECT * FROM data_subject_requests WHERE request_id=$1 AND tenant_id=$2',[id,actor.tenant_id||null]);
+      if(!q.rows.length)return res.status(404).json({error:'Запрос не найден'});
+      const dsar=q.rows[0];
+      if(dsar.request_type!=='deletion')return res.status(409).json({error:'Deletion job можно создать только для запроса на уничтожение'});
+      const stores=Array.isArray(req.body.stores_targeted)&&req.body.stores_targeted.length?req.body.stores_targeted:['users','employees','salary_records','files','audit-derived'];
+      const reason=String(req.body.legal_reason||dsar.details||'Запрос субъекта на уничтожение персональных данных').trim().slice(0,2000);
+      const existing=await pool.query("SELECT * FROM deletion_jobs WHERE tenant_id IS NOT DISTINCT FROM $1 AND subject_ref=$2 AND status IN ('queued','in_progress','blocked') ORDER BY created_at DESC LIMIT 1",[dsar.tenant_id,dsar.subject_ref]);
+      if(existing.rows.length)return res.status(409).json({error:'Для этого субъекта уже есть незавершённая задача на уничтожение',deletion_job:existing.rows[0]});
+      const r=await pool.query(
+        `INSERT INTO deletion_jobs(tenant_id,subject_ref,legal_reason,stores_targeted,status,evidence_ref)
+         VALUES($1,$2,$3,$4::jsonb,'queued',$5) RETURNING *`,
+        [dsar.tenant_id,dsar.subject_ref,reason,JSON.stringify(stores),'dsar:'+id]
+      );
+      res.status(201).json(r.rows[0]);
+    }catch(err){res.status(err.status||500).json({error:err.message});}
+  });
+
+  app.patch('/api/compliance/deletion-jobs/:id',requirePermission('compliance.manage'),async(req,res)=>{
+    const id=Number(req.params.id);
+    const allowed=new Set(['queued','in_progress','blocked','completed','failed']);
+    const status=String(req.body.status||'').trim();
+    if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректная задача'});
+    if(!allowed.has(status))return res.status(400).json({error:'Некорректный статус'});
+    try{
+      const actor=await refreshAccessUser(req);
+      const q=isSiteWideUser(actor)
+        ?await pool.query('SELECT * FROM deletion_jobs WHERE id=$1',[id])
+        :await pool.query('SELECT * FROM deletion_jobs WHERE id=$1 AND tenant_id=$2',[id,actor.tenant_id||null]);
+      if(!q.rows.length)return res.status(404).json({error:'Задача не найдена'});
+      const result=String(req.body.result||q.rows[0].result||'').trim().slice(0,10000);
+      const evidenceRef=String(req.body.evidence_ref||q.rows[0].evidence_ref||'').trim().slice(0,1000);
+      if(status==='completed'&&(!result||!evidenceRef))return res.status(400).json({error:'Для завершения задачи обязательны результат и ссылка/идентификатор evidence'});
+      const r=await pool.query(
+        `UPDATE deletion_jobs SET status=$1,
+           started_at=CASE WHEN $1='in_progress' THEN COALESCE(started_at,NOW()) ELSE started_at END,
+           completed_at=CASE WHEN $1='completed' THEN COALESCE(completed_at,NOW()) WHEN $1 IN ('queued','in_progress','blocked') THEN NULL ELSE completed_at END,
+           result=$2,evidence_ref=$3
+         WHERE id=$4 RETURNING *`,
+        [status,result,evidenceRef,id]
+      );
+      res.json(r.rows[0]);
+    }catch(err){res.status(err.status||500).json({error:err.message});}
+  });
+
   app.get('/api/compliance/status',requirePermission('compliance.view'),async(req,res)=>{
     try{
       const operator=operatorDetails();
