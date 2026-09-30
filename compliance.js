@@ -667,6 +667,44 @@ function installComplianceRoutes(app,deps){
   });
 }
 
+
+const COMPLIANCE_BACKUP_TABLES=[
+  'processing_purposes','legal_documents','consents','marketing_suppression',
+  'data_subject_requests','audit_events','incidents','admin_access_sessions',
+  'exports','deletion_jobs','retention_rules','subprocessors_integrations'
+];
+const COMPLIANCE_DELETE_ORDER=[
+  'marketing_suppression','consents','data_subject_requests','audit_events','incidents',
+  'admin_access_sessions','exports','deletion_jobs','retention_rules','subprocessors_integrations',
+  'legal_documents','processing_purposes'
+];
+const COMPLIANCE_SEQUENCE_COLUMNS={
+  legal_documents:'id',consents:'consent_id',marketing_suppression:'id',
+  data_subject_requests:'request_id',audit_events:'event_id',incidents:'incident_id',
+  admin_access_sessions:'id',exports:'id',deletion_jobs:'id',retention_rules:'id',
+  subprocessors_integrations:'id'
+};
+
+async function collectComplianceBackup(queryable){
+  const data={};
+  for(const table of COMPLIANCE_BACKUP_TABLES){
+    data[table]=(await queryable.query('SELECT * FROM '+table+' ORDER BY 1')).rows;
+  }
+  return data;
+}
+async function restoreComplianceBackup(client,data){
+  if(!data||typeof data!=='object')return;
+  for(const table of COMPLIANCE_DELETE_ORDER)await client.query('DELETE FROM '+table);
+  for(const table of COMPLIANCE_BACKUP_TABLES){
+    const rows=Array.isArray(data[table])?data[table]:[];
+    if(!rows.length)continue;
+    await client.query('INSERT INTO '+table+' SELECT * FROM jsonb_populate_recordset(NULL::'+table+',$1::jsonb)',[JSON.stringify(rows)]);
+  }
+  for(const [table,column] of Object.entries(COMPLIANCE_SEQUENCE_COLUMNS)){
+    await client.query("SELECT setval(pg_get_serial_sequence('"+table+"','"+column+"'), COALESCE((SELECT MAX("+column+") FROM "+table+"),1), (SELECT COUNT(*)>0 FROM "+table+"))");
+  }
+}
+
 module.exports={
   ensureComplianceSchema,
   getActiveLegalDocuments,
@@ -674,5 +712,7 @@ module.exports={
   correlationMiddleware,
   auditMutationMiddleware,
   installComplianceRoutes,
-  operatorDetails
+  operatorDetails,
+  collectComplianceBackup,
+  restoreComplianceBackup
 };
