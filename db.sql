@@ -456,3 +456,57 @@ VALUES
   ('service_terms','Фиксация принятия пользовательского соглашения','договор','["account"]'::jsonb,'срок договора + применимый срок доказательств','["authorized_staff"]'::jsonb),
   ('marketing','Рекламные и маркетинговые сообщения','отдельное предварительное согласие','["email","phone"]'::jsonb,'до отзыва согласия','["authorized_marketing"]'::jsonb)
 ON CONFLICT(purpose_id) DO NOTHING;
+
+
+-- Автоматическое поддержание tenant_id для tenant-owned сущностей.
+CREATE OR REPLACE FUNCTION set_tenant_id_from_organization() RETURNS trigger AS $$
+BEGIN
+  IF trim(COALESCE(NEW.organization,''))='' THEN
+    NEW.tenant_id=NULL;
+  ELSE
+    SELECT id INTO NEW.tenant_id
+    FROM organizations
+    WHERE lower(trim(name))=lower(trim(NEW.organization))
+    ORDER BY id LIMIT 1;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_users_tenant_from_org ON users;
+CREATE TRIGGER trg_users_tenant_from_org BEFORE INSERT OR UPDATE OF organization ON users FOR EACH ROW EXECUTE FUNCTION set_tenant_id_from_organization();
+DROP TRIGGER IF EXISTS trg_employees_tenant_from_org ON employees;
+CREATE TRIGGER trg_employees_tenant_from_org BEFORE INSERT OR UPDATE OF organization ON employees FOR EACH ROW EXECUTE FUNCTION set_tenant_id_from_organization();
+DROP TRIGGER IF EXISTS trg_objects_tenant_from_org ON objects;
+CREATE TRIGGER trg_objects_tenant_from_org BEFORE INSERT OR UPDATE OF organization ON objects FOR EACH ROW EXECUTE FUNCTION set_tenant_id_from_organization();
+DROP TRIGGER IF EXISTS trg_salary_records_tenant_from_org ON salary_records;
+CREATE TRIGGER trg_salary_records_tenant_from_org BEFORE INSERT OR UPDATE OF organization ON salary_records FOR EACH ROW EXECUTE FUNCTION set_tenant_id_from_organization();
+
+CREATE OR REPLACE FUNCTION set_tenant_id_from_employee() RETURNS trigger AS $$
+BEGIN
+  IF NEW.employee_id IS NULL THEN
+    NEW.tenant_id=NULL;
+  ELSE
+    SELECT tenant_id INTO NEW.tenant_id FROM employees WHERE id=NEW.employee_id;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_employee_balances_tenant_from_employee ON employee_balances;
+CREATE TRIGGER trg_employee_balances_tenant_from_employee BEFORE INSERT OR UPDATE OF employee_id ON employee_balances FOR EACH ROW EXECUTE FUNCTION set_tenant_id_from_employee();
+DROP TRIGGER IF EXISTS trg_bank_statement_payments_tenant_from_employee ON bank_statement_payments;
+CREATE TRIGGER trg_bank_statement_payments_tenant_from_employee BEFORE INSERT OR UPDATE OF employee_id ON bank_statement_payments FOR EACH ROW EXECUTE FUNCTION set_tenant_id_from_employee();
+
+UPDATE users u SET tenant_id=o.id FROM organizations o
+WHERE u.tenant_id IS NULL AND trim(COALESCE(u.organization,''))<>'' AND lower(trim(u.organization))=lower(trim(o.name));
+UPDATE employees e SET tenant_id=o.id FROM organizations o
+WHERE e.tenant_id IS NULL AND trim(COALESCE(e.organization,''))<>'' AND lower(trim(e.organization))=lower(trim(o.name));
+UPDATE objects x SET tenant_id=o.id FROM organizations o
+WHERE x.tenant_id IS NULL AND trim(COALESCE(x.organization,''))<>'' AND lower(trim(x.organization))=lower(trim(o.name));
+UPDATE salary_records s SET tenant_id=o.id FROM organizations o
+WHERE s.tenant_id IS NULL AND trim(COALESCE(s.organization,''))<>'' AND lower(trim(s.organization))=lower(trim(o.name));
+UPDATE employee_balances b SET tenant_id=e.tenant_id FROM employees e
+WHERE b.tenant_id IS NULL AND b.employee_id=e.id AND e.tenant_id IS NOT NULL;
+UPDATE bank_statement_payments b SET tenant_id=e.tenant_id FROM employees e
+WHERE b.tenant_id IS NULL AND b.employee_id=e.id AND e.tenant_id IS NOT NULL;
