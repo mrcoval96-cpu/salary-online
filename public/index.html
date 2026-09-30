@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>КОРВЕКС</title>
-<link rel="icon" type="image/svg+xml" href="/korvex-favicon.svg?v=20260930-1">
-<link rel="shortcut icon" href="/korvex-favicon.svg?v=20260930-1">
+<link rel="icon" type="image/svg+xml" sizes="any" href="/korvex-tab-icon.svg">
+<link rel="shortcut icon" type="image/svg+xml" href="/korvex-tab-icon.svg">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -13,8 +13,8 @@
 *{margin:0;padding:0;box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif}
 body{background:#f0f2f5;color:#1a1a2e}
 .login-screen{width:min(400px,calc(100% - 32px));max-width:400px;margin:80px auto;padding:30px;background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1)}
-.login-brand{width:100%;margin:0 0 18px;overflow:hidden;display:flex;justify-content:center;align-items:center}
-.login-logo{display:block;width:100%;max-width:100%;height:auto;aspect-ratio:1700/566;object-fit:contain;object-position:center;margin:0 auto}
+.login-brand{width:100%;margin:0 0 18px;display:grid;place-items:center;text-align:center;overflow:visible}
+.login-logo{display:block;width:100%;max-width:100%;height:auto;object-fit:contain;object-position:center center;margin-left:auto;margin-right:auto}
 #loginForm,#mfaLoginForm,#registerForm,#recoverForm,#emailRequiredForm,#legalRequiredForm{width:100%}
 @media(max-width:480px){.login-screen{margin:24px auto;padding:22px 20px}.login-brand{margin-bottom:14px}}
 .login-screen h1{text-align:center;margin-bottom:20px;font-size:22px;color:#16213e}
@@ -335,13 +335,13 @@ button,input,select,textarea{max-width:100%}
 @media(max-width:760px){.compliance-grid{grid-template-columns:1fr}}
 </style>
 </head>
-<!-- deploy-refresh: korvex-branding-center-favicon-2026-09-30 -->
+<!-- deploy-refresh: korvex-logo-favicon-cache-bust-2026-10-01 -->
 <body>
 
 <!-- LOGIN SCREEN -->
 <div id="loginScreen" class="login-screen">
   <div class="login-brand">
-    <img src="/korvex-logo.svg?v=20260930-2" alt="КОРВЕКС" class="login-logo" width="2048" height="682">
+    <img src="/korvex-logo-centered.svg" alt="КОРВЕКС" class="login-logo" width="2048" height="682">
   </div>
   <h1>БИЗНЕС БЕЗ ТАБЛИЦ</h1>
   <div id="loginForm">
