@@ -895,23 +895,27 @@ app.get('/api/me', async (req, res) => {
   }catch(err){res.status(500).json({error:'Ошибка сервера'});}
 });
 
+function sessionHandle(sid){
+  return crypto.createHash('sha256').update(String(sid||'')).digest('hex').slice(0,32);
+}
 app.get('/api/sessions', requireAuth, async (req,res)=>{
   try{
     const userId=String(req.session.user.id);
     const r=await pool.query(
-      "SELECT sid,expire,updated_at,sess #>> '{user,login}' AS login FROM app_sessions WHERE sess #>> '{user,id}'=$1 AND expire>NOW() ORDER BY updated_at DESC",
+      "SELECT sid,expire,updated_at FROM app_sessions WHERE sess #>> '{user,id}'=$1 AND expire>NOW() ORDER BY updated_at DESC",
       [userId]
     );
-    res.json(r.rows.map(row=>({sid:row.sid,expire:row.expire,updated_at:row.updated_at,current:row.sid===req.sessionID})));
+    res.json(r.rows.map(row=>({handle:sessionHandle(row.sid),expire:row.expire,updated_at:row.updated_at,current:row.sid===req.sessionID})));
   }catch(err){res.status(500).json({error:'Не удалось получить активные сессии'});}
 });
-app.delete('/api/sessions/:sid', requireAuth, async (req,res)=>{
-  const sid=String(req.params.sid||'');
-  if(!sid)return res.status(400).json({error:'Некорректная сессия'});
+app.delete('/api/sessions/:handle', requireAuth, async (req,res)=>{
+  const handle=String(req.params.handle||'');
+  if(!/^[a-f0-9]{32}$/.test(handle))return res.status(400).json({error:'Некорректная сессия'});
   try{
-    const own=await pool.query("SELECT 1 FROM app_sessions WHERE sid=$1 AND sess #>> '{user,id}'=$2",[sid,String(req.session.user.id)]);
-    if(!own.rows.length)return res.status(404).json({error:'Сессия не найдена'});
-    if(sid===req.sessionID){
+    const rows=(await pool.query("SELECT sid FROM app_sessions WHERE sess #>> '{user,id}'=$1",[String(req.session.user.id)])).rows;
+    const target=rows.find(row=>sessionHandle(row.sid)===handle);
+    if(!target)return res.status(404).json({error:'Сессия не найдена'});
+    if(target.sid===req.sessionID){
       const login=req.session.user.login;
       return req.session.destroy(async err=>{
         if(err)return res.status(500).json({error:'Не удалось завершить текущую сессию'});
@@ -919,34 +923,34 @@ app.delete('/api/sessions/:sid', requireAuth, async (req,res)=>{
         res.json({ok:true,current:true});
       });
     }
-    await pool.query('DELETE FROM app_sessions WHERE sid=$1',[sid]);
-    await logSecurityEvent(req,'session_revoked',true,'Other session revoked: '+sid.slice(0,12),req.session.user.login);
+    await pool.query('DELETE FROM app_sessions WHERE sid=$1',[target.sid]);
+    await logSecurityEvent(req,'session_revoked',true,'Other session revoked: '+handle.slice(0,12),req.session.user.login);
     res.json({ok:true,current:false});
   }catch(err){res.status(500).json({error:'Не удалось завершить сессию'});}
 });
 
-app.post('/api/auth/reauth',requireAuth,authRateLimit,async(req,res)=>{
-  const password=String(req.body.password||'');
-  if(!password)return res.status(400).json({error:'Введите пароль'});
+app.post('/api/account/change-password',requireAuth,authRateLimit,async(req,res)=>{
+  const currentPassword=String(req.body.current_password||''),newPassword=String(req.body.new_password||'');
+  if(newPassword.length<12)return res.status(400).json({error:'Новый пароль должен содержать не менее 12 символов'});
+  if(newPassword===currentPassword)return res.status(400).json({error:'Новый пароль должен отличаться от текущего'});
   try{
     const r=await pool.query('SELECT id,login,password FROM users WHERE id=$1',[req.session.user.id]);
     if(!r.rows.length)return res.status(401).json({error:'Аккаунт не найден'});
-    const ok=await bcrypt.compare(password,r.rows[0].password);
+    const ok=await bcrypt.compare(currentPassword,r.rows[0].password);
     if(!ok){
-      await logSecurityEvent(req,'reauth_failed',false,'Invalid password',r.rows[0].login);
-      return res.status(401).json({error:'Неверный пароль'});
+      await logSecurityEvent(req,'password_change_failed',false,'Invalid current password',r.rows[0].login);
+      return res.status(401).json({error:'Текущий пароль указан неверно'});
     }
+    const hash=await bcrypt.hash(newPassword,12);
+    await pool.query('UPDATE users SET password=$1 WHERE id=$2',[hash,r.rows[0].id]);
+    const other=(await pool.query("SELECT sid FROM app_sessions WHERE sess #>> '{user,id}'=$1",[String(r.rows[0].id)])).rows;
+    for(const row of other){if(row.sid!==req.sessionID)await pool.query('DELETE FROM app_sessions WHERE sid=$1',[row.sid]);}
     req.session.reauthenticated_at=Date.now();
-    await logSecurityEvent(req,'reauth_success',true,'Sensitive action re-authenticated',r.rows[0].login);
-    res.json({ok:true,valid_for_seconds:300});
-  }catch(err){res.status(500).json({error:'Ошибка повторной аутентификации'});}
+    await logSecurityEvent(req,'password_changed',true,'Password changed; other sessions revoked',r.rows[0].login);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[r.rows[0].login,'Изменён пароль; другие активные сессии завершены']);
+    res.json({ok:true,message:'Пароль изменён. Другие активные сессии завершены.'});
+  }catch(err){res.status(500).json({error:'Не удалось изменить пароль'});}
 });
-function requireRecentReauth(req,res,next){
-  if(!req.session||!req.session.user)return res.status(401).json({error:'Не авторизован'});
-  const age=Date.now()-Number(req.session.reauthenticated_at||0);
-  if(age>5*60*1000)return res.status(428).json({error:'Для этой операции требуется повторно ввести пароль',code:'REAUTH_REQUIRED'});
-  next();
-}
 
 app.post('/api/email/send-verification', authRateLimit, async (req,res)=>{
   if(!req.session.user)return res.status(401).json({error:'Не авторизован'});
