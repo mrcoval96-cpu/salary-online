@@ -795,6 +795,7 @@ async function establishAuthenticatedSession(req,user){
   const loginUser=updated.rows[0]||user;
   await new Promise((resolve,reject)=>req.session.regenerate(err=>err?reject(err):resolve()));
   req.session.user=buildSessionUser(loginUser);
+  req.session.reauthenticated_at=Date.now();
   return req.session.user;
 }
 async function completeLogin(req,user){
@@ -923,6 +924,29 @@ app.delete('/api/sessions/:sid', requireAuth, async (req,res)=>{
     res.json({ok:true,current:false});
   }catch(err){res.status(500).json({error:'Не удалось завершить сессию'});}
 });
+
+app.post('/api/auth/reauth',requireAuth,authRateLimit,async(req,res)=>{
+  const password=String(req.body.password||'');
+  if(!password)return res.status(400).json({error:'Введите пароль'});
+  try{
+    const r=await pool.query('SELECT id,login,password FROM users WHERE id=$1',[req.session.user.id]);
+    if(!r.rows.length)return res.status(401).json({error:'Аккаунт не найден'});
+    const ok=await bcrypt.compare(password,r.rows[0].password);
+    if(!ok){
+      await logSecurityEvent(req,'reauth_failed',false,'Invalid password',r.rows[0].login);
+      return res.status(401).json({error:'Неверный пароль'});
+    }
+    req.session.reauthenticated_at=Date.now();
+    await logSecurityEvent(req,'reauth_success',true,'Sensitive action re-authenticated',r.rows[0].login);
+    res.json({ok:true,valid_for_seconds:300});
+  }catch(err){res.status(500).json({error:'Ошибка повторной аутентификации'});}
+});
+function requireRecentReauth(req,res,next){
+  if(!req.session||!req.session.user)return res.status(401).json({error:'Не авторизован'});
+  const age=Date.now()-Number(req.session.reauthenticated_at||0);
+  if(age>5*60*1000)return res.status(428).json({error:'Для этой операции требуется повторно ввести пароль',code:'REAUTH_REQUIRED'});
+  next();
+}
 
 app.post('/api/email/send-verification', authRateLimit, async (req,res)=>{
   if(!req.session.user)return res.status(401).json({error:'Не авторизован'});
@@ -2111,7 +2135,7 @@ compliance.installComplianceRoutes(app,{
 });
 
 // === EXPORT/IMPORT ===
-app.get('/api/export', requirePermission('backups.manage'), async (req, res) => {
+app.get('/api/export', requirePermission('backups.manage'), requireRecentReauth, async (req, res) => {
   try {
     const users = await pool.query('SELECT id, login, fio, phone, email, email_verified, role, organization, object_name, permission_overrides, last_login_at, login_count FROM users');
     const employees = await pool.query('SELECT * FROM employees');
@@ -2128,7 +2152,7 @@ app.get('/api/export', requirePermission('backups.manage'), async (req, res) => 
   }
 });
 
-app.post('/api/import', requirePermission('backups.manage'), async (req, res) => {
+app.post('/api/import', requirePermission('backups.manage'), requireRecentReauth, async (req, res) => {
   const data = req.body;
   try {
     if (data.employees) {
@@ -2185,7 +2209,7 @@ app.post('/api/import', requirePermission('backups.manage'), async (req, res) =>
 });
 
 // === FULL BACKUP / RESTORE ===
-app.get('/api/backup', requirePermission('backups.manage'), async (req, res) => {
+app.get('/api/backup', requirePermission('backups.manage'), requireRecentReauth, async (req, res) => {
   try {
     const [users,employees,objects,orgs,salary,balances,bankPayments,objectResponsibles,objectUserResponsibles,closedPeriods,aliases,log,securityLog,complianceData] = await Promise.all([
       pool.query('SELECT * FROM users ORDER BY id'),
@@ -2226,7 +2250,7 @@ app.get('/api/backup', requirePermission('backups.manage'), async (req, res) => 
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/restore', requirePermission('backups.manage'), async (req, res) => {
+app.post('/api/restore', requirePermission('backups.manage'), requireRecentReauth, async (req, res) => {
   const data=req.body||{};
   if(data.format!=='salary-online-backup' || !Array.isArray(data.users) || !Array.isArray(data.salary)){
     return res.status(400).json({error:'Файл не является резервной копией Salary Online'});
@@ -2341,7 +2365,7 @@ app.post('/api/restore', requirePermission('backups.manage'), async (req, res) =
 });
 
 // Clear all data
-app.post('/api/clear', requirePermission('backups.manage'), async (req, res) => {
+app.post('/api/clear', requirePermission('backups.manage'), requireRecentReauth, async (req, res) => {
   try {
     await pool.query('DELETE FROM salary_records');
     await pool.query('DELETE FROM employee_balances');
