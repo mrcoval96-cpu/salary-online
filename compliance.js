@@ -764,6 +764,7 @@ module.exports={
   auditMutationMiddleware,
   installComplianceRoutes,
   operatorDetails,
+  operatorReady,
   collectComplianceBackup,
   restoreComplianceBackup
 };
