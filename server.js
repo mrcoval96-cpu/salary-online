@@ -13,6 +13,7 @@ dotenv.config();
 const app = express();
 app.set('trust proxy', 1);
 app.get('/health', (req, res) => res.status(200).send('OK'));
+let databaseSchemaReady = false;
 
 const PORT = process.env.PORT || 3000;
 const SESSION_SECRET = String(process.env.SESSION_SECRET || '').trim() || crypto.randomBytes(48).toString('hex');
@@ -25,35 +26,54 @@ if (!process.env.SESSION_SECRET) {
 // Deployment retry after registry pull failure.
 
 // Deployment trigger: refresh application after balance direction update. 
-// Email verification and password recovery are enabled again.
-const EMAIL_VERIFY_ENABLED = true;
+const EMAIL_VERIFY_ENABLED = String(process.env.EMAIL_VERIFY_ENABLED || 'true').trim().toLowerCase() !== 'false';
 
 // PostgreSQL pool
 const fs = require('fs');
-const sslConfig = {};
-try {
-  if (process.env.DATABASE_URL.includes('twc1.net') || process.env.DATABASE_URL.includes('timeweb')) {
-    sslConfig.ssl = { rejectUnauthorized: false };
-  }
-} catch(e) {}
-
-
 if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
-const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
-  ...sslConfig
-});
-try{
+
+function databaseConnectionOptions(){
   const dbUrl=new URL(process.env.DATABASE_URL);
   const hosted=!['localhost','127.0.0.1','::1'].includes(dbUrl.hostname);
-  if(hosted && !sslConfig.ssl && String(process.env.DB_ALLOW_PLAINTEXT||'').toLowerCase()!=='true'){
-    throw new Error('Refusing unencrypted connection to hosted PostgreSQL. Configure TLS or set DB_ALLOW_PLAINTEXT=true only if the database is on a trusted private network.');
+  const explicitMode=String(process.env.DB_SSL || 'auto').trim().toLowerCase();
+  const allowPlaintext=String(process.env.DB_ALLOW_PLAINTEXT || '').trim().toLowerCase()==='true';
+  const sslMode=String(dbUrl.searchParams.get('sslmode') || '').trim().toLowerCase();
+  const urlRequestsTls=['require','verify-ca','verify-full'].includes(sslMode);
+  const knownTlsHost=/timeweb|twc1\.net/i.test(dbUrl.hostname);
+  const useTls=explicitMode==='true' || explicitMode==='require' || explicitMode==='verify-full' ||
+    (explicitMode==='auto' && (urlRequestsTls || knownTlsHost));
+  if(explicitMode==='false' || explicitMode==='disable'){
+    if(hosted && !allowPlaintext)throw new Error('Refusing unencrypted connection to hosted PostgreSQL. Set DB_SSL=true, use sslmode=require, or explicitly set DB_ALLOW_PLAINTEXT=true for a trusted private network.');
+    return {hosted:hosted,pool:{}};
   }
-  console.log('Database transport:',sslConfig.ssl?'TLS enabled':(hosted?'plaintext explicitly allowed':'local connection'));
-}catch(e){
-  if(String(e.message||'').startsWith('Refusing unencrypted'))throw e;
-  console.warn('Database security check:',e.message);
+  if(useTls){
+    const rejectUnauthorized=explicitMode==='verify-full' ||
+      String(process.env.DB_SSL_REJECT_UNAUTHORIZED || '').trim().toLowerCase()==='true' ||
+      sslMode==='verify-full';
+    return {hosted:hosted,pool:{ssl:{rejectUnauthorized:rejectUnauthorized}}};
+  }
+  if(hosted && !allowPlaintext){
+    throw new Error('Refusing unencrypted connection to hosted PostgreSQL. Set DB_SSL=true or add sslmode=require to DATABASE_URL. DB_ALLOW_PLAINTEXT=true is allowed only for a trusted private network.');
+  }
+  return {hosted:hosted,pool:{}};
 }
+
+const dbConnection=databaseConnectionOptions();
+const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+  ...dbConnection.pool
+});
+console.log('Database transport:',dbConnection.pool.ssl?'TLS enabled':(dbConnection.hosted?'plaintext explicitly allowed':'local connection'));
+
+app.get('/ready', async (req,res)=>{
+  if(!databaseSchemaReady)return res.status(503).json({ok:false});
+  try{
+    await pool.query('SELECT 1');
+    res.status(200).json({ok:true});
+  }catch(e){
+    res.status(503).json({ok:false});
+  }
+});
 
 
 async function ensureDatabaseSchema(){
@@ -108,6 +128,8 @@ async function ensureDatabaseSchema(){
   await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS bik TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS settlement_account TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS correspondent_account TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE organizations ALTER COLUMN address TYPE TEXT");
+  await pool.query("ALTER TABLE organizations ALTER COLUMN contacts TYPE TEXT");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_organizations_inn ON organizations(inn) WHERE trim(inn)<>''");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_organizations_ogrn ON organizations(ogrn) WHERE trim(ogrn)<>''");
   await pool.query("CREATE TABLE IF NOT EXISTS organization_aliases (alias TEXT PRIMARY KEY, organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
@@ -2149,7 +2171,13 @@ async function initAdmin() {
 app.listen(PORT, '0.0.0.0', async () => {
   console.log('Server running on port ' + PORT);
   console.log('Email verification: ' + (EMAIL_VERIFY_ENABLED ? 'enabled' : 'disabled'));
-  try { await ensureDatabaseSchema(); } catch (err) { console.error('Schema initialization error:', err.message); }
+  try {
+    await ensureDatabaseSchema();
+    databaseSchemaReady = true;
+  } catch (err) {
+    databaseSchemaReady = false;
+    console.error('Schema initialization error:', err.message);
+  }
   await initAdmin();
   verifyMailTransport();
   startAutomaticBackups();
