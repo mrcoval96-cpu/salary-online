@@ -249,3 +249,210 @@ CREATE INDEX IF NOT EXISTS idx_organizations_inn
     ON organizations(inn) WHERE trim(inn)<>'';
 CREATE INDEX IF NOT EXISTS idx_organizations_ogrn
     ON organizations(ogrn) WHERE trim(ogrn)<>'';
+
+
+-- === 152-FZ compliance baseline ===
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS data_region TEXT NOT NULL DEFAULT 'RU';
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP;
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS retention_profile_id INTEGER;
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMP;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL;
+ALTER TABLE objects ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL;
+ALTER TABLE salary_records ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL;
+ALTER TABLE employee_balances ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL;
+ALTER TABLE bank_statement_payments ADD COLUMN IF NOT EXISTS tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_employees_tenant_id ON employees(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_objects_tenant_id ON objects(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_salary_records_tenant_id ON salary_records(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_employee_balances_tenant_id ON employee_balances(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_bank_statement_payments_tenant_id ON bank_statement_payments(tenant_id);
+
+CREATE TABLE IF NOT EXISTS processing_purposes (
+  purpose_id TEXT PRIMARY KEY,
+  description TEXT NOT NULL,
+  legal_basis TEXT NOT NULL DEFAULT '',
+  categories JSONB NOT NULL DEFAULT '[]'::jsonb,
+  retention_rule TEXT NOT NULL DEFAULT '',
+  allowed_recipients JSONB NOT NULL DEFAULT '[]'::jsonb,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS legal_documents (
+  id BIGSERIAL PRIMARY KEY,
+  doc_type TEXT NOT NULL,
+  version TEXT NOT NULL,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  published_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  UNIQUE(doc_type,version)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_legal_documents_one_active ON legal_documents(doc_type) WHERE active=TRUE;
+CREATE TABLE IF NOT EXISTS consents (
+  consent_id BIGSERIAL PRIMARY KEY,
+  tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  subject_ref TEXT NOT NULL,
+  purpose_id TEXT NOT NULL,
+  document_type TEXT NOT NULL,
+  document_version TEXT NOT NULL,
+  document_hash TEXT NOT NULL,
+  given_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  channel TEXT NOT NULL DEFAULT 'web',
+  source_form TEXT NOT NULL DEFAULT '',
+  method TEXT NOT NULL DEFAULT 'checkbox',
+  evidence_ip TEXT NOT NULL DEFAULT '',
+  evidence_user_agent TEXT NOT NULL DEFAULT '',
+  withdrawn_at TIMESTAMP,
+  withdrawal_channel TEXT NOT NULL DEFAULT '',
+  withdrawal_reason TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'given',
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE INDEX IF NOT EXISTS idx_consents_subject ON consents(subject_ref,given_at DESC);
+CREATE INDEX IF NOT EXISTS idx_consents_tenant ON consents(tenant_id,given_at DESC);
+CREATE TABLE IF NOT EXISTS marketing_suppression (
+  id BIGSERIAL PRIMARY KEY,
+  normalized_address TEXT NOT NULL UNIQUE,
+  source_consent_id BIGINT REFERENCES consents(consent_id) ON DELETE SET NULL,
+  suppressed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reason TEXT NOT NULL DEFAULT 'withdrawal'
+);
+CREATE TABLE IF NOT EXISTS data_subject_requests (
+  request_id BIGSERIAL PRIMARY KEY,
+  tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+  requester_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  subject_ref TEXT NOT NULL,
+  request_type TEXT NOT NULL,
+  received_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  identity_status TEXT NOT NULL DEFAULT 'account_authenticated',
+  due_at TIMESTAMP NOT NULL,
+  status TEXT NOT NULL DEFAULT 'received',
+  details TEXT NOT NULL DEFAULT '',
+  decision TEXT NOT NULL DEFAULT '',
+  extension_reason TEXT NOT NULL DEFAULT '',
+  extended_at TIMESTAMP,
+  completed_at TIMESTAMP,
+  created_by TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_dsar_tenant_due ON data_subject_requests(tenant_id,status,due_at);
+CREATE TABLE IF NOT EXISTS audit_events (
+  event_id BIGSERIAL PRIMARY KEY,
+  occurred_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  actor_type TEXT NOT NULL DEFAULT 'user',
+  tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+  action TEXT NOT NULL,
+  object_type TEXT NOT NULL DEFAULT '',
+  object_id TEXT NOT NULL DEFAULT '',
+  result TEXT NOT NULL DEFAULT '',
+  source_ip TEXT NOT NULL DEFAULT '',
+  user_agent TEXT NOT NULL DEFAULT '',
+  correlation_id TEXT NOT NULL DEFAULT '',
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE INDEX IF NOT EXISTS idx_audit_tenant_time ON audit_events(tenant_id,occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_action_time ON audit_events(action,occurred_at DESC);
+CREATE TABLE IF NOT EXISTS incidents (
+  incident_id BIGSERIAL PRIMARY KEY,
+  severity TEXT NOT NULL,
+  detected_at TIMESTAMP NOT NULL,
+  confirmed_at TIMESTAMP,
+  tenant_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+  data_categories JSONB NOT NULL DEFAULT '[]'::jsonb,
+  subject_count_estimate INTEGER,
+  description TEXT NOT NULL DEFAULT '',
+  timeline JSONB NOT NULL DEFAULT '[]'::jsonb,
+  notification_status JSONB NOT NULL DEFAULT '{}'::jsonb,
+  due_24h TIMESTAMP,
+  due_72h TIMESTAMP,
+  root_cause TEXT NOT NULL DEFAULT '',
+  corrective_actions TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'open',
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_incidents_status_due ON incidents(status,due_24h,due_72h);
+CREATE TABLE IF NOT EXISTS admin_access_sessions (
+  id BIGSERIAL PRIMARY KEY,
+  requester_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  approver_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  tenant_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+  reason TEXT NOT NULL,
+  scope TEXT NOT NULL DEFAULT '',
+  ticket_id TEXT NOT NULL DEFAULT '',
+  starts_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ends_at TIMESTAMP NOT NULL,
+  revoked_at TIMESTAMP,
+  actions_link TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS exports (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+  requester_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  scope TEXT NOT NULL,
+  reason TEXT NOT NULL DEFAULT '',
+  file_ref TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMP,
+  downloaded_at TIMESTAMP,
+  status TEXT NOT NULL DEFAULT 'created'
+);
+CREATE TABLE IF NOT EXISTS deletion_jobs (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+  subject_ref TEXT NOT NULL,
+  legal_reason TEXT NOT NULL,
+  stores_targeted JSONB NOT NULL DEFAULT '[]'::jsonb,
+  started_at TIMESTAMP,
+  completed_at TIMESTAMP,
+  result TEXT NOT NULL DEFAULT '',
+  evidence_ref TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'queued',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS retention_rules (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+  data_category TEXT NOT NULL,
+  purpose_id TEXT NOT NULL,
+  duration_rule TEXT NOT NULL,
+  trigger_event TEXT NOT NULL,
+  action TEXT NOT NULL,
+  exception_hold TEXT NOT NULL DEFAULT '',
+  version TEXT NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS subprocessors_integrations (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+  vendor TEXT NOT NULL,
+  country TEXT NOT NULL,
+  data_categories JSONB NOT NULL DEFAULT '[]'::jsonb,
+  purpose TEXT NOT NULL,
+  endpoint TEXT NOT NULL DEFAULT '',
+  dpa_status TEXT NOT NULL DEFAULT '',
+  transfer_status TEXT NOT NULL DEFAULT '',
+  approved_at TIMESTAMP,
+  owner TEXT NOT NULL DEFAULT '',
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO processing_purposes(purpose_id,description,legal_basis,categories,retention_rule,allowed_recipients)
+VALUES
+  ('account_processing','Регистрация и обслуживание учётной записи','согласие/договор/иное применимое основание','["contact","account","security"]'::jsonb,'до достижения цели и применимых сроков','["authorized_staff"]'::jsonb),
+  ('service_terms','Фиксация принятия пользовательского соглашения','договор','["account"]'::jsonb,'срок договора + применимый срок доказательств','["authorized_staff"]'::jsonb),
+  ('marketing','Рекламные и маркетинговые сообщения','отдельное предварительное согласие','["email","phone"]'::jsonb,'до отзыва согласия','["authorized_marketing"]'::jsonb)
+ON CONFLICT(purpose_id) DO NOTHING;
