@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Зарплата: учёт и расчёт</title>
+<title>КОРВЕКС</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -903,7 +903,7 @@ function can(permission){
 }
 function updateBrowserTitle(){
   const organization=String(currentUser&&currentUser.organization||'').trim();
-  document.title=organization||'Зарплата: учёт и расчёт';
+  document.title=organization||'КОРВЕКС';
 }
 function canAny(){
   for(let i=0;i<arguments.length;i++)if(can(arguments[i]))return true;
