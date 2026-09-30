@@ -510,3 +510,11 @@ UPDATE employee_balances b SET tenant_id=e.tenant_id FROM employees e
 WHERE b.tenant_id IS NULL AND b.employee_id=e.id AND e.tenant_id IS NOT NULL;
 UPDATE bank_statement_payments b SET tenant_id=e.tenant_id FROM employees e
 WHERE b.tenant_id IS NULL AND b.employee_id=e.id AND e.tenant_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS app_sessions (
+  sid TEXT PRIMARY KEY,
+  sess JSONB NOT NULL,
+  expire TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_app_sessions_expire ON app_sessions(expire);
