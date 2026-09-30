@@ -6,11 +6,12 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "check:syntax": "node --check server.js && node --check compliance.js && node --check pg-session-store.js && node --check scripts/migration-preflight.js && node --check scripts/security-preflight.js && node --check scripts/security-backup.js && node --check scripts/security-restore-verify.js",
+    "check:syntax": "node --check server.js && node --check compliance.js && node --check pg-session-store.js && node --check scripts/migration-preflight.js && node --check scripts/security-preflight.js && node --check scripts/security-backup.js && node --check scripts/security-restore-verify.js && node --check scripts/cross-tenant-api-test.js",
     "preflight:migration": "node scripts/migration-preflight.js",
     "security:preflight": "node scripts/security-preflight.js",
     "backup:database": "node scripts/security-backup.js",
-    "restore:verify": "node scripts/security-restore-verify.js"
+    "restore:verify": "node scripts/security-restore-verify.js",
+    "test:cross-tenant": "node scripts/cross-tenant-api-test.js"
   },
   "dependencies": {
     "express": "^4.18.2",
