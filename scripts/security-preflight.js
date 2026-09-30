@@ -2,6 +2,9 @@
 
 require('dotenv').config();
 const pg=require('pg');
+const bcrypt=require('bcryptjs');
+const fs=require('fs');
+const path=require('path');
 
 if(!process.env.DATABASE_URL){
   console.error('BLOCKER: DATABASE_URL is required');
@@ -14,7 +17,7 @@ const criticalTables=[
   'automatic_backups','security_log','email_codes','employee_balances',
   'bank_statement_payments','organization_aliases','processing_purposes','legal_documents',
   'consents','marketing_suppression','data_subject_requests','audit_events','incidents',
-  'admin_access_sessions','exports','deletion_jobs','retention_rules','subprocessors_integrations'
+  'admin_access_sessions','exports','deletion_jobs','retention_rules','subprocessors_integrations','app_sessions'
 ];
 
 const requiredColumns={
@@ -29,7 +32,8 @@ const requiredColumns={
   consents:['consent_id','tenant_id','user_id','purpose_id','document_version','document_hash','given_at','withdrawn_at','status'],
   data_subject_requests:['request_id','tenant_id','request_type','received_at','due_at','status'],
   audit_events:['event_id','occurred_at','actor_id','tenant_id','action','correlation_id'],
-  incidents:['incident_id','severity','detected_at','confirmed_at','due_24h','due_72h','status']
+  incidents:['incident_id','severity','detected_at','confirmed_at','due_24h','due_72h','status'],
+  app_sessions:['sid','sess','expire','updated_at']
 };
 
 function sslOptions(urlString){
@@ -114,6 +118,82 @@ async function main(){
       const n=await scalar(client,`SELECT COUNT(*) FROM "${table}" WHERE trim(COALESCE(organization,''))<>'' AND tenant_id IS NULL`);
       if(n)blockers.push('Tenant IDs missing after organization backfill in '+table+': '+n);
     }
+
+    // P0 configuration and transport controls.
+    const hosted=!['localhost','127.0.0.1','::1'].includes(url.hostname);
+    if(hosted){
+      const sslResult=await client.query("SELECT COALESCE((SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()),FALSE) AS ssl");
+      if(!sslResult.rows[0].ssl)blockers.push('Hosted PostgreSQL connection is not using TLS');
+    }
+    if(String(process.env.DATA_REGION||'').trim().toUpperCase()!=='RU')blockers.push('DATA_REGION must be explicitly set to RU for the Russian production contour');
+    for(const key of ['LEGAL_OPERATOR_NAME','LEGAL_OPERATOR_INN','LEGAL_OPERATOR_OGRNIP','LEGAL_PRIVACY_EMAIL']){
+      if(!String(process.env[key]||'').trim())blockers.push('Missing legal operator setting: '+key);
+    }
+    if(String(process.env.PLATFORM_MFA_ENABLED||'false').trim().toLowerCase()!=='true')blockers.push('Platform administrator MFA is not enabled (PLATFORM_MFA_ENABLED=true required for P0)');
+    if(String(process.env.SESSION_SECRET||'').length<32)blockers.push('SESSION_SECRET must be configured with at least 32 characters');
+
+    if(existing.has('users')){
+      const admin=await client.query("SELECT password,email FROM users WHERE upper(trim(login))='ADMIN' LIMIT 1");
+      if(admin.rows.length){
+        try{if(await bcrypt.compare('ADMIN',admin.rows[0].password))blockers.push('Technical ADMIN still uses the legacy default password ADMIN');}catch(e){}
+        if(String(process.env.PLATFORM_MFA_ENABLED||'false').trim().toLowerCase()==='true' && !String(admin.rows[0].email||process.env.PLATFORM_ADMIN_MFA_EMAIL||'').trim()){
+          blockers.push('Platform MFA is enabled but ADMIN has no MFA email');
+        }
+      }
+    }
+
+    if(existing.has('legal_documents')){
+      for(const type of ['privacy_policy','pd_consent','terms']){
+        const n=await scalar(client,"SELECT COUNT(*) FROM legal_documents WHERE doc_type=$1 AND active=TRUE",[type]);
+        if(n!==1)blockers.push('Exactly one active legal document is required for '+type+'; found '+n);
+      }
+    }
+    if(existing.has('consents')&&existing.has('legal_documents')){
+      const orphanConsent=await scalar(client,`
+        SELECT COUNT(*) FROM consents c
+        WHERE NOT EXISTS(
+          SELECT 1 FROM legal_documents d
+          WHERE d.doc_type=c.document_type
+            AND d.version=c.document_version
+            AND d.content_hash=c.document_hash
+        )
+      `);
+      if(orphanConsent)blockers.push('Consent evidence references missing or changed legal document versions: '+orphanConsent);
+    }
+
+    for(const table of ['users','employees','objects','salary_records']){
+      if(!existing.has(table)||!existing.has('organizations'))continue;
+      const n=await scalar(client,`
+        SELECT COUNT(*) FROM "${table}" t
+        JOIN organizations o ON o.id=t.tenant_id
+        WHERE t.tenant_id IS NOT NULL
+          AND trim(COALESCE(t.organization,''))<>''
+          AND lower(trim(t.organization))<>lower(trim(o.name))
+      `);
+      if(n)blockers.push('Tenant mismatch in '+table+': '+n);
+    }
+    for(const table of ['employee_balances','bank_statement_payments']){
+      if(!existing.has(table)||!existing.has('employees'))continue;
+      const n=await scalar(client,`
+        SELECT COUNT(*) FROM "${table}" t
+        JOIN employees e ON e.id=t.employee_id
+        WHERE t.employee_id IS NOT NULL
+          AND COALESCE(t.tenant_id,-1)<>COALESCE(e.tenant_id,-1)
+      `);
+      if(n)blockers.push('Employee tenant mismatch in '+table+': '+n);
+    }
+
+    if(existing.has('audit_events')){
+      const triggerCount=await scalar(client,"SELECT COUNT(*) FROM pg_trigger WHERE tgrelid='audit_events'::regclass AND NOT tgisinternal AND tgname IN ('trg_audit_events_no_update','trg_audit_events_no_delete')");
+      if(triggerCount!==2)blockers.push('Append-only audit protection triggers are missing');
+    }
+
+    // Static browser egress inventory: no hidden external resources should go unnoticed.
+    try{
+      const html=fs.readFileSync(path.join(__dirname,'..','public','index.html'),'utf8');
+      const external=[...html.matchAll(/<(?:script|link)[^>]+(?:src|href)=["'](https?:\/\/[^"']+)/gi)].map(m=>m[1]);
+      if(external.length)warnings.push('External browser assets require documented data-egress review: '+[...new Set(external)].join(', '));
+    }catch(e){warnings.push('Could not inspect public/index.html for external browser assets');}
 
     if(existing.has('organizations')){
       const dupNames=await scalar(client,`
