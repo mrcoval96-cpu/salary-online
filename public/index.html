@@ -312,6 +312,21 @@ button,input,select,textarea{max-width:100%}
 .hr-print-row{margin:4px 0;white-space:pre-wrap;word-break:break-word}
 .hr-print-label{color:#555}
 @media(max-width:760px){.hr-header{grid-template-columns:1fr}.hr-photo-box{margin:auto}.hr-grid,.hr-grid.two{grid-template-columns:1fr}.hr-relative-row{grid-template-columns:1fr}.hr-wide{grid-column:auto}}
+
+.legal-consents{margin:10px 0;padding:10px;background:#f8fafc;border:1px solid #e4e7ec;border-radius:8px}
+.legal-consent-row{display:flex;align-items:flex-start;gap:8px;margin:8px 0;font-size:12px;line-height:1.35;color:#344054}
+.legal-consent-row input{width:auto!important;min-height:auto!important;margin:2px 0 0!important;flex:0 0 auto}
+.legal-consent-row a,.legal-footer a{color:#0f3460;text-decoration:underline}
+.legal-footer{margin-top:14px;padding-top:12px;border-top:1px solid #e4e7ec;font-size:11px;color:#667085;line-height:1.5;text-align:center}
+.legal-footer a{margin:0 4px;white-space:nowrap}
+.legal-warning{padding:8px 10px;border-radius:6px;background:#fff4e5;color:#9a6700;font-size:11px;margin:7px 0;display:none}
+.compliance-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.compliance-list{display:grid;gap:8px;margin-top:10px}
+.compliance-item{border:1px solid #e4e7ec;border-radius:8px;padding:10px;background:#fff;font-size:12px}
+.compliance-item .meta{color:#667085;font-size:11px;margin-top:4px}
+.compliance-status-ok{color:#067647;font-weight:600}.compliance-status-warn{color:#b54708;font-weight:600}
+.compliance-table-wrap{overflow:auto;max-height:420px}
+@media(max-width:760px){.compliance-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <!-- deploy-refresh: email-verification-v1 -->
@@ -330,6 +345,15 @@ button,input,select,textarea{max-width:100%}
       <a onclick="showRecover()">Восстановить пароль</a>
     </div>
   </div>
+  <div id="mfaLoginForm" style="display:none">
+    <h2 style="font-size:16px;margin-bottom:10px">Второй фактор</h2>
+    <div id="mfaHint" style="font-size:12px;color:#667085;margin-bottom:9px"></div>
+    <input type="text" id="mfaLoginCode" placeholder="6-значный код" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+    <button class="btn-primary" id="mfaLoginBtn" onclick="verifyLoginMfa()">Подтвердить вход</button>
+    <button class="btn-link" id="mfaResendBtn" onclick="resendLoginMfa()">Отправить код повторно</button>
+    <div id="mfaLoginError" class="error"></div>
+    <div class="links"><a onclick="showLogin()">← Ввести логин и пароль заново</a></div>
+  </div>
   <div id="registerForm" style="display:none">
     <h2 style="font-size:16px;margin-bottom:10px">Регистрация</h2>
     <div style="font-size:12px;color:#667085;margin:-3px 0 9px">Логин формируется автоматически из ФИО</div>
@@ -340,6 +364,12 @@ button,input,select,textarea{max-width:100%}
     <input type="text" id="regLogin" placeholder="Логин сформируется автоматически *" readonly required tabindex="-1" title="Логин формируется автоматически из ФИО">
     <input type="password" id="regPassword" placeholder="Пароль *" autocomplete="new-password" required>
     <input type="password" id="regPasswordConfirm" placeholder="Повторите пароль *" autocomplete="new-password" required>
+    <div class="legal-consents">
+      <label class="legal-consent-row"><input type="checkbox" id="regTermsAccepted"><span>Я принимаю <a href="/legal/terms" target="_blank" rel="noopener">Пользовательское соглашение</a>.</span></label>
+      <label class="legal-consent-row"><input type="checkbox" id="regPdConsent"><span>Я отдельно даю <a href="/legal/pd_consent" target="_blank" rel="noopener">согласие на обработку персональных данных</a> и ознакомлен(а) с <a href="/legal/privacy_policy" target="_blank" rel="noopener">Политикой обработки ПД</a>.</span></label>
+      <label class="legal-consent-row"><input type="checkbox" id="regMarketingConsent"><span>Я добровольно соглашаюсь получать рекламные сообщения в соответствии с <a href="/legal/marketing_consent" target="_blank" rel="noopener">отдельным рекламным согласием</a>. Это не обязательно для регистрации.</span></label>
+      <div id="legalOperatorWarning" class="legal-warning">Реквизиты оператора ПД ещё не заполнены администратором. До коммерческого запуска их необходимо настроить.</div>
+    </div>
     <button class="btn-primary" id="regSubmitBtn" onclick="doRegister()">Зарегистрироваться</button>
     <div id="regVerifyBlock" style="display:none;margin-top:10px">
       <input type="text" id="regEmailCode" placeholder="Код из письма" inputmode="numeric" maxlength="6">
@@ -360,6 +390,12 @@ button,input,select,textarea{max-width:100%}
     </div>
     <div id="recMsg" class="error"></div>
     <div class="links"><a onclick="showLogin()">← Назад ко входу</a></div>
+  </div>
+  <div class="legal-footer">
+    <a href="/legal/privacy_policy" target="_blank" rel="noopener">Политика ПД</a>
+    <a href="/legal/pd_consent" target="_blank" rel="noopener">Согласие на ПД</a>
+    <a href="/legal/terms" target="_blank" rel="noopener">Пользовательское соглашение</a>
+    <div id="legalOperatorSummary"></div>
   </div>
   <div id="emailRequiredForm" style="display:none">
     <h2 style="font-size:16px;margin-bottom:10px">Подтвердите электронную почту</h2>
@@ -397,6 +433,7 @@ button,input,select,textarea{max-width:100%}
     <button class="tab-btn" data-tab="objects" onclick="showTab('objects')">Объекты</button>
     <button class="tab-btn" data-tab="organizations" onclick="showTab('organizations')">Организации</button>
     <button class="tab-btn" data-tab="users" onclick="showTab('users')" id="usersTab" style="display:none">Пользователи</button>
+    <button class="tab-btn" data-tab="compliance" onclick="showTab('compliance')">ПД / Compliance</button>
     <button class="tab-btn" data-tab="data" onclick="showTab('data')">Данные</button>
   </div>
 
@@ -561,6 +598,60 @@ button,input,select,textarea{max-width:100%}
     </div>
   </div>
 
+  <!-- TAB: COMPLIANCE -->
+  <div id="tab-compliance" class="tab-content">
+    <div class="compliance-grid">
+      <div class="card">
+        <h2 style="margin-bottom:10px">Мои согласия</h2>
+        <p style="font-size:12px;color:#667085">Сервис хранит версию и SHA-256 текста, дату и техническое доказательство каждого юридического действия.</p>
+        <div id="myConsentsList" class="compliance-list"></div>
+      </div>
+      <div class="card">
+        <h2 style="margin-bottom:10px">Запрос по персональным данным</h2>
+        <div class="form-group"><label>Тип запроса</label><select id="dsarType">
+          <option value="access">Доступ / сведения</option><option value="correction">Уточнение</option><option value="blocking">Блокирование</option><option value="deletion">Уничтожение</option><option value="consent_withdrawal">Отзыв согласия</option>
+        </select></div>
+        <div class="form-group"><label>Описание</label><textarea id="dsarDetails" rows="4" placeholder="Опишите запрос без избыточных персональных данных"></textarea></div>
+        <button class="btn btn-blue" onclick="submitDsar()">Отправить запрос</button>
+        <div id="myDsarList" class="compliance-list"></div>
+      </div>
+    </div>
+    <div id="complianceAdminSection" style="display:none">
+      <div class="card">
+        <h2 style="margin-bottom:10px">Состояние 152-ФЗ baseline</h2>
+        <div id="complianceStatus"></div>
+      </div>
+      <div class="card">
+        <h2 style="margin-bottom:10px">Запросы субъектов (DSAR)</h2>
+        <div class="compliance-table-wrap"><table><thead><tr><th>ID</th><th>Тип</th><th>Субъект</th><th>Получен</th><th>Срок</th><th>Статус</th><th>Действия</th></tr></thead><tbody id="adminDsarBody"></tbody></table></div>
+      </div>
+      <div class="card" id="incidentAdminCard" style="display:none">
+        <h2 style="margin-bottom:10px">Инциденты и таймеры 24/72</h2>
+        <div class="form-row">
+          <div class="form-group"><label>Критичность</label><select id="incidentSeverity"><option value="low">Низкая</option><option value="medium">Средняя</option><option value="high">Высокая</option><option value="critical">Критическая</option></select></div>
+          <div class="form-group"><label>Подтверждён</label><input type="datetime-local" id="incidentConfirmedAt"></div>
+        </div>
+        <div class="form-group"><label>Описание</label><textarea id="incidentDescription" rows="3"></textarea></div>
+        <button class="btn btn-red" onclick="createIncident()">Зарегистрировать инцидент</button>
+        <div id="incidentsList" class="compliance-list"></div>
+      </div>
+      <div class="card">
+        <h2 style="margin-bottom:10px">Append-only audit</h2>
+        <div class="compliance-table-wrap"><table><thead><tr><th>Время</th><th>Действие</th><th>Объект</th><th>Результат</th><th>Correlation ID</th></tr></thead><tbody id="complianceAuditBody"></tbody></table></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2 style="margin-bottom:10px">Юридические документы</h2>
+      <p style="font-size:12px;color:#667085">Актуальные тексты доступны постоянно. Публикация новой версии не изменяет историю уже данных согласий.</p>
+      <div class="legal-footer" style="text-align:left;border:0;padding:0;margin-top:8px">
+        <a href="/legal/privacy_policy" target="_blank" rel="noopener">Политика обработки ПД</a>
+        <a href="/legal/pd_consent" target="_blank" rel="noopener">Согласие на ПД</a>
+        <a href="/legal/terms" target="_blank" rel="noopener">Пользовательское соглашение</a>
+        <a href="/legal/marketing_consent" target="_blank" rel="noopener">Рекламное согласие</a>
+      </div>
+    </div>
+  </div>
+
   <!-- TAB: DATA -->
   <div id="tab-data" class="tab-content">
     <div class="card">
@@ -718,6 +809,8 @@ let editingOrgId = null;
 let editingSalaryId = null;
 let editingBalanceId = null;
 let editingUserId = null;
+let legalMetadata = null;
+let complianceLoaded = false;
 
 
 function escapeHtml(value){
@@ -753,6 +846,7 @@ function applyPermissionsToUi(){
     objects:can('objects.view'),
     organizations:can('organizations.view'),
     users:can('users.manage'),
+    compliance:true,
     data:can('backups.manage')
   };
   Object.keys(tabRules).forEach(function(tab){
@@ -775,7 +869,7 @@ function applyPermissionsToUi(){
   setVisibleById('orgAddBtn',currentUser.role==='Руководитель сайта');
 }
 function firstAccessibleTab(){
-  const order=['dashboard','input','salary','employees','objects','organizations','users','data'];
+  const order=['dashboard','input','salary','employees','objects','organizations','users','compliance','data'];
   for(const tab of order){
     const btn=document.querySelector('.tab-btn[data-tab="'+tab+'"]');
     if(btn&&btn.style.display!=='none')return tab;
@@ -940,10 +1034,36 @@ async function doLogin() {
   if (!login || !password) { document.getElementById('loginError').textContent = 'Введите логин и пароль'; return; }
   try {
     const user = await api('/api/login', 'POST', { login, password });
+    if(user&&user.mfa_required){
+      document.getElementById('loginForm').style.display='none';
+      document.getElementById('mfaLoginForm').style.display='block';
+      document.getElementById('mfaHint').textContent='Код отправлен на '+(user.masked_email||'настроенный адрес')+'.';
+      document.getElementById('mfaLoginCode').value='';
+      document.getElementById('mfaLoginError').textContent='';
+      return;
+    }
     continueAfterLogin(user);
   } catch (e) {
     document.getElementById('loginError').textContent = e.message;
   }
+}
+async function verifyLoginMfa(){
+  const code=document.getElementById('mfaLoginCode').value.trim(),msg=document.getElementById('mfaLoginError');
+  msg.textContent='';
+  if(!/^\d{6}$/.test(code)){msg.textContent='Введите 6-значный код';return;}
+  try{
+    const user=await withBusyButton('mfaLoginBtn','Проверяем…',function(){return api('/api/login/mfa','POST',{code});});
+    document.getElementById('mfaLoginForm').style.display='none';
+    continueAfterLogin(user);
+  }catch(e){msg.textContent=e.message;}
+}
+async function resendLoginMfa(){
+  const msg=document.getElementById('mfaLoginError');msg.textContent='';
+  try{
+    const r=await api('/api/login/mfa/resend','POST',{});
+    document.getElementById('mfaHint').textContent='Новый код отправлен на '+(r.masked_email||'настроенный адрес')+'.';
+    startResendTimer('mfaResendBtn',60);
+  }catch(e){msg.textContent=e.message;}
 }
 
 async function loadRegistrationOrganizations(){
@@ -961,8 +1081,10 @@ async function loadRegistrationOrganizations(){
 }
 function showRegister() {
   document.getElementById('loginForm').style.display = 'none';
+  document.getElementById('mfaLoginForm').style.display = 'none';
   document.getElementById('registerForm').style.display = 'block';
   loadRegistrationOrganizations();
+  loadLegalMetadata();
 }
 function showRecover() {
   document.getElementById('loginForm').style.display = 'none';
@@ -973,6 +1095,7 @@ function showLogin() {
   document.getElementById('registerForm').style.display = 'none';
   document.getElementById('recoverForm').style.display = 'none';
   document.getElementById('emailRequiredForm').style.display = 'none';
+  document.getElementById('mfaLoginForm').style.display = 'none';
   document.getElementById('loginForm').style.display = 'block';
 }
 
@@ -1047,14 +1170,20 @@ async function doRegister() {
   document.getElementById('regLogin').value=login;
   const password = document.getElementById('regPassword').value;
   const passwordConfirm = document.getElementById('regPasswordConfirm').value;
+  const termsAccepted=document.getElementById('regTermsAccepted').checked;
+  const pdConsent=document.getElementById('regPdConsent').checked;
+  const marketingConsent=document.getElementById('regMarketingConsent').checked;
   document.getElementById('regMsg').className = 'error';
   document.getElementById('regMsg').textContent = '';
   if (!fio || !phone || !email || !organizationId || !login || !password || !passwordConfirm) { document.getElementById('regMsg').textContent = 'Все поля обязательны для заполнения, включая организацию'; return; }
   if (password !== passwordConfirm) { document.getElementById('regMsg').textContent = 'Пароли не совпадают'; return; }
+  if (password.length < 8) { document.getElementById('regMsg').textContent = 'Пароль должен содержать не менее 8 символов'; return; }
+  if (!termsAccepted) { document.getElementById('regMsg').textContent = 'Отдельно примите Пользовательское соглашение'; return; }
+  if (!pdConsent) { document.getElementById('regMsg').textContent = 'Отдельно дайте согласие на обработку персональных данных'; return; }
   if (fio.split(/\s+/).filter(Boolean).length < 3) { document.getElementById('regMsg').textContent = 'Введите ФИО полностью: Фамилия Имя Отчество'; return; }
   if (!isValidRegistrationPhone(phone)) { document.getElementById('regMsg').textContent = 'Введите номер телефона полностью: 7 (900) 900-90-90'; return; }
   try {
-    const created=await withBusyButton('regSubmitBtn','Регистрируем…',function(){return api('/api/register', 'POST', { fio, phone, email, login, password, organization_id:organizationId });});
+    const created=await withBusyButton('regSubmitBtn','Регистрируем…',function(){return api('/api/register', 'POST', { fio, phone, email, login, password, organization_id:organizationId, terms_accepted:termsAccepted, pd_consent:pdConsent, marketing_consent:marketingConsent });});
     document.getElementById('regMsg').className = 'success';
     document.getElementById('regMsg').textContent = created.message;
     const verifyBlock=document.getElementById('regVerifyBlock');
@@ -1068,6 +1197,104 @@ async function doRegister() {
   } catch (e) {
     document.getElementById('regMsg').textContent = e.message;
   }
+}
+
+
+async function loadLegalMetadata(){
+  try{
+    legalMetadata=await api('/api/public/legal-documents');
+    const o=legalMetadata.operator||{};
+    const bits=[o.name,o.inn?('ИНН '+o.inn):'',o.ogrnip?('ОГРНИП '+o.ogrnip):'',o.email].filter(Boolean);
+    const summary=document.getElementById('legalOperatorSummary');
+    if(summary)summary.textContent=bits.join(' · ');
+    const warning=document.getElementById('legalOperatorWarning');
+    if(warning)warning.style.display=legalMetadata.operator_ready?'none':'block';
+  }catch(e){
+    const warning=document.getElementById('legalOperatorWarning');
+    if(warning){warning.style.display='block';warning.textContent='Не удалось загрузить актуальные юридические документы. Регистрацию лучше повторить позже.';}
+  }
+}
+function complianceDate(value){
+  if(!value)return '—';
+  try{return new Date(value).toLocaleString('ru-RU');}catch(e){return String(value);}
+}
+function dsarTypeLabel(type){
+  return ({access:'Доступ / сведения',correction:'Уточнение',blocking:'Блокирование',deletion:'Уничтожение',consent_withdrawal:'Отзыв согласия'})[type]||type;
+}
+async function loadCompliance(){
+  if(!currentUser)return;
+  try{
+    const parts=await Promise.all([api('/api/compliance/my-consents'),api('/api/compliance/dsar/my')]);
+    renderMyConsents(parts[0]||[]);
+    renderMyDsar(parts[1]||[]);
+    const admin=can('compliance.view');
+    document.getElementById('complianceAdminSection').style.display=admin?'block':'none';
+    if(admin){
+      const results=await Promise.all([api('/api/compliance/status'),api('/api/compliance/dsar'),api('/api/compliance/audit')]);
+      renderComplianceStatus(results[0]);renderAdminDsar(results[1]||[]);renderComplianceAudit(results[2]||[]);
+    }
+    const incidentAllowed=can('incidents.manage');
+    document.getElementById('incidentAdminCard').style.display=incidentAllowed?'block':'none';
+    if(incidentAllowed)renderIncidents(await api('/api/compliance/incidents'));
+    complianceLoaded=true;
+  }catch(e){toast(e.message,'error');}
+}
+function renderMyConsents(rows){
+  const el=document.getElementById('myConsentsList');if(!el)return;
+  if(!rows.length){el.innerHTML='<div class="compliance-item">Записей пока нет.</div>';return;}
+  el.innerHTML=rows.map(function(c){
+    const withdrawn=c.status==='withdrawn';
+    return '<div class="compliance-item"><b>'+escapeHtml(c.document_type)+'</b> · версия '+escapeHtml(c.document_version)+
+      '<div class="meta">SHA-256: '+escapeHtml(c.document_hash)+'<br>Дано: '+complianceDate(c.given_at)+(withdrawn?'<br>Отозвано: '+complianceDate(c.withdrawn_at):'')+'</div>'+
+      (!withdrawn?'<button class="btn btn-gray btn-sm" style="margin-top:7px" onclick="withdrawConsent('+Number(c.consent_id)+')">Зафиксировать отзыв</button>':'')+'</div>';
+  }).join('');
+}
+async function withdrawConsent(id){
+  if(!confirm('Зафиксировать отзыв этого согласия? Если обработка имеет иное законное основание, соответствующие данные могут сохраняться.'))return;
+  try{const r=await api('/api/compliance/consents/'+id+'/withdraw','POST',{reason:'Отзыв через личный кабинет'});toast(r.message||'Отзыв зафиксирован');loadCompliance();}
+  catch(e){toast(e.message,'error');}
+}
+function renderMyDsar(rows){
+  const el=document.getElementById('myDsarList');if(!el)return;
+  el.innerHTML=rows.length?rows.map(function(r){return '<div class="compliance-item"><b>#'+Number(r.request_id)+' · '+escapeHtml(dsarTypeLabel(r.request_type))+'</b><div class="meta">Статус: '+escapeHtml(r.status)+' · срок: '+complianceDate(r.due_at)+'</div></div>';}).join(''):'<div class="compliance-item">Запросов пока нет.</div>';
+}
+async function submitDsar(){
+  const type=document.getElementById('dsarType').value,details=document.getElementById('dsarDetails').value.trim();
+  try{const r=await api('/api/compliance/dsar','POST',{type,details});document.getElementById('dsarDetails').value='';toast('Запрос #'+r.request_id+' зарегистрирован');loadCompliance();}
+  catch(e){toast(e.message,'error');}
+}
+function renderComplianceStatus(s){
+  const el=document.getElementById('complianceStatus');if(!el)return;
+  const missing=s.tenant_backfill_missing||{},missingTotal=Object.values(missing).reduce(function(a,b){return a+Number(b||0);},0);
+  el.innerHTML='<div class="compliance-list">'+
+    '<div class="compliance-item">Реквизиты оператора: <span class="'+(s.operator_ready?'compliance-status-ok':'compliance-status-warn')+'">'+(s.operator_ready?'настроены':'ТРЕБУЮТ НАСТРОЙКИ')+'</span></div>'+
+    '<div class="compliance-item">Юридические документы: <span class="'+(s.legal_documents_ready?'compliance-status-ok':'compliance-status-warn')+'">'+(s.legal_documents_ready?'опубликованы':'неполный комплект')+'</span></div>'+
+    '<div class="compliance-item">Data region (конфигурация): <b>'+escapeHtml(s.data_region||'')+'</b></div>'+
+    '<div class="compliance-item">MFA platform admin: <span class="'+(s.platform_mfa_enabled?'compliance-status-ok':'compliance-status-warn')+'">'+(s.platform_mfa_enabled?'включена':'выключена')+'</span></div>'+
+    '<div class="compliance-item">Незаполненный tenant_id: <span class="'+(missingTotal===0?'compliance-status-ok':'compliance-status-warn')+'">'+missingTotal+'</span></div>'+
+    '</div>';
+}
+function renderAdminDsar(rows){
+  const body=document.getElementById('adminDsarBody');if(!body)return;
+  body.innerHTML=rows.length?rows.map(function(r){return '<tr><td>'+Number(r.request_id)+'</td><td>'+escapeHtml(dsarTypeLabel(r.request_type))+'</td><td>'+escapeHtml(r.subject_ref)+'</td><td>'+complianceDate(r.received_at)+'</td><td>'+complianceDate(r.due_at)+'</td><td>'+escapeHtml(r.status)+'</td><td>'+(can('compliance.manage')?'<button class="btn btn-blue btn-sm" onclick="setDsarStatus('+Number(r.request_id)+',\'in_review\')">В работу</button> <button class="btn btn-green btn-sm" onclick="setDsarStatus('+Number(r.request_id)+',\'completed\')">Завершить</button>':'')+'</td></tr>';}).join(''):'<tr><td colspan="7">Запросов нет.</td></tr>';
+}
+async function setDsarStatus(id,status){
+  const decision=status==='completed'?prompt('Кратко укажите результат/решение:','Исполнено'):'';
+  if(status==='completed'&&decision===null)return;
+  try{await api('/api/compliance/dsar/'+id,'PATCH',{status,decision:decision||''});toast('Статус обновлён');loadCompliance();}catch(e){toast(e.message,'error');}
+}
+function renderIncidents(rows){
+  const el=document.getElementById('incidentsList');if(!el)return;
+  el.innerHTML=rows&&rows.length?rows.map(function(r){return '<div class="compliance-item"><b>#'+Number(r.incident_id)+' · '+escapeHtml(r.severity)+' · '+escapeHtml(r.status)+'</b><div>'+escapeHtml(r.description||'')+'</div><div class="meta">Обнаружен: '+complianceDate(r.detected_at)+(r.confirmed_at?'<br>Подтверждён: '+complianceDate(r.confirmed_at)+'<br>24ч: '+complianceDate(r.due_24h)+' · 72ч: '+complianceDate(r.due_72h):'<br>Факт ещё не подтверждён — таймеры не запущены')+'</div></div>';}).join(''):'<div class="compliance-item">Инцидентов нет.</div>';
+}
+async function createIncident(){
+  const severity=document.getElementById('incidentSeverity').value,description=document.getElementById('incidentDescription').value.trim(),confirmed=document.getElementById('incidentConfirmedAt').value;
+  if(!description){toast('Опишите инцидент','error');return;}
+  try{await api('/api/compliance/incidents','POST',{severity,description,detected_at:new Date().toISOString(),confirmed_at:confirmed?new Date(confirmed).toISOString():null});document.getElementById('incidentDescription').value='';toast('Инцидент зарегистрирован');loadCompliance();}catch(e){toast(e.message,'error');}
+}
+function renderComplianceAudit(rows){
+  const body=document.getElementById('complianceAuditBody');if(!body)return;
+  body.innerHTML=rows.length?rows.slice(0,250).map(function(r){return '<tr><td>'+complianceDate(r.occurred_at)+'</td><td>'+escapeHtml(r.action)+'</td><td>'+escapeHtml((r.object_type||'')+' '+(r.object_id||''))+'</td><td>'+escapeHtml(r.result||'')+'</td><td style="font-family:monospace;font-size:10px">'+escapeHtml(r.correlation_id||'')+'</td></tr>';}).join(''):'<tr><td colspan="5">Событий пока нет.</td></tr>';
 }
 
 function showEmailRequired(user){
@@ -1164,6 +1391,7 @@ function showTab(tab) {
   if (tab === 'objects') renderObjects();
   if (tab === 'organizations') renderOrganizations();
   if (tab === 'users') renderUsers();
+  if (tab === 'compliance') loadCompliance();
 }
 
 function initDashboardPeriod(){
@@ -2818,6 +3046,7 @@ async function init() {
 }
 
 document.addEventListener('DOMContentLoaded', function(){
+  loadLegalMetadata();
   init();
   const regFio=document.getElementById('regFio');
   if(regFio){
