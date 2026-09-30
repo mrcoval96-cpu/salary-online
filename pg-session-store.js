@@ -6,6 +6,10 @@ class PgSessionStore extends session.Store{
   constructor(pool){
     super();
     this.pool=pool;
+    this.cleanupTimer=setInterval(()=>{
+      this.pool.query('DELETE FROM app_sessions WHERE expire<=NOW()').catch(()=>{});
+    },60*60*1000);
+    if(this.cleanupTimer.unref)this.cleanupTimer.unref();
   }
   get(sid,callback){
     this.pool.query("SELECT sess FROM app_sessions WHERE sid=$1 AND expire>NOW()",[sid])
