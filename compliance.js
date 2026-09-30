@@ -117,15 +117,17 @@ async function seedLegalDocuments(pool){
     const current=await pool.query("SELECT id,content_hash FROM legal_documents WHERE doc_type=$1 AND active=TRUE ORDER BY published_at DESC,id DESC LIMIT 1",[type]);
     if(current.rows.length&&current.rows[0].content_hash===hash)continue;
     const version=docVersion(content);
-    await pool.query('BEGIN');
+    const client=await pool.connect();
     try{
-      await pool.query("UPDATE legal_documents SET active=FALSE WHERE doc_type=$1 AND active=TRUE",[type]);
-      await pool.query(
+      await client.query('BEGIN');
+      await client.query("UPDATE legal_documents SET active=FALSE WHERE doc_type=$1 AND active=TRUE",[type]);
+      await client.query(
         "INSERT INTO legal_documents(doc_type,version,title,content,content_hash,published_at,active) VALUES($1,$2,$3,$4,$5,NOW(),TRUE) ON CONFLICT(doc_type,version) DO UPDATE SET title=EXCLUDED.title,content=EXCLUDED.content,content_hash=EXCLUDED.content_hash,published_at=NOW(),active=TRUE",
         [type,version,LEGAL_DOC_TYPES[type],content,hash]
       );
-      await pool.query('COMMIT');
-    }catch(err){await pool.query('ROLLBACK');throw err;}
+      await client.query('COMMIT');
+    }catch(err){try{await client.query('ROLLBACK');}catch(e){}throw err;}
+    finally{client.release();}
   }
 }
 
