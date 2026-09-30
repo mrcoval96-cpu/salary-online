@@ -152,6 +152,35 @@ async function ensureComplianceSchema(pool){
   await pool.query("UPDATE employee_balances b SET tenant_id=e.tenant_id FROM employees e WHERE b.tenant_id IS NULL AND b.employee_id=e.id AND e.tenant_id IS NOT NULL");
   await pool.query("UPDATE bank_statement_payments b SET tenant_id=e.tenant_id FROM employees e WHERE b.tenant_id IS NULL AND b.employee_id=e.id AND e.tenant_id IS NOT NULL");
 
+  await pool.query(`CREATE OR REPLACE FUNCTION set_tenant_id_from_organization() RETURNS trigger AS $
+    BEGIN
+      IF trim(COALESCE(NEW.organization,''))='' THEN
+        NEW.tenant_id=NULL;
+      ELSE
+        SELECT id INTO NEW.tenant_id FROM organizations WHERE lower(trim(name))=lower(trim(NEW.organization)) ORDER BY id LIMIT 1;
+      END IF;
+      RETURN NEW;
+    END;
+  $ LANGUAGE plpgsql`);
+  for(const table of ['users','employees','objects','salary_records']){
+    await pool.query('DROP TRIGGER IF EXISTS trg_'+table+'_tenant_from_org ON '+table);
+    await pool.query('CREATE TRIGGER trg_'+table+'_tenant_from_org BEFORE INSERT OR UPDATE OF organization ON '+table+' FOR EACH ROW EXECUTE FUNCTION set_tenant_id_from_organization()');
+  }
+  await pool.query(`CREATE OR REPLACE FUNCTION set_tenant_id_from_employee() RETURNS trigger AS $
+    BEGIN
+      IF NEW.employee_id IS NULL THEN
+        NEW.tenant_id=NULL;
+      ELSE
+        SELECT tenant_id INTO NEW.tenant_id FROM employees WHERE id=NEW.employee_id;
+      END IF;
+      RETURN NEW;
+    END;
+  $ LANGUAGE plpgsql`);
+  for(const table of ['employee_balances','bank_statement_payments']){
+    await pool.query('DROP TRIGGER IF EXISTS trg_'+table+'_tenant_from_employee ON '+table);
+    await pool.query('CREATE TRIGGER trg_'+table+'_tenant_from_employee BEFORE INSERT OR UPDATE OF employee_id ON '+table+' FOR EACH ROW EXECUTE FUNCTION set_tenant_id_from_employee()');
+  }
+
   await pool.query(`CREATE TABLE IF NOT EXISTS processing_purposes(
     purpose_id TEXT PRIMARY KEY,
     description TEXT NOT NULL,
