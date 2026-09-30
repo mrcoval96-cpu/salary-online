@@ -7,6 +7,7 @@ const path = require('path');
 const cors = require('cors');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
+const compliance = require('./compliance');
 
 dotenv.config();
 
@@ -395,6 +396,9 @@ app.get('/api/csrf-token',(req,res)=>{
   res.setHeader('Cache-Control','no-store');
   res.json({token:req.session.csrfToken});
 });
+app.use(compliance.correlationMiddleware);
+app.use('/api',compliance.auditMutationMiddleware(pool));
+
 app.use('/api',(req,res,next)=>{
   if(['GET','HEAD','OPTIONS'].includes(req.method))return next();
   mutationRateLimit(req,res,()=>{
@@ -450,6 +454,10 @@ const PERMISSION_DEFINITIONS=[
   {key:'users.delete',group:'Пользователи',label:'Удаление аккаунтов',siteOnly:true},
   {key:'logs.view',group:'Журналы',label:'Просмотр журнала действий'},
   {key:'security.view',group:'Администрирование',label:'Журнал безопасности',siteOnly:true},
+  {key:'compliance.view',group:'152-ФЗ / Compliance',label:'Просмотр согласий, DSAR, аудита и реестров'},
+  {key:'compliance.manage',group:'152-ФЗ / Compliance',label:'Обработка DSAR и ведение compliance-реестров'},
+  {key:'incidents.manage',group:'152-ФЗ / Compliance',label:'Регистрация и расследование инцидентов'},
+  {key:'legal.manage',group:'152-ФЗ / Compliance',label:'Публикация версий юридических документов',siteOnly:true},
   {key:'backups.manage',group:'Администрирование',label:'Резервные копии, восстановление и полная очистка',siteOnly:true}
 ];
 const PERMISSION_KEYS=new Set(PERMISSION_DEFINITIONS.map(x=>x.key));
@@ -461,7 +469,8 @@ const ROLE_PERMISSION_DEFAULTS={
     'organizations.view':true,'organizations.manage':false,'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':true,
     'balances.manage':true,'bank.view':true,'bank.import':true,'bank.allocate':true,'bank.delete':true,
     'periods.close':true,'periods.reopen':true,'reports.export':true,
-    'users.manage':true,'users.customize':true,'users.delete':false,'logs.view':true,'security.view':false,'backups.manage':false
+    'users.manage':true,'users.customize':true,'users.delete':false,'logs.view':true,'security.view':false,
+    'compliance.view':true,'compliance.manage':true,'incidents.manage':true,'legal.manage':false,'backups.manage':false
   },
   'Бухгалтер':{
     'employees.view':true,'employees.manage':false,'objects.view':true,'objects.manage':false,
@@ -508,7 +517,7 @@ function buildSessionUser(user){
   const technicalAdmin=isTechnicalAdmin(user);
   return {
     id:user.id,login:user.login,fio:user.fio,phone:user.phone,role:user.role,
-    organization:user.organization||'',object_name:user.object_name||'',email:user.email||'',
+    tenant_id:user.tenant_id||null,organization:user.organization||'',object_name:user.object_name||'',email:user.email||'',
     email_verified:technicalAdmin?true:(EMAIL_VERIFY_ENABLED?!!user.email_verified:true),
     email_verification_enabled:technicalAdmin?false:EMAIL_VERIFY_ENABLED,
     permission_overrides:normalizePermissionOverrides(user.permission_overrides),
@@ -832,7 +841,7 @@ app.post('/api/register/verify-email', authRateLimit, async (req,res)=>{
     if(!r.rows.length)return res.status(400).json({error:'Не удалось подтвердить email'});
     const checked=await consumeCode(r.rows[0].id,email,'verify',code);
     if(!checked.ok)return res.status(400).json({error:checked.error});
-    await pool.query("UPDATE users SET email_verified=TRUE WHERE id=$1",[r.rows[0].id]);
+    await pool.query("UPDATE users SET email_verified=TRUE,email_verified_at=NOW() WHERE id=$1",[r.rows[0].id]);
     res.json({ok:true});
   }catch(e){console.error('Registration verify:',e.message);res.status(500).json({error:'Ошибка сервера'});}
 });
@@ -844,7 +853,7 @@ app.post('/api/email/verify', authRateLimit, async (req,res)=>{
   const email=normalizeEmail(req.session.user.email);
   const checked=await consumeCode(req.session.user.id,email,'verify',String(req.body.code||'').trim());
   if(!checked.ok)return res.status(400).json({error:checked.error});
-  await pool.query("UPDATE users SET email_verified=TRUE WHERE id=$1",[req.session.user.id]);
+  await pool.query("UPDATE users SET email_verified=TRUE,email_verified_at=NOW() WHERE id=$1",[req.session.user.id]);
   req.session.user.email_verified=true;
   await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1,$2)',[req.session.user.login,'Подтверждена электронная почта']);
   res.json({ok:true});
@@ -881,33 +890,50 @@ app.post('/api/register', authRateLimit, async (req, res) => {
   const normalizedFio=normalizeRegistrationFio(fio);
   const login=buildLoginFromFio(normalizedFio);
   const normalizedPhone=normalizePhone(phone);
+  const termsAccepted=req.body.terms_accepted===true;
+  const pdConsent=req.body.pd_consent===true;
+  const marketingConsent=req.body.marketing_consent===true;
   if (!normalizedFio || !phone || !login || !password || !email || !Number.isInteger(organizationId) || organizationId<=0) return res.status(400).json({ error: 'Все поля обязательны для заполнения, включая организацию' });
+  if (!termsAccepted || !pdConsent) return res.status(400).json({ error: 'Пользовательское соглашение и согласие на обработку персональных данных принимаются отдельными обязательными действиями' });
   if (!validEmail(email)) return res.status(400).json({ error: 'Введите корректный email' });
   if (normalizedFio.split(' ').filter(Boolean).length < 3) return res.status(400).json({ error: 'Введите ФИО полностью: Фамилия Имя Отчество' });
   if (!normalizedPhone) return res.status(400).json({ error: 'Некорректный номер телефона. Формат: 7 (900) 900-90-90' });
+  if (String(password).length < 8) return res.status(400).json({ error: 'Пароль должен содержать не менее 8 символов' });
+
+  const client=await pool.connect();
+  let createdUser=null,organization='';
   try {
-    const orgRes=await pool.query('SELECT id,name FROM organizations WHERE id=$1',[organizationId]);
-    if(!orgRes.rows.length)return res.status(400).json({error:'Выбранная организация не найдена'});
-    const organization=String(orgRes.rows[0].name||'').trim();
-    const existing = await pool.query('SELECT id FROM users WHERE lower(login) = lower($1) OR lower(email)=lower($2)', [login,email]);
-    if (existing.rows.length > 0) {
-      return res.status(400).json({ error: 'Логин уже занят' });
-    }
+    await client.query('BEGIN');
+    const orgRes=await client.query("SELECT id,name FROM organizations WHERE id=$1 AND status='active'",[organizationId]);
+    if(!orgRes.rows.length){await client.query('ROLLBACK');return res.status(400).json({error:'Выбранная организация не найдена или недоступна'});}
+    organization=String(orgRes.rows[0].name||'').trim();
+    const existing = await client.query('SELECT id FROM users WHERE lower(login) = lower($1) OR lower(email)=lower($2)', [login,email]);
+    if (existing.rows.length > 0) {await client.query('ROLLBACK');return res.status(400).json({ error: 'Логин или электронная почта уже используются' });}
     const hash = await bcrypt.hash(password, 10);
-    await pool.query(
-      'INSERT INTO users (login, password, fio, phone, email, email_verified, role, organization) VALUES ($1,$2,$3,$4,$5,FALSE,$6,$7) RETURNING id',
-      [login, hash, normalizedFio, normalizedPhone, email, '', organization]
+    const inserted=await client.query(
+      'INSERT INTO users (login,password,fio,phone,email,email_verified,role,organization,tenant_id,status) VALUES ($1,$2,$3,$4,$5,FALSE,$6,$7,$8,$9) RETURNING id,login,email,tenant_id',
+      [login, hash, normalizedFio, normalizedPhone, email, '', organization, organizationId, 'active']
     );
-    const created=await pool.query('SELECT id FROM users WHERE lower(login)=lower($1)',[login]);
-    if(EMAIL_VERIFY_ENABLED){
-      await sendSecurityCode(created.rows[0].id,email,'verify');
-      res.json({ ok: true, login, email, organization, email_verification_required:true, message: 'Регистрация создана. Код подтверждения отправлен на email. После подтверждения руководитель вашей организации сможет назначить вам роль.' });
-    }else{
-      res.json({ ok: true, login, email, organization, email_verification_required:false, message: 'Регистрация создана. После назначения роли руководителем вашей организации можно войти.' });
-    }
+    createdUser=inserted.rows[0];
+    await compliance.recordRegistrationConsents(client,req,createdUser,{termsAccepted,pdConsent,marketingConsent});
+    await client.query('COMMIT');
   } catch (err) {
+    try{await client.query('ROLLBACK');}catch(e){}
     console.error('Register error:', err);
-    res.status(500).json({ error: 'Ошибка сервера: ' + err.message });
+    return res.status(500).json({ error: 'Ошибка сервера: ' + err.message });
+  } finally {
+    client.release();
+  }
+
+  try{
+    if(EMAIL_VERIFY_ENABLED){
+      await sendSecurityCode(createdUser.id,email,'verify');
+      return res.json({ ok: true, login, email, organization, email_verification_required:true, message: 'Регистрация создана, юридические действия зафиксированы. Код подтверждения отправлен на email. После подтверждения руководитель вашей организации сможет назначить вам роль.' });
+    }
+    res.json({ ok: true, login, email, organization, email_verification_required:false, message: 'Регистрация создана, юридические действия зафиксированы. После назначения роли руководителем вашей организации можно войти.' });
+  }catch(err){
+    console.error('Registration verification mail:',err.message);
+    res.status(503).json({error:'Аккаунт создан, но письмо с кодом подтверждения не отправлено. Обратитесь к администратору для повторной отправки кода.',registration_created:true,login,email});
   }
 });
 
@@ -1945,6 +1971,14 @@ app.get('/api/security-log', requirePermission('security.view'), async (req,res)
   }catch(err){res.status(err.status||500).json({error:err.message});}
 });
 
+compliance.installComplianceRoutes(app,{
+  pool,
+  requireAuth,
+  requirePermission,
+  refreshAccessUser,
+  isSiteWideUser
+});
+
 // === EXPORT/IMPORT ===
 app.get('/api/export', requirePermission('backups.manage'), async (req, res) => {
   try {
@@ -2173,6 +2207,7 @@ app.listen(PORT, '0.0.0.0', async () => {
   console.log('Email verification: ' + (EMAIL_VERIFY_ENABLED ? 'enabled' : 'disabled'));
   try {
     await ensureDatabaseSchema();
+    await compliance.ensureComplianceSchema(pool);
     databaseSchemaReady = true;
   } catch (err) {
     databaseSchemaReady = false;
