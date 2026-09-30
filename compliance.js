@@ -152,7 +152,7 @@ async function ensureComplianceSchema(pool){
   await pool.query("UPDATE employee_balances b SET tenant_id=e.tenant_id FROM employees e WHERE b.tenant_id IS NULL AND b.employee_id=e.id AND e.tenant_id IS NOT NULL");
   await pool.query("UPDATE bank_statement_payments b SET tenant_id=e.tenant_id FROM employees e WHERE b.tenant_id IS NULL AND b.employee_id=e.id AND e.tenant_id IS NOT NULL");
 
-  await pool.query(`CREATE OR REPLACE FUNCTION set_tenant_id_from_organization() RETURNS trigger AS $
+  await pool.query(`CREATE OR REPLACE FUNCTION set_tenant_id_from_organization() RETURNS trigger AS $$
     BEGIN
       IF trim(COALESCE(NEW.organization,''))='' THEN
         NEW.tenant_id=NULL;
@@ -161,12 +161,12 @@ async function ensureComplianceSchema(pool){
       END IF;
       RETURN NEW;
     END;
-  $ LANGUAGE plpgsql`);
+  $$ LANGUAGE plpgsql`);
   for(const table of ['users','employees','objects','salary_records']){
     await pool.query('DROP TRIGGER IF EXISTS trg_'+table+'_tenant_from_org ON '+table);
     await pool.query('CREATE TRIGGER trg_'+table+'_tenant_from_org BEFORE INSERT OR UPDATE OF organization ON '+table+' FOR EACH ROW EXECUTE FUNCTION set_tenant_id_from_organization()');
   }
-  await pool.query(`CREATE OR REPLACE FUNCTION set_tenant_id_from_employee() RETURNS trigger AS $
+  await pool.query(`CREATE OR REPLACE FUNCTION set_tenant_id_from_employee() RETURNS trigger AS $$
     BEGIN
       IF NEW.employee_id IS NULL THEN
         NEW.tenant_id=NULL;
@@ -175,7 +175,7 @@ async function ensureComplianceSchema(pool){
       END IF;
       RETURN NEW;
     END;
-  $ LANGUAGE plpgsql`);
+  $$ LANGUAGE plpgsql`);
   for(const table of ['employee_balances','bank_statement_payments']){
     await pool.query('DROP TRIGGER IF EXISTS trg_'+table+'_tenant_from_employee ON '+table);
     await pool.query('CREATE TRIGGER trg_'+table+'_tenant_from_employee BEFORE INSERT OR UPDATE OF employee_id ON '+table+' FOR EACH ROW EXECUTE FUNCTION set_tenant_id_from_employee()');
@@ -269,14 +269,14 @@ async function ensureComplianceSchema(pool){
   )`);
   await pool.query("CREATE INDEX IF NOT EXISTS idx_audit_tenant_time ON audit_events(tenant_id,occurred_at DESC)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_audit_action_time ON audit_events(action,occurred_at DESC)");
-  await pool.query(`CREATE OR REPLACE FUNCTION protect_audit_events() RETURNS trigger AS $
+  await pool.query(`CREATE OR REPLACE FUNCTION protect_audit_events() RETURNS trigger AS $$
     BEGIN
       IF current_setting('app.allow_audit_mutation',TRUE)='on' THEN
         RETURN CASE WHEN TG_OP='DELETE' THEN OLD ELSE NEW END;
       END IF;
       RAISE EXCEPTION 'audit_events is append-only';
     END;
-  $ LANGUAGE plpgsql`);
+  $$ LANGUAGE plpgsql`);
   await pool.query('DROP TRIGGER IF EXISTS trg_audit_events_no_update ON audit_events');
   await pool.query('CREATE TRIGGER trg_audit_events_no_update BEFORE UPDATE ON audit_events FOR EACH ROW EXECUTE FUNCTION protect_audit_events()');
   await pool.query('DROP TRIGGER IF EXISTS trg_audit_events_no_delete ON audit_events');
