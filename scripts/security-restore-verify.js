@@ -117,6 +117,7 @@ async function tableCounts(url,tables){
     '--no-owner',
     '--no-privileges',
     '--exit-on-error',
+    '--single-transaction',
     '--verbose',
     dumpPath
   ];
