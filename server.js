@@ -949,6 +949,41 @@ app.delete('/api/sessions/:handle', requireAuth, async (req,res)=>{
   }catch(err){res.status(500).json({error:'Не удалось завершить сессию'});}
 });
 
+const RECENT_REAUTH_MS=5*60*1000;
+
+function requireRecentReauth(req,res,next){
+  const ts=Number(req.session&&req.session.reauthenticated_at||0);
+  if(!ts || Date.now()-ts>RECENT_REAUTH_MS){
+    return res.status(401).json({
+      error:'Для этой чувствительной операции повторно введите пароль',
+      code:'REAUTH_REQUIRED'
+    });
+  }
+  next();
+}
+
+app.post('/api/auth/reauth',requireAuth,authRateLimit,async(req,res)=>{
+  const password=String(req.body&&req.body.password||'');
+  if(!password)return res.status(400).json({error:'Введите пароль'});
+  try{
+    const r=await pool.query('SELECT id,login,password,status,deleted_at FROM users WHERE id=$1',[req.session.user.id]);
+    if(!r.rows.length)return res.status(401).json({error:'Аккаунт не найден'});
+    const user=r.rows[0];
+    if(String(user.status||'active')!=='active'||user.deleted_at)return res.status(403).json({error:'Учётная запись отключена'});
+    const ok=await bcrypt.compare(password,user.password);
+    if(!ok){
+      await logSecurityEvent(req,'reauth_failed',false,'Invalid password for sensitive operation',user.login);
+      return res.status(401).json({error:'Неверный пароль'});
+    }
+    req.session.reauthenticated_at=Date.now();
+    await logSecurityEvent(req,'reauth_success',true,'Sensitive operation re-authenticated',user.login);
+    res.json({ok:true,valid_for_seconds:Math.floor(RECENT_REAUTH_MS/1000)});
+  }catch(err){
+    console.error('Reauth error:',err.message);
+    res.status(500).json({error:'Не удалось повторно подтвердить пароль'});
+  }
+});
+
 app.post('/api/account/change-password',requireAuth,authRateLimit,async(req,res)=>{
   const currentPassword=String(req.body.current_password||''),newPassword=String(req.body.new_password||'');
   if(newPassword.length<12)return res.status(400).json({error:'Новый пароль должен содержать не менее 12 символов'});
