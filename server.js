@@ -724,7 +724,7 @@ async function sendSecurityCode(userId,email,purpose){
   const code=createCode();
   await pool.query("DELETE FROM email_codes WHERE user_id=$1 AND purpose=$2",[userId,purpose]);
   await pool.query("INSERT INTO email_codes(user_id,email,purpose,code_hash,expires_at) VALUES($1,$2,$3,$4,NOW()+INTERVAL '10 minutes')",[userId,normalized,purpose,codeHash(code)]);
-  const subject=purpose==='verify'?'Подтверждение электронной почты':'Восстановление пароля';
+  const subject=purpose==='verify'?'Подтверждение электронной почты':purpose==='login_mfa'?'Код второго фактора для входа':'Восстановление пароля';
   await mailTransport().sendMail({
     from: process.env.MAIL_FROM || process.env.SMTP_USER,
     to: normalized,
@@ -768,6 +768,38 @@ async function consumeCode(userId,email,purpose,code){
 // === AUTH ROUTES ===
 
 // Login
+function platformMfaEnabled(){
+  return String(process.env.PLATFORM_MFA_ENABLED||'false').trim().toLowerCase()==='true';
+}
+function requiresPlatformMfa(user){
+  return platformMfaEnabled()&&(isTechnicalAdmin(user)||String(user&&user.role||'')==='Руководитель сайта');
+}
+function platformMfaEmail(user){
+  if(isTechnicalAdmin(user)){
+    return normalizeEmail(user&&user.email||process.env.PLATFORM_ADMIN_MFA_EMAIL||'');
+  }
+  return normalizeEmail(user&&user.email||'');
+}
+function maskEmail(email){
+  const value=normalizeEmail(email),parts=value.split('@');
+  if(parts.length!==2)return '';
+  const local=parts[0],visible=local.length<=2?local.charAt(0):local.slice(0,2);
+  return visible+'***@'+parts[1];
+}
+async function establishAuthenticatedSession(req,user){
+  const updated=await pool.query('UPDATE users SET last_login_at=NOW(), login_count=COALESCE(login_count,0)+1 WHERE id=$1 RETURNING *',[user.id]);
+  const loginUser=updated.rows[0]||user;
+  await new Promise((resolve,reject)=>req.session.regenerate(err=>err?reject(err):resolve()));
+  req.session.user=buildSessionUser(loginUser);
+  return req.session.user;
+}
+async function completeLogin(req,user){
+  const sessionUser=await establishAuthenticatedSession(req,user);
+  await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)', [user.login, 'Вход в систему']);
+  await logSecurityEvent(req,'login_success',true,requiresPlatformMfa(user)?'Authenticated with MFA':'Authenticated',user.login);
+  return sessionUser;
+}
+
 app.post('/api/login', authRateLimit, async (req, res) => {
   const { login, password } = req.body;
   try {
@@ -777,6 +809,10 @@ app.post('/api/login', authRateLimit, async (req, res) => {
       return res.status(401).json({ error: 'Неверный логин или пароль' });
     }
     const user = result.rows[0];
+    if(String(user.status||'active')!=='active'||user.deleted_at){
+      await logSecurityEvent(req,'login_failed',false,'Inactive account',String(login||''));
+      return res.status(403).json({error:'Учётная запись отключена'});
+    }
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) {
       await logSecurityEvent(req,'login_failed',false,'Invalid password',String(login||''));
@@ -785,16 +821,52 @@ app.post('/api/login', authRateLimit, async (req, res) => {
     if (!user.role) {
       return res.status(403).json({ error: 'Роль не назначена. Обратитесь к руководителю сайта.' });
     }
-    const loginUpdate=await pool.query('UPDATE users SET last_login_at=NOW(), login_count=COALESCE(login_count,0)+1 WHERE id=$1 RETURNING *',[user.id]);
-    const loginUser=loginUpdate.rows[0]||user;
-    req.session.user=buildSessionUser(loginUser);
-    await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)', [user.login, 'Вход в систему']);
-    await logSecurityEvent(req,'login_success',true,'Authenticated',user.login);
-    res.json(req.session.user);
+    if(requiresPlatformMfa(user)){
+      const email=platformMfaEmail(user);
+      if(!email){
+        await logSecurityEvent(req,'mfa_blocked',false,'MFA email is not configured',user.login);
+        return res.status(503).json({error:'Для административного аккаунта включена MFA, но не настроен e-mail второго фактора. Настройте email пользователя или PLATFORM_ADMIN_MFA_EMAIL.',code:'MFA_EMAIL_REQUIRED'});
+      }
+      await sendSecurityCode(user.id,email,'login_mfa');
+      req.session.pendingMfa={user_id:user.id,email,created_at:Date.now()};
+      await logSecurityEvent(req,'mfa_challenge',true,'Second factor requested',user.login);
+      return res.status(202).json({mfa_required:true,masked_email:maskEmail(email)});
+    }
+    const sessionUser=await completeLogin(req,user);
+    res.json(sessionUser);
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Ошибка сервера: ' + err.message });
   }
+});
+
+app.post('/api/login/mfa',authRateLimit,async(req,res)=>{
+  const pending=req.session&&req.session.pendingMfa;
+  if(!pending||!pending.user_id||Date.now()-Number(pending.created_at||0)>10*60*1000)return res.status(401).json({error:'Сессия второго фактора истекла. Введите логин и пароль заново.'});
+  try{
+    const r=await pool.query('SELECT * FROM users WHERE id=$1',[pending.user_id]);
+    if(!r.rows.length)return res.status(401).json({error:'Аккаунт не найден'});
+    const user=r.rows[0];
+    const checked=await consumeCode(user.id,pending.email,'login_mfa',String(req.body.code||'').trim());
+    if(!checked.ok){
+      await logSecurityEvent(req,'mfa_failed',false,checked.error,user.login);
+      return res.status(400).json({error:checked.error});
+    }
+    const sessionUser=await completeLogin(req,user);
+    res.json(sessionUser);
+  }catch(err){console.error('MFA login:',err.message);res.status(500).json({error:'Ошибка проверки второго фактора'});}
+});
+
+app.post('/api/login/mfa/resend',authRateLimit,async(req,res)=>{
+  const pending=req.session&&req.session.pendingMfa;
+  if(!pending||!pending.user_id||Date.now()-Number(pending.created_at||0)>10*60*1000)return res.status(401).json({error:'Сессия второго фактора истекла. Введите логин и пароль заново.'});
+  try{
+    const r=await pool.query('SELECT login FROM users WHERE id=$1',[pending.user_id]);
+    if(!r.rows.length)return res.status(401).json({error:'Аккаунт не найден'});
+    await sendSecurityCode(pending.user_id,pending.email,'login_mfa');
+    pending.created_at=Date.now();
+    res.json({ok:true,masked_email:maskEmail(pending.email)});
+  }catch(err){res.status(400).json({error:err.message});}
 });
 
 // Logout
