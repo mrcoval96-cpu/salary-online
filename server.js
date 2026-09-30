@@ -1667,16 +1667,41 @@ async function prepareBankStatementTransactions(transactions,user){
   });
 }
 async function createAutomaticBackup(){
-  const [employees,objects,orgs,salary,responsibles,userResponsibles,periods,balances,bankPayments]=await Promise.all([
-    pool.query('SELECT * FROM employees ORDER BY id'),pool.query('SELECT * FROM objects ORDER BY id'),
-    pool.query('SELECT * FROM organizations ORDER BY id'),pool.query('SELECT * FROM salary_records ORDER BY id'),
+  const [users,employees,objects,orgs,salary,responsibles,userResponsibles,periods,balances,bankPayments,aliases,log,securityLog,complianceData]=await Promise.all([
+    pool.query('SELECT * FROM users ORDER BY id'),
+    pool.query('SELECT * FROM employees ORDER BY id'),
+    pool.query('SELECT * FROM objects ORDER BY id'),
+    pool.query('SELECT * FROM organizations ORDER BY id'),
+    pool.query('SELECT * FROM salary_records ORDER BY id'),
     pool.query('SELECT object_id,employee_id,created_at FROM object_responsibles ORDER BY object_id,employee_id'),
     pool.query('SELECT object_id,user_id,created_at FROM object_user_responsibles ORDER BY object_id,user_id'),
     pool.query('SELECT * FROM closed_salary_periods ORDER BY year,month'),
     pool.query('SELECT * FROM employee_balances ORDER BY id'),
-    pool.query('SELECT * FROM bank_statement_payments ORDER BY id')
+    pool.query('SELECT * FROM bank_statement_payments ORDER BY id'),
+    pool.query('SELECT * FROM organization_aliases ORDER BY alias'),
+    pool.query('SELECT * FROM action_log ORDER BY id'),
+    pool.query('SELECT * FROM security_log ORDER BY id'),
+    compliance.collectComplianceBackup(pool)
   ]);
-  const data={format:'salary-online-auto-backup',version:3,created_at:new Date().toISOString(),employees:employees.rows,objects:objects.rows,organizations:orgs.rows,salary:salary.rows,employee_balances:balances.rows,bank_statement_payments:bankPayments.rows,object_responsibles:responsibles.rows,object_user_responsibles:userResponsibles.rows,closed_periods:periods.rows};
+  const data={
+    format:'salary-online-auto-backup',
+    version:4,
+    created_at:new Date().toISOString(),
+    users:users.rows,
+    employees:employees.rows,
+    objects:objects.rows,
+    organizations:orgs.rows,
+    salary:salary.rows,
+    employee_balances:balances.rows,
+    bank_statement_payments:bankPayments.rows,
+    object_responsibles:responsibles.rows,
+    object_user_responsibles:userResponsibles.rows,
+    closed_periods:periods.rows,
+    organization_aliases:aliases.rows,
+    log:log.rows,
+    security_log:securityLog.rows,
+    compliance:complianceData
+  };
   await pool.query('INSERT INTO automatic_backups(data) VALUES($1)',[JSON.stringify(data)]);
   await pool.query('DELETE FROM automatic_backups WHERE id NOT IN (SELECT id FROM automatic_backups ORDER BY created_at DESC LIMIT 7)');
 }
@@ -2128,7 +2153,7 @@ app.post('/api/import', requirePermission('backups.manage'), async (req, res) =>
 // === FULL BACKUP / RESTORE ===
 app.get('/api/backup', requirePermission('backups.manage'), async (req, res) => {
   try {
-    const [users, employees, objects, orgs, salary, balances, bankPayments, objectResponsibles, objectUserResponsibles, log, securityLog] = await Promise.all([
+    const [users,employees,objects,orgs,salary,balances,bankPayments,objectResponsibles,objectUserResponsibles,closedPeriods,aliases,log,securityLog,complianceData] = await Promise.all([
       pool.query('SELECT * FROM users ORDER BY id'),
       pool.query('SELECT * FROM employees ORDER BY id'),
       pool.query('SELECT * FROM objects ORDER BY id'),
@@ -2138,17 +2163,31 @@ app.get('/api/backup', requirePermission('backups.manage'), async (req, res) => 
       pool.query('SELECT * FROM bank_statement_payments ORDER BY id'),
       pool.query('SELECT object_id, employee_id, created_at FROM object_responsibles ORDER BY object_id, employee_id'),
       pool.query('SELECT object_id, user_id, created_at FROM object_user_responsibles ORDER BY object_id, user_id'),
+      pool.query('SELECT * FROM closed_salary_periods ORDER BY year,month,organization'),
+      pool.query('SELECT * FROM organization_aliases ORDER BY alias'),
       pool.query('SELECT * FROM action_log ORDER BY id'),
-      pool.query('SELECT * FROM security_log ORDER BY id')
+      pool.query('SELECT * FROM security_log ORDER BY id'),
+      compliance.collectComplianceBackup(pool)
     ]);
+    res.setHeader('Cache-Control','no-store');
     res.json({
-      format: 'salary-online-backup',
-      version: 3,
-      created_at: new Date().toISOString(),
-      users: users.rows, employees: employees.rows, objects: objects.rows,
-      organizations: orgs.rows, salary: salary.rows, employee_balances: balances.rows,
-      bank_statement_payments: bankPayments.rows,
-      object_responsibles: objectResponsibles.rows, object_user_responsibles: objectUserResponsibles.rows, log: log.rows, security_log: securityLog.rows
+      format:'salary-online-backup',
+      version:4,
+      created_at:new Date().toISOString(),
+      users:users.rows,
+      employees:employees.rows,
+      objects:objects.rows,
+      organizations:orgs.rows,
+      salary:salary.rows,
+      employee_balances:balances.rows,
+      bank_statement_payments:bankPayments.rows,
+      object_responsibles:objectResponsibles.rows,
+      object_user_responsibles:objectUserResponsibles.rows,
+      closed_periods:closedPeriods.rows,
+      organization_aliases:aliases.rows,
+      log:log.rows,
+      security_log:securityLog.rows,
+      compliance:complianceData
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2159,74 +2198,108 @@ app.post('/api/restore', requirePermission('backups.manage'), async (req, res) =
     return res.status(400).json({error:'Файл не является резервной копией Salary Online'});
   }
   const client=await pool.connect();
+  const hasCompliance=data.version>=4&&data.compliance&&typeof data.compliance==='object';
   try {
     await client.query('BEGIN');
+    if(hasCompliance)await compliance.restoreComplianceBackup(client,{});
+
     await client.query('DELETE FROM salary_records');
     await client.query('DELETE FROM employee_balances');
     await client.query('DELETE FROM bank_statement_payments');
     await client.query('DELETE FROM object_user_responsibles');
     await client.query('DELETE FROM object_responsibles');
+    await client.query('DELETE FROM organization_aliases');
+    await client.query('DELETE FROM closed_salary_periods');
     await client.query('DELETE FROM objects');
     await client.query('DELETE FROM employees');
-    await client.query('DELETE FROM organizations');
     await client.query('DELETE FROM action_log');
     await client.query('DELETE FROM security_log');
     await client.query('DELETE FROM users');
+    await client.query('DELETE FROM organizations');
+
+    for(const o of (data.organizations||[])){
+      await client.query(`INSERT INTO organizations
+        (id,name,full_name,inn,kpp,ogrn,legal_address,address,postal_address,director_fio,phone,email,website,bank_name,bik,settlement_account,correspondent_account,contacts,created_at,status,data_region,closed_at,retention_profile_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
+        [o.id,o.name||'',o.full_name||'',o.inn||'',o.kpp||'',o.ogrn||'',o.legal_address||'',o.address||'',o.postal_address||'',o.director_fio||'',o.phone||'',o.email||'',o.website||'',o.bank_name||'',o.bik||'',o.settlement_account||'',o.correspondent_account||'',o.contacts||'',o.created_at||new Date(),o.status||'active',o.data_region||'RU',o.closed_at||null,o.retention_profile_id||null]);
+    }
 
     for(const u of data.users){
-      await client.query('INSERT INTO users (id,login,password,fio,phone,email,email_verified,role,organization,object_name,role_history,permission_overrides,last_login_at,login_count) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14)',
-        [u.id,u.login||'',u.password||'',u.fio||'',u.phone||'',u.email||'',!!u.email_verified,u.role||'',u.organization||'',u.object_name||'',u.role_history||'[]',JSON.stringify(normalizePermissionOverrides(u.permission_overrides)),u.last_login_at||null,Number(u.login_count||0)]);
+      await client.query(`INSERT INTO users
+        (id,login,password,fio,phone,email,email_verified,role,organization,object_name,role_history,permission_overrides,last_login_at,login_count,created_at,tenant_id,status,deleted_at,email_verified_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15,$16,$17,$18,$19)`,
+        [u.id,u.login||'',u.password||'',u.fio||'',u.phone||'',u.email||'',!!u.email_verified,u.role||'',u.organization||'',u.object_name||'',u.role_history||'[]',JSON.stringify(normalizePermissionOverrides(u.permission_overrides)),u.last_login_at||null,Number(u.login_count||0),u.created_at||new Date(),u.tenant_id||null,u.status||'active',u.deleted_at||null,u.email_verified_at||null]);
     }
+
     for(const e of (data.employees||[])){
-      await client.query('INSERT INTO employees (id,fio,organization,position,phone,birth_date,comments,employment_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
-        [e.id,e.fio||'',e.organization||'',e.position||'',e.phone||'',e.birth_date||null,e.comments||'',e.employment_status==='dismissed'?'dismissed':'working']);
+      await client.query(`INSERT INTO employees
+        (id,fio,organization,position,phone,birth_date,comments,employment_status,hr_profile,photo_data,created_at,tenant_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12)`,
+        [e.id,e.fio||'',e.organization||'',e.position||'',e.phone||'',e.birth_date||'',e.comments||'',e.employment_status==='dismissed'?'dismissed':'working',JSON.stringify(e.hr_profile&&typeof e.hr_profile==='object'?e.hr_profile:{}),e.photo_data||'',e.created_at||new Date(),e.tenant_id||null]);
     }
+
     for(const o of (data.objects||[])){
-      await client.query('INSERT INTO objects (id,name,address,customer,organization,responsible) VALUES ($1,$2,$3,$4,$5,$6)',
-        [o.id,o.name||'',o.address||'',o.customer||'',o.organization||'',o.responsible||'']);
+      await client.query('INSERT INTO objects (id,name,address,customer,organization,responsible,created_at,tenant_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+        [o.id,o.name||'',o.address||'',o.customer||'',o.organization||'',o.responsible||'',o.created_at||new Date(),o.tenant_id||null]);
     }
-    for(const o of (data.organizations||[])){
-      await client.query('INSERT INTO organizations (id,name,full_name,inn,kpp,ogrn,legal_address,address,postal_address,director_fio,phone,email,website,bank_name,bik,settlement_account,correspondent_account,contacts) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)',
-        [o.id,o.name||'',o.full_name||'',o.inn||'',o.kpp||'',o.ogrn||'',o.legal_address||'',o.address||'',o.postal_address||'',o.director_fio||'',o.phone||'',o.email||'',o.website||'',o.bank_name||'',o.bik||'',o.settlement_account||'',o.correspondent_account||'',o.contacts||'']);
+
+    for(const a of (data.organization_aliases||[])){
+      await client.query('INSERT INTO organization_aliases(alias,organization_id,created_at) VALUES($1,$2,$3) ON CONFLICT(alias) DO UPDATE SET organization_id=EXCLUDED.organization_id',[a.alias,a.organization_id,a.created_at||new Date()]);
     }
+
     for(const r of (data.object_responsibles||[])){
-      await client.query('INSERT INTO object_responsibles (object_id,employee_id,created_at) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING',
-        [r.object_id,r.employee_id,r.created_at||new Date()]);
+      await client.query('INSERT INTO object_responsibles (object_id,employee_id,created_at) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING',[r.object_id,r.employee_id,r.created_at||new Date()]);
     }
     for(const r of (data.object_user_responsibles||[])){
-      await client.query('INSERT INTO object_user_responsibles (object_id,user_id,created_at) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING',
-        [r.object_id,r.user_id,r.created_at||new Date()]);
+      await client.query('INSERT INTO object_user_responsibles (object_id,user_id,created_at) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING',[r.object_id,r.user_id,r.created_at||new Date()]);
     }
     if(!Array.isArray(data.object_user_responsibles)){
       await client.query("INSERT INTO object_user_responsibles(object_id,user_id) SELECT DISTINCT r.object_id,u.id FROM object_responsibles r JOIN objects o ON o.id=r.object_id JOIN employees e ON e.id=r.employee_id JOIN users u ON lower(trim(u.fio))=lower(trim(e.fio)) AND lower(trim(u.organization))=lower(trim(o.organization)) ON CONFLICT(object_id,user_id) DO NOTHING");
     }
-    for(const s of data.salary){
-      await client.query('INSERT INTO salary_records (id,employee_fio,object_name,organization,month,year,charge_date,hour_rate,hours,per_diem_days,per_diem_rate,extra_charges,payments,total,paid) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)',
-        [s.id,s.employee_fio||'',s.object_name||'',s.organization||await salaryOrganization(s.employee_fio,s.object_name),s.month||'',s.year||'',s.charge_date||null,s.hour_rate||0,s.hours||0,s.per_diem_days||0,s.per_diem_rate||0,
-         typeof s.extra_charges==='string'?s.extra_charges:JSON.stringify(s.extra_charges||[]),typeof s.payments==='string'?s.payments:JSON.stringify(s.payments||[]),s.total||0,s.paid||0]);
+
+    for(const row of data.salary){
+      await client.query(`INSERT INTO salary_records
+        (id,employee_fio,object_name,organization,month,year,charge_date,hour_rate,hours,per_diem_days,per_diem_rate,extra_charges,payments,total,paid,deleted_at,deleted_by,created_at,tenant_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+        [row.id,row.employee_fio||'',row.object_name||'',row.organization||'',row.month||'',row.year||'',row.charge_date||null,row.hour_rate||0,row.hours||0,row.per_diem_days||0,row.per_diem_rate||0,
+         typeof row.extra_charges==='string'?row.extra_charges:JSON.stringify(row.extra_charges||[]),typeof row.payments==='string'?row.payments:JSON.stringify(row.payments||[]),row.total||0,row.paid||0,row.deleted_at||null,row.deleted_by||null,row.created_at||new Date(),row.tenant_id||null]);
     }
+
     for(const b of (data.employee_balances||[])){
       const direction=b.direction==='employee_to_company'||Number(b.amount)<0?'employee_to_company':'company_to_employee';
       const signedAmount=(direction==='employee_to_company'?-1:1)*Math.abs(Number(b.amount)||0);
-      await client.query('INSERT INTO employee_balances (id,employee_id,employee_fio,balance_date,amount,direction,comment,created_by,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[b.id,b.employee_id||null,b.employee_fio||'',b.balance_date||null,signedAmount,direction,b.comment||'',b.created_by||'',b.created_at||new Date(),b.updated_at||b.created_at||new Date()]);
+      await client.query('INSERT INTO employee_balances (id,employee_id,employee_fio,balance_date,amount,direction,comment,created_by,created_at,updated_at,tenant_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+        [b.id,b.employee_id||null,b.employee_fio||'',b.balance_date||null,signedAmount,direction,b.comment||'',b.created_by||'',b.created_at||new Date(),b.updated_at||b.created_at||new Date(),b.tenant_id||null]);
     }
+
     for(const p of (data.bank_statement_payments||[])){
       const tx={bank:p.bank,company_account:p.company_account,transaction_date:p.transaction_date,amount:p.amount,document_number:p.document_number,recipient_account:p.recipient_account,counterparty:p.counterparty||p.employee_fio,purpose:p.purpose};
-      await client.query('INSERT INTO bank_statement_payments (id,employee_id,employee_fio,bank,company_account,transaction_date,amount,document_number,recipient_account,counterparty,purpose,transaction_key,source_filename,imported_at,imported_by,allocations) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb)',[p.id,p.employee_id||null,p.employee_fio||'',p.bank||'',p.company_account||'',p.transaction_date||null,p.amount||0,p.document_number||'',p.recipient_account||'',p.counterparty||p.employee_fio||'',p.purpose||'',p.transaction_key||bankTransactionKey(tx),p.source_filename||'',p.imported_at||new Date(),p.imported_by||'',JSON.stringify(Array.isArray(p.allocations)?p.allocations:[])]);
+      await client.query(`INSERT INTO bank_statement_payments
+        (id,employee_id,employee_fio,bank,company_account,transaction_date,amount,document_number,recipient_account,counterparty,purpose,transaction_key,source_filename,imported_at,imported_by,allocations,tenant_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17)`,
+        [p.id,p.employee_id||null,p.employee_fio||'',p.bank||'',p.company_account||'',p.transaction_date||null,p.amount||0,p.document_number||'',p.recipient_account||'',p.counterparty||p.employee_fio||'',p.purpose||'',p.transaction_key||bankTransactionKey(tx),p.source_filename||'',p.imported_at||new Date(),p.imported_by||'',JSON.stringify(Array.isArray(p.allocations)?p.allocations:[]),p.tenant_id||null]);
     }
+
+    for(const p of (data.closed_periods||[])){
+      await client.query('INSERT INTO closed_salary_periods(month,year,organization,closed_at,closed_by) VALUES($1,$2,$3,$4,$5) ON CONFLICT(month,year,organization) DO UPDATE SET closed_at=EXCLUDED.closed_at,closed_by=EXCLUDED.closed_by',
+        [p.month||'',p.year||'',p.organization||'',p.closed_at||new Date(),p.closed_by||'']);
+    }
+
     for(const l of (data.log||[])){
-      await client.query('INSERT INTO action_log (id,user_login,action,created_at) VALUES ($1,$2,$3,$4)',
-        [l.id,l.user_login||'',l.action||'',l.created_at||new Date()]);
+      await client.query('INSERT INTO action_log (id,user_login,action,created_at) VALUES ($1,$2,$3,$4)',[l.id,l.user_login||'',l.action||'',l.created_at||new Date()]);
     }
     for(const l of (data.security_log||[])){
-      await client.query('INSERT INTO security_log (id,created_at,event,user_login,ip,user_agent,success,details) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
-        [l.id,l.created_at||new Date(),l.event||'',l.user_login||'',l.ip||'',l.user_agent||'',!!l.success,l.details||'']);
+      await client.query('INSERT INTO security_log (id,created_at,event,user_login,ip,user_agent,success,details) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',[l.id,l.created_at||new Date(),l.event||'',l.user_login||'',l.ip||'',l.user_agent||'',!!l.success,l.details||'']);
     }
+
+    if(hasCompliance)await compliance.restoreComplianceBackup(client,data.compliance);
+
     for(const table of ['users','employees','objects','organizations','salary_records','employee_balances','bank_statement_payments','action_log','security_log']){
       await client.query("SELECT setval(pg_get_serial_sequence('"+table+"','id'), COALESCE((SELECT MAX(id) FROM "+table+"),1), (SELECT COUNT(*)>0 FROM "+table+"))");
     }
     await client.query('COMMIT');
-    res.json({ok:true,message:'Резервная копия восстановлена'});
+    await compliance.ensureComplianceSchema(pool);
+    res.json({ok:true,message:hasCompliance?'Резервная копия версии 4 восстановлена вместе с compliance evidence':'Восстановлена legacy-копия без compliance evidence. Проверьте согласия, DSAR и аудит вручную.',compliance_restored:!!hasCompliance});
   } catch(err) {
     try{await client.query('ROLLBACK');}catch(e){}
     res.status(500).json({error:err.message});
