@@ -995,6 +995,23 @@ async function api(url, method = 'GET', body = null, csrfRetry = false) {
   return data;
 }
 
+let sensitiveReauthUntil=0;
+async function ensureSensitiveReauth(){
+  if(Date.now()<sensitiveReauthUntil)return true;
+  const password=prompt('Для выгрузки или другой чувствительной операции повторно введите пароль:');
+  if(password===null)return false;
+  if(!password){toast('Пароль не введён','error');return false;}
+  try{
+    const r=await api('/api/auth/reauth','POST',{password});
+    sensitiveReauthUntil=Date.now()+Math.max(30,Number(r.valid_for_seconds||300)-10)*1000;
+    return true;
+  }catch(e){toast(e.message,'error');return false;}
+}
+function safeSpreadsheetText(value){
+  const text=String(value==null?'':value);
+  return /^[=+\-@]/.test(text)?"'"+text:text;
+}
+
 function toast(msg, type = 'success') {
   const t = document.createElement('div');
   t.className = 'toast ' + type;
@@ -2099,7 +2116,8 @@ async function saveEditSalary(){
   }catch(e){toast(e.message,'error');}
 }
 function addSalaryFor(fio){document.getElementById('inpFio').value=fio;showTab('input');toast('ФИО заполнено, введите данные и нажмите «Рассчитать и сохранить»');}
-function exportSalaryCSV(fio){
+async function exportSalaryCSV(fio){
+  if(!(await ensureSensitiveReauth()))return;
   const employee=fio || document.getElementById('salaryExportEmployee').value || '';
   const from=ruDateToIso(document.getElementById('salaryExportFrom').value) || '';
   const to=ruDateToIso(document.getElementById('salaryExportTo').value) || '';
@@ -2112,7 +2130,7 @@ function exportSalaryCSV(fio){
   const wb=XLSX.utils.book_new();
   const rows=recs.map(function(r){
     const extras=normalizeExtraItems(r.extra_charges).map(function(e){return (e.description || 'Доп. начисление')+': '+e.amount.toFixed(2)+' ₽';}).join('; ');
-    return {ФИО:r.employee_fio,Дата:recordExportDate(r),Объект:r.object_name||'',Месяц:r.month||'',Год:r.year||'',Ставка:parseFloat(r.hour_rate||0),Часы:parseFloat(r.hours||0),'Сут.дни':parseFloat(r.per_diem_days||0),'Сут.ставка':parseFloat(r.per_diem_rate||0),'Доп.начисления':extras,Итого:parseFloat(r.total||0),Выплачено:parseFloat(r.paid||0),Долг:parseFloat(r.total||0)-parseFloat(r.paid||0)};
+    return {ФИО:safeSpreadsheetText(r.employee_fio),Дата:safeSpreadsheetText(recordExportDate(r)),Объект:safeSpreadsheetText(r.object_name||''),Месяц:safeSpreadsheetText(r.month||''),Год:safeSpreadsheetText(r.year||''),Ставка:parseFloat(r.hour_rate||0),Часы:parseFloat(r.hours||0),'Сут.дни':parseFloat(r.per_diem_days||0),'Сут.ставка':parseFloat(r.per_diem_rate||0),'Доп.начисления':safeSpreadsheetText(extras),Итого:parseFloat(r.total||0),Выплачено:parseFloat(r.paid||0),Долг:parseFloat(r.total||0)-parseFloat(r.paid||0)};
   });
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Записи');
   const months={};
@@ -2400,10 +2418,11 @@ async function deleteSelectedEmployees() {
   } catch (e) { toast(e.message, 'error'); }
 }
 
-function exportEmployeesExcel() {
+async function exportEmployeesExcel() {
+  if(!(await ensureSensitiveReauth()))return;
   const ws = XLSX.utils.json_to_sheet(employees.map(e => ({
-    'ФИО': e.fio||'', 'Организация': e.organization||'', 'Должность': e.position||'',
-    'Телефон': e.phone||'', 'Дата рождения': e.birth_date||'', 'Статус': e.employment_status==='dismissed'?'Уволен':'Работает', 'Комментарии': e.comments||''
+    'ФИО': safeSpreadsheetText(e.fio||''), 'Организация': safeSpreadsheetText(e.organization||''), 'Должность': safeSpreadsheetText(e.position||''),
+    'Телефон': safeSpreadsheetText(e.phone||''), 'Дата рождения': safeSpreadsheetText(e.birth_date||''), 'Статус': e.employment_status==='dismissed'?'Уволен':'Работает', 'Комментарии': safeSpreadsheetText(e.comments||'')
   })));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Сотрудники');
@@ -2992,6 +3011,7 @@ async function importBankStatementPreview(){
 
 // === DATA EXPORT/IMPORT ===
 async function downloadBackup() {
+  if(!(await ensureSensitiveReauth()))return;
   try{
     const data=await api('/api/backup');
     const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
@@ -3001,6 +3021,7 @@ async function downloadBackup() {
 async function restoreBackup(event) {
   const file=event.target.files[0];event.target.value='';if(!file)return;
   if(!confirm('Восстановление полностью заменит текущие данные сайта данными из резервной копии. Продолжить?'))return;
+  if(!(await ensureSensitiveReauth()))return;
   const reader=new FileReader();
   reader.onload=async function(e){
     try{const data=JSON.parse(e.target.result);if(data.format!=='salary-online-backup')throw new Error('Выбран не файл резервной копии Salary Online');await api('/api/restore','POST',data);await loadAll();renderSalary();toast('Резервная копия восстановлена');}
@@ -3009,6 +3030,7 @@ async function restoreBackup(event) {
 }
 
 async function exportJSON() {
+  if(!(await ensureSensitiveReauth()))return;
   try {
     const data = await api('/api/export');
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -3023,6 +3045,7 @@ async function exportJSON() {
 async function importJSON(event) {
   const file = event.target.files[0];
   if (!file) return;
+  if(!(await ensureSensitiveReauth())){event.target.value='';return;}
   const reader = new FileReader();
   reader.onload = async (e) => {
     try {
@@ -3039,6 +3062,7 @@ async function importJSON(event) {
 async function clearAllData() {
   if (!confirm('Удалить ВСЕ данные? Это действие необратимо!')) return;
   if (!confirm('Точно? Будут удалены все сотрудники, объекты, записи и пользователи (кроме ADMIN).')) return;
+  if(!(await ensureSensitiveReauth()))return;
   try {
     await api('/api/clear', 'POST');
     await loadAll();
