@@ -8,10 +8,6 @@ const crypto=require('crypto');
 const pg=require('pg');
 
 const dumpArg=process.argv[2];
-if(!process.env.DATABASE_URL){
-  console.error('BLOCKER: DATABASE_URL is required for source comparison');
-  process.exit(2);
-}
 if(!process.env.RESTORE_DATABASE_URL){
   console.error('BLOCKER: RESTORE_DATABASE_URL is required');
   process.exit(2);
@@ -29,7 +25,7 @@ function safeIdentity(urlString){
   const u=new URL(urlString);
   return [u.hostname.toLowerCase(),u.port||'5432',decodeURIComponent(u.pathname.replace(/^\//,''))].join('|');
 }
-if(safeIdentity(process.env.DATABASE_URL)===safeIdentity(process.env.RESTORE_DATABASE_URL)){
+if(process.env.DATABASE_URL && safeIdentity(process.env.DATABASE_URL)===safeIdentity(process.env.RESTORE_DATABASE_URL)){
   console.error('BLOCKER: RESTORE_DATABASE_URL points to the same host/port/database as production.');
   process.exit(2);
 }
@@ -63,38 +59,14 @@ function sslOptions(urlString){
   const u=new URL(urlString);
   const sslmode=(u.searchParams.get('sslmode')||'').toLowerCase();
   const explicit=String(process.env.DB_SSL||'auto').toLowerCase();
-  const tls=sslmode==='require'||sslmode==='verify-ca'||sslmode==='verify-full'||explicit==='true'||explicit==='require'||/timeweb|twc1\.net/i.test(u.hostname);
+  const tls=sslmode==='require'||sslmode==='verify-ca'||sslmode==='verify-full'||
+    explicit==='true'||explicit==='require'||/timeweb|twc1\.net/i.test(u.hostname);
   return tls?{ssl:{rejectUnauthorized:sslmode==='verify-full'||String(process.env.DB_SSL_REJECT_UNAUTHORIZED||'').toLowerCase()==='true'}}:{};
 }
-
-const dumpPath=path.resolve(dumpArg);
-if(!fs.existsSync(dumpPath)){
-  console.error('BLOCKER: dump file not found:',dumpPath);
-  process.exit(2);
-}
-const manifestPath=dumpPath.replace(/\.dump$/,'')+'.manifest.json';
-if(!fs.existsSync(manifestPath)){
-  console.error('BLOCKER: manifest file not found:',manifestPath);
-  process.exit(2);
-}
-const manifest=JSON.parse(fs.readFileSync(manifestPath,'utf8'));
-const actualHash=sha256(dumpPath);
-if(actualHash!==manifest.sha256){
-  console.error('BLOCKER: backup checksum mismatch');
-  process.exit(2);
-}
-
-const pgRestore=process.env.PG_RESTORE_BIN||'pg_restore';
-if(!commandAvailable(pgRestore)){
-  console.error('BLOCKER: pg_restore is not installed or PG_RESTORE_BIN is incorrect.');
-  process.exit(2);
-}
-
-async function tableCounts(url){
+async function tableCounts(url,tables){
   const client=new pg.Client({connectionString:url,...sslOptions(url)});
   await client.connect();
   try{
-    const tables=['users','employees','objects','organizations','salary_records','action_log','object_responsibles','object_user_responsibles','closed_salary_periods','automatic_backups','security_log','email_codes','employee_balances','bank_statement_payments','organization_aliases'];
     const existing=new Set((await client.query("SELECT table_name FROM information_schema.tables WHERE table_schema='public'")).rows.map(r=>r.table_name));
     const counts={};
     for(const table of tables){
@@ -107,11 +79,37 @@ async function tableCounts(url){
 }
 
 (async()=>{
+  const dumpPath=path.resolve(dumpArg);
+  if(!fs.existsSync(dumpPath)){
+    console.error('BLOCKER: dump file not found:',dumpPath);
+    process.exit(2);
+  }
+  const manifestPath=dumpPath.replace(/\.dump$/,'')+'.manifest.json';
+  if(!fs.existsSync(manifestPath)){
+    console.error('BLOCKER: manifest file not found:',manifestPath);
+    process.exit(2);
+  }
+  const manifest=JSON.parse(fs.readFileSync(manifestPath,'utf8'));
+  const actualHash=sha256(dumpPath);
+  if(actualHash!==manifest.sha256){
+    console.error('BLOCKER: backup checksum mismatch');
+    process.exit(2);
+  }
+  if(!manifest.table_counts || typeof manifest.table_counts!=='object'){
+    console.error('BLOCKER: manifest does not contain snapshot table counts');
+    process.exit(2);
+  }
+
+  const pgRestore=process.env.PG_RESTORE_BIN||'pg_restore';
+  if(!commandAvailable(pgRestore)){
+    console.error('BLOCKER: pg_restore is not installed or PG_RESTORE_BIN is incorrect.');
+    process.exit(2);
+  }
+
   console.log('=== Restore verification ===');
   console.log('Dump:',path.basename(dumpPath));
   console.log('Checksum: OK');
-
-  const beforeSource=await tableCounts(process.env.DATABASE_URL);
+  console.log('Snapshot created at:',manifest.created_at);
 
   const args=[
     '--clean',
@@ -129,26 +127,25 @@ async function tableCounts(url){
     process.exit(2);
   }
 
-  const restored=await tableCounts(process.env.RESTORE_DATABASE_URL);
+  const restored=await tableCounts(process.env.RESTORE_DATABASE_URL,Object.keys(manifest.table_counts));
   const mismatches=[];
-  for(const [table,sourceCount] of Object.entries(beforeSource)){
-    if(sourceCount===null)continue;
-    if(restored[table]!==sourceCount)mismatches.push(table+': source='+sourceCount+', restored='+restored[table]);
+  for(const [table,expected] of Object.entries(manifest.table_counts)){
+    if(restored[table]!==expected)mismatches.push(table+': backup='+expected+', restored='+restored[table]);
   }
 
   console.log('\nRecord count comparison:');
-  Object.keys(beforeSource).sort().forEach(table=>{
-    console.log('  '+table+': source='+beforeSource[table]+', restored='+restored[table]);
+  Object.keys(manifest.table_counts).sort().forEach(table=>{
+    console.log('  '+table+': backup='+manifest.table_counts[table]+', restored='+restored[table]);
   });
 
   if(mismatches.length){
-    console.error('\nBLOCKER: restored database differs from current source counts:');
+    console.error('\nBLOCKER: restored database differs from backup snapshot:');
     mismatches.forEach(x=>console.error('  - '+x));
     process.exit(2);
   }
 
   console.log('\nRESULT: RESTORE VERIFIED');
-  console.log('The dump checksum is valid and critical table counts match the source database.');
+  console.log('The dump checksum is valid and critical table counts exactly match the backup snapshot.');
 })().catch(err=>{
   console.error('BLOCKER:',err.message);
   process.exit(2);
