@@ -8,6 +8,7 @@ const cors = require('cors');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 const compliance = require('./compliance');
+const PgSessionStore = require('./pg-session-store');
 
 dotenv.config();
 
@@ -89,6 +90,8 @@ async function ensureDatabaseSchema(){
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_closed_salary_periods_scope ON closed_salary_periods(month,year,organization)");
   await pool.query("CREATE TABLE IF NOT EXISTS automatic_backups (id SERIAL PRIMARY KEY, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, data JSONB NOT NULL)");
   await pool.query("CREATE TABLE IF NOT EXISTS security_log (id SERIAL PRIMARY KEY, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, event TEXT NOT NULL, user_login TEXT NOT NULL DEFAULT '', ip TEXT NOT NULL DEFAULT '', user_agent TEXT NOT NULL DEFAULT '', success BOOLEAN NOT NULL DEFAULT FALSE, details TEXT NOT NULL DEFAULT '')");
+  await pool.query("CREATE TABLE IF NOT EXISTS app_sessions (sid TEXT PRIMARY KEY, sess JSONB NOT NULL, expire TIMESTAMP NOT NULL, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_app_sessions_expire ON app_sessions(expire)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_security_log_created_at ON security_log(created_at DESC)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_security_log_event ON security_log(event)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_salary_records_deleted_at ON salary_records(deleted_at)");
@@ -355,6 +358,7 @@ app.use((req,res,next)=>{
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(session({
+  store: new PgSessionStore(pool),
   name: 'salary.sid',
   secret: SESSION_SECRET,
   resave: false,
@@ -888,6 +892,36 @@ app.get('/api/me', async (req, res) => {
     if(!user){req.session.destroy(()=>{});return res.status(401).json({error:'Аккаунт не найден'});}
     res.json(req.session.user);
   }catch(err){res.status(500).json({error:'Ошибка сервера'});}
+});
+
+app.get('/api/sessions', requireAuth, async (req,res)=>{
+  try{
+    const userId=String(req.session.user.id);
+    const r=await pool.query(
+      "SELECT sid,expire,updated_at,sess #>> '{user,login}' AS login FROM app_sessions WHERE sess #>> '{user,id}'=$1 AND expire>NOW() ORDER BY updated_at DESC",
+      [userId]
+    );
+    res.json(r.rows.map(row=>({sid:row.sid,expire:row.expire,updated_at:row.updated_at,current:row.sid===req.sessionID})));
+  }catch(err){res.status(500).json({error:'Не удалось получить активные сессии'});}
+});
+app.delete('/api/sessions/:sid', requireAuth, async (req,res)=>{
+  const sid=String(req.params.sid||'');
+  if(!sid)return res.status(400).json({error:'Некорректная сессия'});
+  try{
+    const own=await pool.query("SELECT 1 FROM app_sessions WHERE sid=$1 AND sess #>> '{user,id}'=$2",[sid,String(req.session.user.id)]);
+    if(!own.rows.length)return res.status(404).json({error:'Сессия не найдена'});
+    if(sid===req.sessionID){
+      const login=req.session.user.login;
+      return req.session.destroy(async err=>{
+        if(err)return res.status(500).json({error:'Не удалось завершить текущую сессию'});
+        try{await logSecurityEvent(req,'session_revoked',true,'Current session revoked',login);}catch(e){}
+        res.json({ok:true,current:true});
+      });
+    }
+    await pool.query('DELETE FROM app_sessions WHERE sid=$1',[sid]);
+    await logSecurityEvent(req,'session_revoked',true,'Other session revoked: '+sid.slice(0,12),req.session.user.login);
+    res.json({ok:true,current:false});
+  }catch(err){res.status(500).json({error:'Не удалось завершить сессию'});}
 });
 
 app.post('/api/email/send-verification', authRateLimit, async (req,res)=>{
@@ -2332,33 +2366,42 @@ app.get('*', (req, res) => {
 
 // Initialize ADMIN on start
 async function initAdmin() {
-  try {
-    const result = await pool.query('SELECT id FROM users WHERE login = $1', ['ADMIN']);
-    if (result.rows.length === 0) {
-      const hash = await bcrypt.hash('ADMIN', 10);
-      await pool.query(
-        'INSERT INTO users (login, password, fio, phone, role) VALUES ($1, $2, $3, $4, $5)',
-        ['ADMIN', hash, 'Администратор', '', 'Руководитель сайта']
-      );
-      console.log('ADMIN created');
-    }
-  } catch (err) {
-    console.error('Init admin error:', err.message);
+  const result = await pool.query('SELECT id,password,email FROM users WHERE login = $1', ['ADMIN']);
+  if (result.rows.length === 0) {
+    const initialPassword=String(process.env.INITIAL_ADMIN_PASSWORD||'');
+    if(initialPassword.length<12)throw new Error('ADMIN account is absent. Set INITIAL_ADMIN_PASSWORD with at least 12 characters for one-time bootstrap.');
+    const hash = await bcrypt.hash(initialPassword, 12);
+    await pool.query(
+      'INSERT INTO users (login,password,fio,phone,role,status) VALUES ($1,$2,$3,$4,$5,$6)',
+      ['ADMIN', hash, 'Администратор', '', 'Руководитель сайта','active']
+    );
+    console.log('ADMIN created from INITIAL_ADMIN_PASSWORD. Remove INITIAL_ADMIN_PASSWORD from environment after first successful login.');
+  }else{
+    try{
+      if(await bcrypt.compare('ADMIN',result.rows[0].password))console.warn('SECURITY WARNING: ADMIN still uses the legacy default password. Change it immediately.');
+    }catch(e){}
   }
 }
 
-app.listen(PORT, '0.0.0.0', async () => {
-  console.log('Server running on port ' + PORT);
-  console.log('Email verification: ' + (EMAIL_VERIFY_ENABLED ? 'enabled' : 'disabled'));
-  try {
+async function startServer(){
+  try{
     await ensureDatabaseSchema();
     await compliance.ensureComplianceSchema(pool);
-    databaseSchemaReady = true;
-  } catch (err) {
-    databaseSchemaReady = false;
-    console.error('Schema initialization error:', err.message);
+    await initAdmin();
+    databaseSchemaReady=true;
+  }catch(err){
+    databaseSchemaReady=false;
+    console.error('Startup initialization failed:',err.message);
+    process.exitCode=1;
+    try{await pool.end();}catch(e){}
+    return;
   }
-  await initAdmin();
-  verifyMailTransport();
-  startAutomaticBackups();
-});
+  app.listen(PORT,'0.0.0.0',()=>{
+    console.log('Server running on port '+PORT);
+    console.log('Email verification: '+(EMAIL_VERIFY_ENABLED?'enabled':'disabled'));
+    console.log('Platform MFA: '+(platformMfaEnabled()?'enabled':'disabled'));
+    verifyMailTransport();
+    startAutomaticBackups();
+  });
+}
+startServer();
