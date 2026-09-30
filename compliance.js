@@ -269,6 +269,18 @@ async function ensureComplianceSchema(pool){
   )`);
   await pool.query("CREATE INDEX IF NOT EXISTS idx_audit_tenant_time ON audit_events(tenant_id,occurred_at DESC)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_audit_action_time ON audit_events(action,occurred_at DESC)");
+  await pool.query(`CREATE OR REPLACE FUNCTION protect_audit_events() RETURNS trigger AS $
+    BEGIN
+      IF current_setting('app.allow_audit_mutation',TRUE)='on' THEN
+        RETURN CASE WHEN TG_OP='DELETE' THEN OLD ELSE NEW END;
+      END IF;
+      RAISE EXCEPTION 'audit_events is append-only';
+    END;
+  $ LANGUAGE plpgsql`);
+  await pool.query('DROP TRIGGER IF EXISTS trg_audit_events_no_update ON audit_events');
+  await pool.query('CREATE TRIGGER trg_audit_events_no_update BEFORE UPDATE ON audit_events FOR EACH ROW EXECUTE FUNCTION protect_audit_events()');
+  await pool.query('DROP TRIGGER IF EXISTS trg_audit_events_no_delete ON audit_events');
+  await pool.query('CREATE TRIGGER trg_audit_events_no_delete BEFORE DELETE ON audit_events FOR EACH ROW EXECUTE FUNCTION protect_audit_events()');
   await pool.query(`CREATE TABLE IF NOT EXISTS incidents(
     incident_id BIGSERIAL PRIMARY KEY,
     severity TEXT NOT NULL,
@@ -639,11 +651,20 @@ function installComplianceRoutes(app,deps){
     const client=await pool.connect();
     try{
       await client.query('BEGIN');
+      const existing=await client.query('SELECT id,content_hash FROM legal_documents WHERE doc_type=$1 AND version=$2 FOR UPDATE',[type,version]);
+      if(existing.rows.length&&existing.rows[0].content_hash!==hash){
+        await client.query('ROLLBACK');
+        return res.status(409).json({error:'Опубликованная версия юридического документа неизменяема. Используйте новый номер версии.'});
+      }
       await client.query('UPDATE legal_documents SET active=FALSE WHERE doc_type=$1',[type]);
-      const r=await client.query(`INSERT INTO legal_documents(doc_type,version,title,content,content_hash,published_at,active)
-        VALUES($1,$2,$3,$4,$5,NOW(),TRUE)
-        ON CONFLICT(doc_type,version) DO UPDATE SET title=EXCLUDED.title,content=EXCLUDED.content,content_hash=EXCLUDED.content_hash,published_at=NOW(),active=TRUE
-        RETURNING id,doc_type,version,title,content_hash,published_at,active`,[type,version,title,content,hash]);
+      let r;
+      if(existing.rows.length){
+        r=await client.query('UPDATE legal_documents SET active=TRUE WHERE id=$1 RETURNING id,doc_type,version,title,content_hash,published_at,active',[existing.rows[0].id]);
+      }else{
+        r=await client.query(`INSERT INTO legal_documents(doc_type,version,title,content,content_hash,published_at,active)
+          VALUES($1,$2,$3,$4,$5,NOW(),TRUE)
+          RETURNING id,doc_type,version,title,content_hash,published_at,active`,[type,version,title,content,hash]);
+      }
       await client.query('COMMIT');res.status(201).json(r.rows[0]);
     }catch(err){await client.query('ROLLBACK');res.status(500).json({error:err.message});}
     finally{client.release();}
@@ -723,6 +744,7 @@ async function collectComplianceBackup(queryable){
 }
 async function restoreComplianceBackup(client,data){
   if(!data||typeof data!=='object')return;
+  await client.query("SELECT set_config('app.allow_audit_mutation','on',true)");
   for(const table of COMPLIANCE_DELETE_ORDER)await client.query('DELETE FROM '+table);
   for(const table of COMPLIANCE_BACKUP_TABLES){
     const rows=Array.isArray(data[table])?data[table]:[];
