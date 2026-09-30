@@ -1018,6 +1018,10 @@ app.get('/api/public/organizations', async (req,res)=>{
 });
 
 app.post('/api/register', authRateLimit, async (req, res) => {
+  const enforceLegalReady=String(process.env.COMPLIANCE_ENFORCE_LEGAL_READY||'true').trim().toLowerCase()!=='false';
+  if(enforceLegalReady&&!compliance.operatorReady(compliance.operatorDetails())){
+    return res.status(503).json({error:'Регистрация временно недоступна: администратор должен заполнить реквизиты оператора персональных данных.',code:'LEGAL_CONFIGURATION_REQUIRED'});
+  }
   const { fio, phone, password } = req.body;
   const email=normalizeEmail(req.body.email);
   const organizationId=Number(req.body.organization_id);
