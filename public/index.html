@@ -664,6 +664,52 @@ button,input,select,textarea{max-width:100%}
         <div id="incidentsList" class="compliance-list"></div>
       </div>
       <div class="card">
+        <h2 style="margin-bottom:10px">Сроки хранения и retention rules</h2>
+        <p style="font-size:12px;color:#667085">Правила задаются по категории данных и цели обработки. Исключения/legal hold фиксируются отдельно.</p>
+        <div id="retentionCreateForm" style="display:none;margin:10px 0">
+          <div class="form-row">
+            <div class="form-group"><label>Категория данных</label><input id="retentionCategory" placeholder="например: hr_profile"></div>
+            <div class="form-group"><label>Purpose ID</label><input id="retentionPurpose" placeholder="например: employment_records"></div>
+            <div class="form-group"><label>Версия</label><input id="retentionVersion" placeholder="v1"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Срок / правило</label><input id="retentionDuration" placeholder="например: 5 лет после увольнения"></div>
+            <div class="form-group"><label>Триггер</label><input id="retentionTrigger" placeholder="dismissal_date"></div>
+            <div class="form-group"><label>Действие</label><select id="retentionAction"><option value="review_delete">Проверка и уничтожение</option><option value="anonymize">Обезличивание</option><option value="archive">Архив</option><option value="hold">Legal hold</option></select></div>
+          </div>
+          <div class="form-group"><label>Исключение / legal hold</label><input id="retentionHold" placeholder="Если есть иное обязательное основание хранения"></div>
+          <button class="btn btn-blue btn-sm" onclick="createRetentionRule()">Добавить правило</button>
+        </div>
+        <div class="compliance-table-wrap"><table><thead><tr><th>ID</th><th>Категория</th><th>Цель</th><th>Срок</th><th>Триггер</th><th>Действие</th><th>Версия</th><th>Статус</th></tr></thead><tbody id="retentionRulesBody"></tbody></table></div>
+      </div>
+      <div class="card">
+        <h2 style="margin-bottom:10px">Задачи на уничтожение данных</h2>
+        <p style="font-size:12px;color:#667085">Завершение задачи требует результата и evidence. Само создание задачи не удаляет данные автоматически.</p>
+        <div class="compliance-table-wrap"><table><thead><tr><th>ID</th><th>Субъект</th><th>Основание</th><th>Хранилища</th><th>Статус</th><th>Создана</th><th>Evidence</th><th>Действия</th></tr></thead><tbody id="deletionJobsBody"></tbody></table></div>
+      </div>
+      <div class="card">
+        <h2 style="margin-bottom:10px">Подрядчики и внешние интеграции</h2>
+        <p style="font-size:12px;color:#667085">Для каждого внешнего получателя фиксируются страна, категории данных, цель, DPA и статус передачи.</p>
+        <div id="integrationCreateForm" style="display:none;margin:10px 0">
+          <div class="form-row">
+            <div class="form-group"><label>Поставщик</label><input id="integrationVendor"></div>
+            <div class="form-group"><label>Страна</label><input id="integrationCountry" placeholder="RU"></div>
+            <div class="form-group"><label>Владелец процесса</label><input id="integrationOwner"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Цель</label><input id="integrationPurpose"></div>
+            <div class="form-group"><label>Endpoint</label><input id="integrationEndpoint"></div>
+            <div class="form-group"><label>Категории данных</label><input id="integrationCategories" placeholder="email, phone, logs"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>DPA</label><input id="integrationDpaStatus" placeholder="signed / not_required / pending"></div>
+            <div class="form-group"><label>Статус передачи</label><input id="integrationTransferStatus" placeholder="RU-only / reviewed"></div>
+          </div>
+          <button class="btn btn-blue btn-sm" onclick="createIntegration()">Добавить интеграцию</button>
+        </div>
+        <div class="compliance-table-wrap"><table><thead><tr><th>Поставщик</th><th>Страна</th><th>Категории</th><th>Цель</th><th>DPA</th><th>Передача</th><th>Владелец</th></tr></thead><tbody id="integrationsBody"></tbody></table></div>
+      </div>
+      <div class="card">
         <h2 style="margin-bottom:10px">Append-only audit</h2>
         <div class="compliance-table-wrap"><table><thead><tr><th>Время</th><th>Действие</th><th>Объект</th><th>Результат</th><th>Correlation ID</th></tr></thead><tbody id="complianceAuditBody"></tbody></table></div>
       </div>
@@ -1321,8 +1367,23 @@ async function loadCompliance(){
     const admin=can('compliance.view');
     document.getElementById('complianceAdminSection').style.display=admin?'block':'none';
     if(admin){
-      const results=await Promise.all([api('/api/compliance/status'),api('/api/compliance/dsar'),api('/api/compliance/audit')]);
-      renderComplianceStatus(results[0]);renderAdminDsar(results[1]||[]);renderComplianceAudit(results[2]||[]);
+      const results=await Promise.all([
+        api('/api/compliance/status'),
+        api('/api/compliance/dsar'),
+        api('/api/compliance/audit'),
+        api('/api/compliance/retention-rules'),
+        api('/api/compliance/deletion-jobs'),
+        api('/api/compliance/integrations')
+      ]);
+      renderComplianceStatus(results[0]);
+      renderAdminDsar(results[1]||[]);
+      renderComplianceAudit(results[2]||[]);
+      renderRetentionRules(results[3]||[]);
+      renderDeletionJobs(results[4]||[]);
+      renderIntegrations(results[5]||[]);
+      const canManage=can('compliance.manage');
+      document.getElementById('retentionCreateForm').style.display=canManage?'block':'none';
+      document.getElementById('integrationCreateForm').style.display=canManage?'block':'none';
     }
     const incidentAllowed=can('incidents.manage');
     document.getElementById('incidentAdminCard').style.display=incidentAllowed?'block':'none';
@@ -1395,7 +1456,11 @@ function renderComplianceStatus(s){
 }
 function renderAdminDsar(rows){
   const body=document.getElementById('adminDsarBody');if(!body)return;
-  body.innerHTML=rows.length?rows.map(function(r){return '<tr><td>'+Number(r.request_id)+'</td><td>'+escapeHtml(dsarTypeLabel(r.request_type))+'</td><td>'+escapeHtml(r.subject_ref)+'</td><td>'+complianceDate(r.received_at)+'</td><td>'+complianceDate(r.due_at)+'</td><td>'+escapeHtml(r.status)+'</td><td>'+(can('compliance.manage')?'<button class="btn btn-blue btn-sm" onclick="setDsarStatus('+Number(r.request_id)+',\'in_review\')">В работу</button> <button class="btn btn-green btn-sm" onclick="setDsarStatus('+Number(r.request_id)+',\'completed\')">Завершить</button>':'')+'</td></tr>';}).join(''):'<tr><td colspan="7">Запросов нет.</td></tr>';
+  body.innerHTML=rows.length?rows.map(function(r){
+    const deletionBtn=can('compliance.manage')&&r.request_type==='deletion'?'<button class="btn btn-gray btn-sm" onclick="createDeletionJobFromDsar('+Number(r.request_id)+')">Создать deletion job</button> ':'';
+    const actions=can('compliance.manage')?deletionBtn+'<button class="btn btn-blue btn-sm" onclick="setDsarStatus('+Number(r.request_id)+',\'in_review\')">В работу</button> <button class="btn btn-green btn-sm" onclick="setDsarStatus('+Number(r.request_id)+',\'completed\')">Завершить</button>':'';
+    return '<tr><td>'+Number(r.request_id)+'</td><td>'+escapeHtml(dsarTypeLabel(r.request_type))+'</td><td>'+escapeHtml(r.subject_ref)+'</td><td>'+complianceDate(r.received_at)+'</td><td>'+complianceDate(r.due_at)+'</td><td>'+escapeHtml(r.status)+'</td><td>'+actions+'</td></tr>';
+  }).join(''):'<tr><td colspan="7">Запросов нет.</td></tr>';
 }
 async function setDsarStatus(id,status){
   const decision=status==='completed'?prompt('Кратко укажите результат/решение:','Исполнено'):'';
@@ -1410,6 +1475,86 @@ async function createIncident(){
   const severity=document.getElementById('incidentSeverity').value,description=document.getElementById('incidentDescription').value.trim(),confirmed=document.getElementById('incidentConfirmedAt').value;
   if(!description){toast('Опишите инцидент','error');return;}
   try{await api('/api/compliance/incidents','POST',{severity,description,detected_at:new Date().toISOString(),confirmed_at:confirmed?new Date(confirmed).toISOString():null});document.getElementById('incidentDescription').value='';toast('Инцидент зарегистрирован');loadCompliance();}catch(e){toast(e.message,'error');}
+}
+function renderRetentionRules(rows){
+  const body=document.getElementById('retentionRulesBody');if(!body)return;
+  body.innerHTML=rows.length?rows.map(function(r){
+    return '<tr><td>'+Number(r.id)+'</td><td>'+escapeHtml(r.data_category||'')+'</td><td>'+escapeHtml(r.purpose_id||'')+'</td><td>'+escapeHtml(r.duration_rule||'')+'</td><td>'+escapeHtml(r.trigger_event||'')+'</td><td>'+escapeHtml(r.action||'')+'</td><td>'+escapeHtml(r.version||'')+'</td><td>'+(r.active?'<span class="compliance-status-ok">активно</span>':'<span class="compliance-status-warn">выключено</span>')+(can('compliance.manage')?' <button class="btn btn-gray btn-sm" onclick="toggleRetentionRule('+Number(r.id)+','+(r.active?'false':'true')+')">'+(r.active?'Отключить':'Включить')+'</button>':'')+'</td></tr>';
+  }).join(''):'<tr><td colspan="8">Правила хранения ещё не заданы.</td></tr>';
+}
+async function createRetentionRule(){
+  const payload={
+    data_category:document.getElementById('retentionCategory').value.trim(),
+    purpose_id:document.getElementById('retentionPurpose').value.trim(),
+    duration_rule:document.getElementById('retentionDuration').value.trim(),
+    trigger_event:document.getElementById('retentionTrigger').value.trim(),
+    action:document.getElementById('retentionAction').value,
+    exception_hold:document.getElementById('retentionHold').value.trim(),
+    version:document.getElementById('retentionVersion').value.trim()
+  };
+  try{
+    await api('/api/compliance/retention-rules','POST',payload);
+    ['retentionCategory','retentionPurpose','retentionDuration','retentionTrigger','retentionHold','retentionVersion'].forEach(function(id){document.getElementById(id).value='';});
+    toast('Retention rule добавлено');loadCompliance();
+  }catch(e){toast(e.message,'error');}
+}
+async function toggleRetentionRule(id,active){
+  try{await api('/api/compliance/retention-rules/'+id,'PATCH',{active:active});toast('Статус правила обновлён');loadCompliance();}catch(e){toast(e.message,'error');}
+}
+function renderDeletionJobs(rows){
+  const body=document.getElementById('deletionJobsBody');if(!body)return;
+  body.innerHTML=rows.length?rows.map(function(r){
+    const stores=Array.isArray(r.stores_targeted)?r.stores_targeted.join(', '):String(r.stores_targeted||'');
+    let actions='';
+    if(can('compliance.manage')){
+      if(r.status==='queued')actions='<button class="btn btn-blue btn-sm" onclick="setDeletionJobStatus('+Number(r.id)+',\'in_progress\')">В работу</button>';
+      else if(r.status==='in_progress'||r.status==='blocked')actions='<button class="btn btn-green btn-sm" onclick="completeDeletionJob('+Number(r.id)+')">Завершить с evidence</button> <button class="btn btn-gray btn-sm" onclick="setDeletionJobStatus('+Number(r.id)+',\'blocked\')">Блокировать</button>';
+    }
+    return '<tr><td>'+Number(r.id)+'</td><td>'+escapeHtml(r.subject_ref||'')+'</td><td>'+escapeHtml(r.legal_reason||'')+'</td><td>'+escapeHtml(stores)+'</td><td>'+escapeHtml(r.status||'')+'</td><td>'+complianceDate(r.created_at)+'</td><td>'+escapeHtml(r.evidence_ref||'')+'</td><td>'+actions+'</td></tr>';
+  }).join(''):'<tr><td colspan="8">Задач на уничтожение нет.</td></tr>';
+}
+async function createDeletionJobFromDsar(id){
+  if(!confirm('Создать задачу на уничтожение по этому запросу? Данные автоматически удалены не будут.'))return;
+  try{
+    await api('/api/compliance/dsar/'+id+'/deletion-job','POST',{stores_targeted:['users','employees','salary_records','hr_profile','files','backups-delayed-purge']});
+    toast('Deletion job создана');loadCompliance();
+  }catch(e){toast(e.message,'error');}
+}
+async function setDeletionJobStatus(id,status){
+  try{await api('/api/compliance/deletion-jobs/'+id,'PATCH',{status:status});toast('Статус задачи обновлён');loadCompliance();}catch(e){toast(e.message,'error');}
+}
+async function completeDeletionJob(id){
+  const result=prompt('Опишите фактический результат уничтожения/обезличивания:','Проверено и выполнено по утверждённой процедуре');
+  if(result===null||!result.trim())return;
+  const evidence=prompt('Укажите номер акта, ссылку или идентификатор evidence:','');
+  if(evidence===null||!evidence.trim()){toast('Evidence обязателен','error');return;}
+  try{await api('/api/compliance/deletion-jobs/'+id,'PATCH',{status:'completed',result:result.trim(),evidence_ref:evidence.trim()});toast('Deletion job завершена');loadCompliance();}catch(e){toast(e.message,'error');}
+}
+function renderIntegrations(rows){
+  const body=document.getElementById('integrationsBody');if(!body)return;
+  body.innerHTML=rows.length?rows.map(function(r){
+    const cats=Array.isArray(r.data_categories)?r.data_categories.join(', '):String(r.data_categories||'');
+    return '<tr><td>'+escapeHtml(r.vendor||'')+'</td><td>'+escapeHtml(r.country||'')+'</td><td>'+escapeHtml(cats)+'</td><td>'+escapeHtml(r.purpose||'')+'</td><td>'+escapeHtml(r.dpa_status||'')+'</td><td>'+escapeHtml(r.transfer_status||'')+'</td><td>'+escapeHtml(r.owner||'')+'</td></tr>';
+  }).join(''):'<tr><td colspan="7">Внешние интеграции не зарегистрированы.</td></tr>';
+}
+async function createIntegration(){
+  const categories=document.getElementById('integrationCategories').value.split(',').map(function(x){return x.trim();}).filter(Boolean);
+  const payload={
+    vendor:document.getElementById('integrationVendor').value.trim(),
+    country:document.getElementById('integrationCountry').value.trim(),
+    owner:document.getElementById('integrationOwner').value.trim(),
+    purpose:document.getElementById('integrationPurpose').value.trim(),
+    endpoint:document.getElementById('integrationEndpoint').value.trim(),
+    data_categories:categories,
+    dpa_status:document.getElementById('integrationDpaStatus').value.trim(),
+    transfer_status:document.getElementById('integrationTransferStatus').value.trim()
+  };
+  if(!payload.vendor||!payload.country||!payload.purpose){toast('Заполните поставщика, страну и цель','error');return;}
+  try{
+    await api('/api/compliance/integrations','POST',payload);
+    ['integrationVendor','integrationCountry','integrationOwner','integrationPurpose','integrationEndpoint','integrationCategories','integrationDpaStatus','integrationTransferStatus'].forEach(function(id){document.getElementById(id).value='';});
+    toast('Интеграция добавлена в реестр');loadCompliance();
+  }catch(e){toast(e.message,'error');}
 }
 function renderComplianceAudit(rows){
   const body=document.getElementById('complianceAuditBody');if(!body)return;
