@@ -409,6 +409,17 @@ button,input,select,textarea{max-width:100%}
     <div id="requiredEmailMsg" class="error"></div>
     <div class="links"><a onclick="doLogout()">Выйти</a></div>
   </div>
+  <div id="legalRequiredForm" style="display:none">
+    <h2 style="font-size:16px;margin-bottom:10px">Актуальные юридические условия</h2>
+    <div id="legalRequiredIntro" style="font-size:12px;color:#667085;margin-bottom:9px">Для продолжения работы отдельно подтвердите актуальные документы.</div>
+    <div class="legal-consents">
+      <label class="legal-consent-row"><input type="checkbox" id="currentTermsAccepted"><span>Я принимаю актуальное <a href="/legal/terms" target="_blank" rel="noopener">Пользовательское соглашение</a>.</span></label>
+      <label class="legal-consent-row"><input type="checkbox" id="currentPdConsent"><span>Я отдельно даю актуальное <a href="/legal/pd_consent" target="_blank" rel="noopener">согласие на обработку персональных данных</a> и ознакомлен(а) с <a href="/legal/privacy_policy" target="_blank" rel="noopener">Политикой обработки ПД</a>.</span></label>
+    </div>
+    <button class="btn-primary" id="acceptCurrentLegalBtn" onclick="acceptCurrentLegal()">Подтвердить и продолжить</button>
+    <div id="legalRequiredMsg" class="error"></div>
+    <div class="links"><a onclick="doLogout()">Выйти</a></div>
+  </div>
 </div>
 
 <!-- MAIN APP -->
@@ -1036,13 +1047,15 @@ function formatMoney(value) {
 }
 
 // === LOGIN ===
-function continueAfterLogin(user){
+async function continueAfterLogin(user){
   currentUser=user;
   const verificationEnabled=user && user.email_verification_enabled !== false;
   if(verificationEnabled && !user.email_verified){
     document.getElementById('loginForm').style.display='none';
     document.getElementById('registerForm').style.display='none';
     document.getElementById('recoverForm').style.display='none';
+    document.getElementById('mfaLoginForm').style.display='none';
+    document.getElementById('legalRequiredForm').style.display='none';
     document.getElementById('emailRequiredForm').style.display='block';
     document.getElementById('requiredEmail').value=user.email||'';
     document.getElementById('requiredEmailCode').value='';
@@ -1054,8 +1067,50 @@ function continueAfterLogin(user){
       : 'Укажите и подтвердите электронную почту, чтобы продолжить работу.';
     return;
   }
-  showApp();
+  if(String(user&&user.login||'').trim().toUpperCase()==='ADMIN'){
+    await showApp();
+    return;
+  }
+  try{
+    const status=await api('/api/compliance/required-consents');
+    if(status.enforced&&!status.ready){
+      document.getElementById('loginForm').style.display='none';
+      document.getElementById('registerForm').style.display='none';
+      document.getElementById('recoverForm').style.display='none';
+      document.getElementById('mfaLoginForm').style.display='none';
+      document.getElementById('emailRequiredForm').style.display='none';
+      document.getElementById('legalRequiredForm').style.display='block';
+      document.getElementById('currentTermsAccepted').checked=false;
+      document.getElementById('currentPdConsent').checked=false;
+      const btn=document.getElementById('acceptCurrentLegalBtn');
+      const msg=document.getElementById('legalRequiredMsg');
+      msg.textContent='';
+      if(!status.operator_ready){
+        btn.disabled=true;
+        msg.textContent='Администратор ещё не настроил реквизиты оператора персональных данных. Продолжение работы временно заблокировано.';
+      }else btn.disabled=false;
+      return;
+    }
+  }catch(e){
+    document.getElementById('loginError').textContent='Не удалось проверить актуальность юридических документов: '+e.message;
+    return;
+  }
+  await showApp();
 }
+async function acceptCurrentLegal(){
+  const terms=document.getElementById('currentTermsAccepted').checked;
+  const pd=document.getElementById('currentPdConsent').checked;
+  const msg=document.getElementById('legalRequiredMsg');msg.textContent='';
+  if(!terms||!pd){msg.textContent='Подтвердите оба юридических действия отдельно';return;}
+  try{
+    const r=await withBusyButton('acceptCurrentLegalBtn','Сохраняем…',function(){return api('/api/compliance/accept-required','POST',{terms_accepted:terms,pd_consent:pd});});
+    if(!r.ready){msg.textContent='Не удалось подтвердить актуальные документы';return;}
+    document.getElementById('legalRequiredForm').style.display='none';
+    toast('Юридические действия зафиксированы');
+    await showApp();
+  }catch(e){msg.textContent=e.message;}
+}
+
 async function doLogin() {
   const login = document.getElementById('loginInput').value.trim();
   const password = document.getElementById('passwordInput').value.trim();
@@ -1125,6 +1180,7 @@ function showLogin() {
   document.getElementById('recoverForm').style.display = 'none';
   document.getElementById('emailRequiredForm').style.display = 'none';
   document.getElementById('mfaLoginForm').style.display = 'none';
+  document.getElementById('legalRequiredForm').style.display = 'none';
   document.getElementById('loginForm').style.display = 'block';
 }
 
@@ -1371,7 +1427,7 @@ async function sendRequiredEmailCode(){
 }
 async function verifyRequiredEmail(){
   const code=document.getElementById('requiredEmailCode').value.trim(),msg=document.getElementById('requiredEmailMsg');
-  try{await withBusyButton('requiredVerifyBtn','Проверяем…',function(){return api('/api/email/verify','POST',{code});});currentUser.email_verified=true;currentUser.email=document.getElementById('requiredEmail').value.trim().toLowerCase();document.getElementById('emailRequiredForm').style.display='none';showApp();toast('Электронная почта подтверждена');}
+  try{await withBusyButton('requiredVerifyBtn','Проверяем…',function(){return api('/api/email/verify','POST',{code});});currentUser.email_verified=true;currentUser.email=document.getElementById('requiredEmail').value.trim().toLowerCase();document.getElementById('emailRequiredForm').style.display='none';await continueAfterLogin(currentUser);toast('Электронная почта подтверждена');}
   catch(e){msg.className='error';msg.textContent=e.message;}
 }
 async function verifyRegistrationEmail(){
