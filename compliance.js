@@ -911,6 +911,74 @@ function installComplianceRoutes(app,deps){
     }catch(err){res.status(err.status||500).json({error:err.message});}
   });
 
+  app.post('/api/compliance/deletion-jobs/:id/execute-account',requirePermission('compliance.manage'),async(req,res)=>{
+    const id=Number(req.params.id);
+    if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректная задача'});
+    const client=await pool.connect();
+    try{
+      await client.query('BEGIN');
+      const actor=await refreshAccessUser(req);
+      const q=isSiteWideUser(actor)
+        ?await client.query('SELECT * FROM deletion_jobs WHERE id=$1 FOR UPDATE',[id])
+        :await client.query('SELECT * FROM deletion_jobs WHERE id=$1 AND tenant_id=$2 FOR UPDATE',[id,actor.tenant_id||null]);
+      if(!q.rows.length){await client.query('ROLLBACK');return res.status(404).json({error:'Задача не найдена'});}
+      const job=q.rows[0];
+      if(job.status==='completed'){await client.query('ROLLBACK');return res.status(409).json({error:'Задача уже завершена'});}
+      const subject=String(job.subject_ref||'').trim();
+      const params=[subject];
+      let tenantSql='';
+      if(job.tenant_id!=null){params.push(job.tenant_id);tenantSql=' AND tenant_id=$2';}
+      const userResult=await client.query(
+        "SELECT id,login,email,fio,tenant_id FROM users WHERE upper(trim(login))<>'ADMIN' AND (lower(trim(COALESCE(email,'')))=lower(trim($1)) OR lower(trim(login))=lower(trim($1)) OR lower(trim(fio))=lower(trim($1)))"+tenantSql+" ORDER BY id LIMIT 2",
+        params
+      );
+      if(userResult.rows.length>1){
+        await client.query("UPDATE deletion_jobs SET status='blocked',started_at=COALESCE(started_at,NOW()),result=$1 WHERE id=$2",['Найдено несколько аккаунтов по идентификатору; требуется ручная идентификация субъекта.',id]);
+        await client.query('COMMIT');
+        return res.status(409).json({error:'Найдено несколько аккаунтов; требуется ручная идентификация'});
+      }
+      if(!userResult.rows.length){
+        await client.query("UPDATE deletion_jobs SET status='blocked',started_at=COALESCE(started_at,NOW()),result=$1 WHERE id=$2",['Аккаунт по subject_ref не найден. Кадровые/расчётные данные не удаляются автоматически без отдельного решения оператора-клиента.',id]);
+        await client.query('COMMIT');
+        return res.status(409).json({error:'Аккаунт не найден; задача переведена в blocked для ручной проверки'});
+      }
+      const user=userResult.rows[0];
+      const identifiers=[
+        ['email',normalizeEmail(user.email)],
+        ['login',String(user.login||'').trim().toLowerCase()],
+        ['fio',String(user.fio||'').trim().toLowerCase()]
+      ].filter(x=>x[1]);
+      for(const [type,value] of identifiers){
+        await client.query(
+          `INSERT INTO privacy_tombstones(identifier_hash,identifier_type,tenant_id,reason)
+           VALUES($1,$2,$3,$4)
+           ON CONFLICT(identifier_hash,identifier_type,tenant_id) DO UPDATE SET reason=EXCLUDED.reason`,
+          [sha256(value),type,user.tenant_id||null,'deletion_job:'+id]
+        );
+      }
+      await client.query("DELETE FROM app_sessions WHERE (sess->'user'->>'id')::text=$1",[String(user.id)]);
+      await client.query('DELETE FROM email_codes WHERE user_id=$1',[user.id]);
+      await client.query('DELETE FROM users WHERE id=$1',[user.id]);
+
+      const employeeMatches=await client.query(
+        "SELECT COUNT(*)::int AS n FROM employees WHERE lower(trim(fio))=lower(trim($1))"+(user.tenant_id!=null?' AND tenant_id=$2':''),
+        user.tenant_id!=null?[user.fio,user.tenant_id]:[user.fio]
+      );
+      const retainedEmployeeRows=Number(employeeMatches.rows[0]&&employeeMatches.rows[0].n||0);
+      const result='Аккаунт, активные сессии и одноразовые коды физически удалены. Consent/audit evidence сохранены в минимальном доказательственном составе без активной учётной записи. Совпадающих кадровых записей клиента: '+retainedEmployeeRows+'. Их обработка имеет отдельную роль/основание и требует решения оператора-клиента.';
+      const evidence='privacy_tombstone:'+id+':'+sha256(identifiers.map(x=>x[0]+':'+x[1]).join('|')).slice(0,24);
+      await client.query(
+        "UPDATE deletion_jobs SET status='completed',started_at=COALESCE(started_at,NOW()),completed_at=NOW(),result=$1,evidence_ref=$2 WHERE id=$3",
+        [result,evidence,id]
+      );
+      await client.query('COMMIT');
+      res.json({ok:true,status:'completed',result,evidence_ref:evidence,retained_employee_rows:retainedEmployeeRows});
+    }catch(err){
+      try{await client.query('ROLLBACK');}catch(e){}
+      res.status(err.status||500).json({error:err.message});
+    }finally{client.release();}
+  });
+
   app.get('/api/compliance/status',requirePermission('compliance.view'),async(req,res)=>{
     try{
       const operator=operatorDetails();
