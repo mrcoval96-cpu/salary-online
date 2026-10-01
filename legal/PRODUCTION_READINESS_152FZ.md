@@ -33,6 +33,10 @@ Production baseline блокируется, если:
 - `THREAT_MODEL_APPROVED=true` — утверждена модель угроз и определён применимый уровень защищённости ИСПДн/меры.
 - `INCIDENT_RUNBOOK_APPROVED=true` — назначены ответственные, каналы и проведён учебный 24/72 drill.
 - `BACKUP_RESTORE_VERIFIED=true` — выполнена независимая backup + restore verification с сохранённым актом/evidence.
+- `LEGAL_TEXTS_APPROVED=true` — Политика, согласие и пользовательские условия утверждены под фактическую бизнес-модель.
+- `ORGANIZATIONAL_MEASURES_APPROVED=true` — утверждены применимые локальные акты, порядок доступа, обработки запросов, уничтожения и иные организационные меры.
+- `SUBPROCESSORS_REVIEW_CONFIRMED=true` — проверены SMTP, облачная инфраструктура и все иные внешние обработчики/интеграции, сведения внесены в реестр.
+- `SECURITY_REVIEW_ACCEPTED=true` — проведены security review/приёмочные испытания и закрыты неприемлемые high/critical риски.
 
 ## Перед включением production
 
