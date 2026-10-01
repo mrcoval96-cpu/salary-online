@@ -1143,7 +1143,7 @@ app.post('/api/register', authRateLimit, async (req, res) => {
   if (!validEmail(email)) return res.status(400).json({ error: 'Введите корректный email' });
   if (normalizedFio.split(' ').filter(Boolean).length < 2) return res.status(400).json({ error: 'Введите фамилию и имя' });
   if (phone&&!normalizedPhone) return res.status(400).json({ error: 'Некорректный номер телефона. Формат: 7 (900) 900-90-90' });
-  if (String(password).length < 8) return res.status(400).json({ error: 'Пароль должен содержать не менее 8 символов' });
+  if (String(password).length < 12) return res.status(400).json({ error: 'Пароль должен содержать не менее 12 символов' });
 
   const client=await pool.connect();
   let createdUser=null,organization='',organizationId=null,inviteRow=null;
@@ -1215,7 +1215,7 @@ app.post('/api/recover/request', authRateLimit, async (req,res)=>{
 });
 app.post('/api/recover/reset', authRateLimit, async (req,res)=>{
   const identifier=normalizeEmail(req.body.identifier), code=String(req.body.code||'').trim(), password=String(req.body.password||'');
-  if(password.length<8)return res.status(400).json({error:'Новый пароль должен содержать не менее 8 символов'});
+  if(password.length<12)return res.status(400).json({error:'Новый пароль должен содержать не менее 12 символов'});
   try{
     const r=await pool.query("SELECT id,login,email,email_verified FROM users WHERE lower(login)=lower($1) OR lower(email)=lower($1) LIMIT 1",[identifier]);
     if(!r.rows.length || !r.rows[0].email || !r.rows[0].email_verified)return res.status(400).json({error:'Не удалось подтвердить запрос восстановления'});
