@@ -130,9 +130,11 @@ async function ensureDatabaseSchema(){
     tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
     tenant_scope TEXT NOT NULL DEFAULT '',
     reason TEXT NOT NULL DEFAULT '',
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    released_at TIMESTAMP
   )`);
   await pool.query("ALTER TABLE privacy_tombstones ADD COLUMN IF NOT EXISTS tenant_scope TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE privacy_tombstones ADD COLUMN IF NOT EXISTS released_at TIMESTAMP");
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_privacy_tombstones_unique ON privacy_tombstones(identifier_hash,identifier_type,tenant_scope)");
   await pool.query("CREATE TABLE IF NOT EXISTS employee_balances (id SERIAL PRIMARY KEY, employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL, employee_fio TEXT NOT NULL, balance_date DATE NOT NULL, amount NUMERIC(14,2) NOT NULL DEFAULT 0, direction TEXT NOT NULL DEFAULT 'company_to_employee', comment TEXT NOT NULL DEFAULT '', created_by TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
   await pool.query("ALTER TABLE employee_balances ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'company_to_employee'");
@@ -1169,6 +1171,18 @@ app.post('/api/register', authRateLimit, async (req, res) => {
       if(!orgRes.rows.length){await client.query('ROLLBACK');return res.status(400).json({error:'Выбранная организация не найдена или недоступна'});}
       organizationId=Number(orgRes.rows[0].id);
       organization=String(orgRes.rows[0].name||'').trim();
+    }
+    const reRegistrationIdentifiers=[
+      ['email',email],
+      ['login',String(login||'').trim().toLowerCase()],
+      ['fio',String(normalizedFio||'').trim().toLowerCase()]
+    ].filter(x=>x[1]);
+    for(const [type,value] of reRegistrationIdentifiers){
+      const hash=crypto.createHash('sha256').update(value,'utf8').digest('hex');
+      await client.query(
+        "UPDATE privacy_tombstones SET released_at=NOW(),reason=reason||CASE WHEN reason='' THEN '' ELSE '; ' END||'new registration authorized' WHERE identifier_hash=$1 AND identifier_type=$2 AND (tenant_scope=$3 OR tenant_scope='')",
+        [hash,type,String(organizationId)]
+      );
     }
     const existing = await client.query('SELECT id FROM users WHERE lower(login) = lower($1) OR lower(email)=lower($2)', [login,email]);
     if (existing.rows.length > 0) {await client.query('ROLLBACK');return res.status(400).json({ error: 'Логин или электронная почта уже используются' });}
@@ -2595,11 +2609,9 @@ async function initAdmin() {
 
 async function enforcePrivacyTombstones(queryable){
   try{
-    const tombstones=(await queryable.query("SELECT identifier_hash,identifier_type,tenant_scope FROM privacy_tombstones")).rows;
+    const tombstones=(await queryable.query("SELECT identifier_hash,identifier_type,tenant_scope,created_at,released_at FROM privacy_tombstones")).rows;
     if(!tombstones.length)return 0;
-    const index=new Set(tombstones.map(t=>String(t.identifier_type||'')+'|'+String(t.tenant_scope||'')+'|'+String(t.identifier_hash||'')));
-    const globalIndex=new Set(tombstones.filter(t=>!String(t.tenant_scope||'')).map(t=>String(t.identifier_type||'')+'|'+String(t.identifier_hash||'')));
-    const users=(await queryable.query("SELECT id,login,email,fio,tenant_id FROM users WHERE upper(trim(login))<>'ADMIN'")).rows;
+    const users=(await queryable.query("SELECT id,login,email,fio,tenant_id,created_at FROM users WHERE upper(trim(login))<>'ADMIN'")).rows;
     let removed=0;
     for(const user of users){
       const scope=String(user.tenant_id||'');
@@ -2608,9 +2620,13 @@ async function enforcePrivacyTombstones(queryable){
         ['login',String(user.login||'').trim().toLowerCase()],
         ['fio',String(user.fio||'').trim().toLowerCase()]
       ].filter(x=>x[1]);
-      const matched=candidates.some(([type,value])=>{
-        const hash=crypto.createHash('sha256').update(value,'utf8').digest('hex');
-        return index.has(type+'|'+scope+'|'+hash)||globalIndex.has(type+'|'+hash);
+      const matched=tombstones.some(t=>{
+        if(String(t.tenant_scope||'')&&String(t.tenant_scope)!==scope)return false;
+        if(t.released_at&&user.created_at&&new Date(user.created_at)>=new Date(t.released_at))return false;
+        const candidate=candidates.find(x=>x[0]===String(t.identifier_type||''));
+        if(!candidate)return false;
+        const hash=crypto.createHash('sha256').update(candidate[1],'utf8').digest('hex');
+        return hash===String(t.identifier_hash||'');
       });
       if(!matched)continue;
       await queryable.query('DELETE FROM email_codes WHERE user_id=$1',[user.id]);
