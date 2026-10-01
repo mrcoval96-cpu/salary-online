@@ -1343,7 +1343,7 @@ async function doRegister() {
   document.getElementById('regMsg').textContent = '';
   if (!fio || !email || !inviteToken || !login || !password || !passwordConfirm) { document.getElementById('regMsg').textContent = 'Заполните обязательные поля и укажите приглашение организации'; return; }
   if (password !== passwordConfirm) { document.getElementById('regMsg').textContent = 'Пароли не совпадают'; return; }
-  if (password.length < 8) { document.getElementById('regMsg').textContent = 'Пароль должен содержать не менее 8 символов'; return; }
+  if (password.length < 12) { document.getElementById('regMsg').textContent = 'Пароль должен содержать не менее 12 символов'; return; }
   if (!termsAccepted) { document.getElementById('regMsg').textContent = 'Отдельно примите Пользовательское соглашение'; return; }
   if (!pdConsent) { document.getElementById('regMsg').textContent = 'Отдельно дайте согласие на обработку персональных данных'; return; }
   if (fio.split(/\s+/).filter(Boolean).length < 2) { document.getElementById('regMsg').textContent = 'Введите фамилию и имя'; return; }
@@ -1652,7 +1652,7 @@ async function resetPasswordByEmail(){
   msg.className='error';
   if(!code||!password||!confirm){msg.textContent='Заполните код и новый пароль';return;}
   if(password!==confirm){msg.textContent='Пароли не совпадают';return;}
-  if(password.length<8){msg.textContent='Пароль должен содержать не менее 8 символов';return;}
+  if(password.length<12){msg.textContent='Пароль должен содержать не менее 12 символов';return;}
   try{await withBusyButton('recResetBtn','Сохраняем…',function(){return api('/api/recover/reset','POST',{identifier,code,password});});msg.className='success';msg.textContent='Пароль изменён. Теперь можно войти.';setTimeout(showLogin,1800);}
   catch(e){msg.textContent=e.message;}
 }
