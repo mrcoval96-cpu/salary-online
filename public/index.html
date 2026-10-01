@@ -1477,12 +1477,26 @@ async function submitDsar(){
 function renderComplianceStatus(s){
   const el=document.getElementById('complianceStatus');if(!el)return;
   const missing=s.tenant_backfill_missing||{},missingTotal=Object.values(missing).reduce(function(a,b){return a+Number(b||0);},0);
+  const r=s.readiness||{};
+  const readinessRows=[
+    ['РФ-инфраструктура подтверждена',r.infra_ru_confirmed],
+    ['Уведомление Роскомнадзора подтверждено',r.rkn_notification_confirmed],
+    ['DPA/поручение с клиентами утверждено',r.dpa_approved],
+    ['Модель угроз / меры ИСПДн утверждены',r.threat_model_approved],
+    ['Incident runbook 24/72 утверждён',r.incident_runbook_approved],
+    ['Backup + restore проверены',r.backup_restore_verified],
+    ['Производственный календарь РФ подтверждён',r.ru_business_calendar_confirmed],
+    ['Актуальные согласия enforced',r.current_consents_enforced]
+  ];
+  const readinessHtml=readinessRows.map(function(x){return '<div class="compliance-item">'+escapeHtml(x[0])+': <span class="'+(x[1]?'compliance-status-ok':'compliance-status-warn')+'">'+(x[1]?'ДА':'НЕТ')+'</span></div>';}).join('');
   el.innerHTML='<div class="compliance-list">'+
     '<div class="compliance-item">Реквизиты оператора: <span class="'+(s.operator_ready?'compliance-status-ok':'compliance-status-warn')+'">'+(s.operator_ready?'настроены':'ТРЕБУЮТ НАСТРОЙКИ')+'</span></div>'+
     '<div class="compliance-item">Юридические документы: <span class="'+(s.legal_documents_ready?'compliance-status-ok':'compliance-status-warn')+'">'+(s.legal_documents_ready?'опубликованы':'неполный комплект')+'</span></div>'+
     '<div class="compliance-item">Data region (конфигурация): <b>'+escapeHtml(s.data_region||'')+'</b></div>'+
+    '<div class="compliance-item">Регистрация только по приглашению: <span class="'+(s.registration_invite_required?'compliance-status-ok':'compliance-status-warn')+'">'+(s.registration_invite_required?'ДА':'НЕТ')+'</span></div>'+
     '<div class="compliance-item">MFA platform admin: <span class="'+(s.platform_mfa_enabled?'compliance-status-ok':'compliance-status-warn')+'">'+(s.platform_mfa_enabled?'включена':'выключена')+'</span></div>'+
     '<div class="compliance-item">Незаполненный tenant_id: <span class="'+(missingTotal===0?'compliance-status-ok':'compliance-status-warn')+'">'+missingTotal+'</span></div>'+
+    readinessHtml+
     '</div>';
 }
 function renderAdminDsar(rows){
