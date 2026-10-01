@@ -1538,14 +1538,14 @@ function renderDeletionJobs(rows){
     const stores=Array.isArray(r.stores_targeted)?r.stores_targeted.join(', '):String(r.stores_targeted||'');
     let actions='';
     if(can('compliance.manage')){
-      if(r.status==='queued')actions='<button class="btn btn-blue btn-sm" onclick="setDeletionJobStatus('+Number(r.id)+',\'in_progress\')">В работу</button>';
-      else if(r.status==='in_progress'||r.status==='blocked')actions='<button class="btn btn-green btn-sm" onclick="completeDeletionJob('+Number(r.id)+')">Завершить с evidence</button> <button class="btn btn-gray btn-sm" onclick="setDeletionJobStatus('+Number(r.id)+',\'blocked\')">Блокировать</button>';
+      if(r.status==='queued')actions='<button class="btn btn-red btn-sm" onclick="executeAccountDeletion('+Number(r.id)+')">Удалить аккаунтные ПД</button> <button class="btn btn-blue btn-sm" onclick="setDeletionJobStatus('+Number(r.id)+',\'in_progress\')">В работу вручную</button>';
+      else if(r.status==='in_progress'||r.status==='blocked')actions='<button class="btn btn-red btn-sm" onclick="executeAccountDeletion('+Number(r.id)+')">Удалить аккаунтные ПД</button> <button class="btn btn-green btn-sm" onclick="completeDeletionJob('+Number(r.id)+')">Завершить вручную с evidence</button> <button class="btn btn-gray btn-sm" onclick="setDeletionJobStatus('+Number(r.id)+',\'blocked\')">Блокировать</button>';
     }
     return '<tr><td>'+Number(r.id)+'</td><td>'+escapeHtml(r.subject_ref||'')+'</td><td>'+escapeHtml(r.legal_reason||'')+'</td><td>'+escapeHtml(stores)+'</td><td>'+escapeHtml(r.status||'')+'</td><td>'+complianceDate(r.created_at)+'</td><td>'+escapeHtml(r.evidence_ref||'')+'</td><td>'+actions+'</td></tr>';
   }).join(''):'<tr><td colspan="8">Задач на уничтожение нет.</td></tr>';
 }
 async function createDeletionJobFromDsar(id){
-  if(!confirm('Создать задачу на уничтожение по этому запросу? Данные автоматически удалены не будут.'))return;
+  if(!confirm('Создать задачу на уничтожение по этому запросу? Аккаунтные данные можно будет удалить автоматически; кадровые и расчётные данные требуют отдельной проверки правового основания.'))return;
   try{
     await api('/api/compliance/dsar/'+id+'/deletion-job','POST',{stores_targeted:['users','employees','salary_records','hr_profile','files','backups-delayed-purge']});
     toast('Deletion job создана');loadCompliance();
@@ -1553,6 +1553,14 @@ async function createDeletionJobFromDsar(id){
 }
 async function setDeletionJobStatus(id,status){
   try{await api('/api/compliance/deletion-jobs/'+id,'PATCH',{status:status});toast('Статус задачи обновлён');loadCompliance();}catch(e){toast(e.message,'error');}
+}
+async function executeAccountDeletion(id){
+  if(!confirm('Физически удалить аккаунт, его активные сессии и одноразовые коды? Consent/audit evidence останутся в минимальном доказательственном составе.'))return;
+  try{
+    const r=await api('/api/compliance/deletion-jobs/'+id+'/execute-account','POST',{});
+    toast(r.result||'Аккаунтные данные удалены');
+    loadCompliance();
+  }catch(e){toast(e.message,'error');loadCompliance();}
 }
 async function completeDeletionJob(id){
   const result=prompt('Опишите фактический результат уничтожения/обезличивания:','Проверено и выполнено по утверждённой процедуре');
