@@ -128,10 +128,12 @@ async function ensureDatabaseSchema(){
     identifier_hash TEXT NOT NULL,
     identifier_type TEXT NOT NULL,
     tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+    tenant_scope TEXT NOT NULL DEFAULT '',
     reason TEXT NOT NULL DEFAULT '',
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(identifier_hash,identifier_type,tenant_id)
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`);
+  await pool.query("ALTER TABLE privacy_tombstones ADD COLUMN IF NOT EXISTS tenant_scope TEXT NOT NULL DEFAULT ''");
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_privacy_tombstones_unique ON privacy_tombstones(identifier_hash,identifier_type,tenant_scope)");
   await pool.query("CREATE TABLE IF NOT EXISTS employee_balances (id SERIAL PRIMARY KEY, employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL, employee_fio TEXT NOT NULL, balance_date DATE NOT NULL, amount NUMERIC(14,2) NOT NULL DEFAULT 0, direction TEXT NOT NULL DEFAULT 'company_to_employee', comment TEXT NOT NULL DEFAULT '', created_by TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
   await pool.query("ALTER TABLE employee_balances ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'company_to_employee'");
   await pool.query("UPDATE employee_balances SET direction='employee_to_company' WHERE amount < 0 AND direction <> 'employee_to_company'");
@@ -2534,6 +2536,7 @@ app.post('/api/restore', requirePermission('backups.manage'), requireRecentReaut
     }
 
     if(hasCompliance)await compliance.restoreComplianceBackup(client,data.compliance);
+    await enforcePrivacyTombstones(client);
 
     for(const table of ['users','employees','objects','organizations','salary_records','employee_balances','bank_statement_payments','action_log','security_log']){
       await client.query("SELECT setval(pg_get_serial_sequence('"+table+"','id'), COALESCE((SELECT MAX(id) FROM "+table+"),1), (SELECT COUNT(*)>0 FROM "+table+"))");
@@ -2590,6 +2593,36 @@ async function initAdmin() {
   }
 }
 
+async function enforcePrivacyTombstones(queryable){
+  try{
+    const tombstones=(await queryable.query("SELECT identifier_hash,identifier_type,tenant_scope FROM privacy_tombstones")).rows;
+    if(!tombstones.length)return 0;
+    const index=new Set(tombstones.map(t=>String(t.identifier_type||'')+'|'+String(t.tenant_scope||'')+'|'+String(t.identifier_hash||'')));
+    const globalIndex=new Set(tombstones.filter(t=>!String(t.tenant_scope||'')).map(t=>String(t.identifier_type||'')+'|'+String(t.identifier_hash||'')));
+    const users=(await queryable.query("SELECT id,login,email,fio,tenant_id FROM users WHERE upper(trim(login))<>'ADMIN'")).rows;
+    let removed=0;
+    for(const user of users){
+      const scope=String(user.tenant_id||'');
+      const candidates=[
+        ['email',normalizeEmail(user.email)],
+        ['login',String(user.login||'').trim().toLowerCase()],
+        ['fio',String(user.fio||'').trim().toLowerCase()]
+      ].filter(x=>x[1]);
+      const matched=candidates.some(([type,value])=>{
+        const hash=crypto.createHash('sha256').update(value,'utf8').digest('hex');
+        return index.has(type+'|'+scope+'|'+hash)||globalIndex.has(type+'|'+hash);
+      });
+      if(!matched)continue;
+      await queryable.query('DELETE FROM email_codes WHERE user_id=$1',[user.id]);
+      await queryable.query("DELETE FROM app_sessions WHERE (sess->'user'->>'id')::text=$1",[String(user.id)]);
+      await queryable.query('DELETE FROM users WHERE id=$1',[user.id]);
+      removed++;
+    }
+    if(removed)console.warn('Privacy tombstones removed resurrected accounts:',removed);
+    return removed;
+  }catch(err){console.error('Privacy tombstone enforcement failed:',err.message);return 0;}
+}
+
 async function runRetentionCleanup(){
   const securityDays=Math.min(3650,Math.max(30,Number(process.env.RETENTION_SECURITY_LOG_DAYS)||365));
   const backupDays=Math.min(3650,Math.max(1,Number(process.env.RETENTION_BACKUP_DAYS)||30));
@@ -2605,6 +2638,7 @@ async function runRetentionCleanup(){
 async function startServer(){
   try{
     await ensureDatabaseSchema();
+    await enforcePrivacyTombstones(pool);
     await compliance.ensureComplianceSchema(pool);
     await initAdmin();
     databaseSchemaReady=true;
