@@ -1007,6 +1007,17 @@ function installComplianceRoutes(app,deps){
         legal_documents:Object.fromEntries(Object.entries(docs).map(([k,v])=>[k,{version:v.version,hash:v.content_hash,published_at:v.published_at}])),
         data_region:String(process.env.DATA_REGION||'RU'),
         platform_mfa_enabled:String(process.env.PLATFORM_MFA_ENABLED||'false').toLowerCase()==='true',
+        registration_invite_required:String(process.env.REGISTRATION_INVITE_REQUIRED||'true').toLowerCase()==='true',
+        readiness:{
+          infra_ru_confirmed:String(process.env.INFRA_RU_CONFIRMED||'false').toLowerCase()==='true',
+          rkn_notification_confirmed:String(process.env.RKN_OPERATOR_NOTIFICATION_CONFIRMED||'false').toLowerCase()==='true',
+          dpa_approved:String(process.env.DPA_APPROVED||'false').toLowerCase()==='true',
+          threat_model_approved:String(process.env.THREAT_MODEL_APPROVED||'false').toLowerCase()==='true',
+          incident_runbook_approved:String(process.env.INCIDENT_RUNBOOK_APPROVED||'false').toLowerCase()==='true',
+          backup_restore_verified:String(process.env.BACKUP_RESTORE_VERIFIED||'false').toLowerCase()==='true',
+          ru_business_calendar_confirmed:String(process.env.RU_BUSINESS_CALENDAR_CONFIRMED||'false').toLowerCase()==='true',
+          current_consents_enforced:String(process.env.COMPLIANCE_ENFORCE_CURRENT_CONSENTS||'false').toLowerCase()==='true'
+        },
         tenant_backfill_missing:tenantNullCounts,
         notes:[
           'Конкретный уровень защищённости ИСПДн и набор мер определяются отдельной моделью угроз.',
