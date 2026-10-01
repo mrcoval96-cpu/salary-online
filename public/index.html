@@ -1371,7 +1371,7 @@ async function loadLegalMetadata(){
   try{
     legalMetadata=await api('/api/public/legal-documents');
     const o=legalMetadata.operator||{};
-    const bits=[o.name,o.inn?('ИНН '+o.inn):'',o.ogrnip?('ОГРНИП '+o.ogrnip):'',o.email].filter(Boolean);
+    const bits=[o.name,o.inn?('ИНН '+o.inn):'',o.ogrnip?('ОГРНИП '+o.ogrnip):'',o.address,o.email].filter(Boolean);
     const summary=document.getElementById('legalOperatorSummary');
     if(summary)summary.textContent=bits.join(' · ');
     const warning=document.getElementById('legalOperatorWarning');
@@ -1486,7 +1486,11 @@ function renderComplianceStatus(s){
     ['Incident runbook 24/72 утверждён',r.incident_runbook_approved],
     ['Backup + restore проверены',r.backup_restore_verified],
     ['Производственный календарь РФ подтверждён',r.ru_business_calendar_confirmed],
-    ['Актуальные согласия enforced',r.current_consents_enforced]
+    ['Актуальные согласия enforced',r.current_consents_enforced],
+    ['Юридические тексты утверждены',r.legal_texts_approved],
+    ['Организационные меры/локальные акты утверждены',r.organizational_measures_approved],
+    ['Subprocessors/integrations проверены',r.subprocessors_review_confirmed],
+    ['Security review/pentest принят',r.security_review_accepted]
   ];
   const readinessHtml=readinessRows.map(function(x){return '<div class="compliance-item">'+escapeHtml(x[0])+': <span class="'+(x[1]?'compliance-status-ok':'compliance-status-warn')+'">'+(x[1]?'ДА':'НЕТ')+'</span></div>';}).join('');
   el.innerHTML='<div class="compliance-list">'+
