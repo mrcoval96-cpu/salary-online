@@ -1016,7 +1016,11 @@ function installComplianceRoutes(app,deps){
           incident_runbook_approved:String(process.env.INCIDENT_RUNBOOK_APPROVED||'false').toLowerCase()==='true',
           backup_restore_verified:String(process.env.BACKUP_RESTORE_VERIFIED||'false').toLowerCase()==='true',
           ru_business_calendar_confirmed:String(process.env.RU_BUSINESS_CALENDAR_CONFIRMED||'false').toLowerCase()==='true',
-          current_consents_enforced:String(process.env.COMPLIANCE_ENFORCE_CURRENT_CONSENTS||'false').toLowerCase()==='true'
+          current_consents_enforced:String(process.env.COMPLIANCE_ENFORCE_CURRENT_CONSENTS||'false').toLowerCase()==='true',
+          legal_texts_approved:String(process.env.LEGAL_TEXTS_APPROVED||'false').toLowerCase()==='true',
+          organizational_measures_approved:String(process.env.ORGANIZATIONAL_MEASURES_APPROVED||'false').toLowerCase()==='true',
+          subprocessors_review_confirmed:String(process.env.SUBPROCESSORS_REVIEW_CONFIRMED||'false').toLowerCase()==='true',
+          security_review_accepted:String(process.env.SECURITY_REVIEW_ACCEPTED||'false').toLowerCase()==='true'
         },
         tenant_backfill_missing:tenantNullCounts,
         notes:[
