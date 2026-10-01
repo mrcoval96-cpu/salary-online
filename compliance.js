@@ -964,7 +964,7 @@ function installComplianceRoutes(app,deps){
         await client.query(
           `INSERT INTO privacy_tombstones(identifier_hash,identifier_type,tenant_id,tenant_scope,reason)
            VALUES($1,$2,$3,$4,$5)
-           ON CONFLICT(identifier_hash,identifier_type,tenant_scope) DO UPDATE SET reason=EXCLUDED.reason,tenant_id=EXCLUDED.tenant_id`,
+           ON CONFLICT(identifier_hash,identifier_type,tenant_scope) DO UPDATE SET reason=EXCLUDED.reason,tenant_id=EXCLUDED.tenant_id,released_at=NULL,created_at=NOW()`,
           [sha256(value),type,user.tenant_id||null,String(user.tenant_id||''),'deletion_job:'+id]
         );
       }
