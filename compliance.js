@@ -30,7 +30,7 @@ function operatorDetails(){
   };
 }
 function operatorReady(details){
-  return !!(details.name&&details.inn&&details.ogrnip&&details.email);
+  return !!(details.name&&details.inn&&details.ogrnip&&details.address&&details.email);
 }
 function docVersion(content){
   return new Date().toISOString().slice(0,10)+'-'+sha256(content).slice(0,8);
@@ -50,44 +50,60 @@ function buildLegalText(type){
 Адрес: ${address}.
 
 1. Общие положения
-Настоящая Политика определяет порядок обработки и защиты персональных данных при использовании сервиса «Зарплата: учёт и расчёт». Оператор обрабатывает персональные данные только для заранее определённых и законных целей и применяет принцип минимизации.
+Настоящая Политика определяет порядок обработки и защиты персональных данных при использовании сервиса KORVEX. Оператор обрабатывает персональные данные только для заранее определённых и законных целей и применяет принцип минимизации.
 
-2. Категории субъектов и данных
-В зависимости от сценария могут обрабатываться данные пользователей аккаунтов, работников и иных лиц, данные которых законно внесены клиентом-оператором. Набор может включать ФИО, контактные данные, сведения об организации и учётной записи, сведения о трудовых и расчётных процессах, технические сведения о входах и действиях, а также иные данные, предусмотренные функционалом и договором.
+2. Роли при обработке
+В отношении данных, которые человек самостоятельно предоставляет для создания и использования собственной учётной записи KORVEX, ${operator} определяет цели и состав обработки и выступает оператором персональных данных.
+В отношении персональных данных работников, исполнителей и иных лиц, которые организация-клиент загружает в KORVEX для своих внутренних процессов, организация-клиент самостоятельно определяет цели обработки и является оператором, а владелец KORVEX осуществляет обработку по поручению клиента в пределах договора/поручения на обработку персональных данных.
 
-3. Цели
-Регистрация и ведение аккаунта; предоставление функционала сервиса; разграничение доступа; расчёт и учёт; информационная безопасность; исполнение запросов субъектов; выполнение договорных и законных обязанностей. Рекламные сообщения осуществляются только при наличии отдельного применимого основания.
+3. Категории субъектов и данных
+Пользователи учётных записей: ФИО, электронная почта, при добровольном указании телефон, организация, сведения учётной записи, история входов, IP-адрес, User-Agent и журнал значимых действий.
+Лица, сведения о которых внесены организацией-клиентом: ФИО, должность, контактные и кадровые сведения, сведения об объектах, начислениях и выплатах и иные категории, прямо предусмотренные функционалом и поручением клиента. Специальные категории и биометрические персональные данные не должны загружаться без отдельной правовой и технической оценки.
 
-4. Операции и сроки
-Могут выполняться сбор, запись, систематизация, накопление, хранение, уточнение, извлечение, использование, предоставление уполномоченным пользователям, блокирование, удаление и уничтожение. Сроки определяются целью, договором, требованиями закона и применимыми retention rules.
+4. Цели и правовые основания
+Данные учётной записи обрабатываются для регистрации, предоставления функционала, аутентификации, разграничения доступа, связи по вопросам сервиса, информационной безопасности, исполнения запросов субъектов и договорных обязанностей. Основание определяется конкретной целью: согласие, договор либо иное основание, предусмотренное законодательством.
+Данные, загруженные клиентом о третьих лицах, обрабатываются исключительно по документированному поручению клиента и только для целей, указанных клиентом.
+Рекламные сообщения направляются только при наличии отдельного предварительного согласия.
 
-5. Локализация и получатели
-Основной production-контур, содержащий персональные данные граждан РФ, должен размещаться в инфраструктуре РФ. Подрядчики и субобработчики привлекаются в пределах договорных поручений и предоставленных полномочий. Трансграничная передача требует отдельной проверки и правового основания.
+5. Операции, сроки и уничтожение
+Могут выполняться сбор, запись, систематизация, накопление, хранение, уточнение, извлечение, использование, предоставление уполномоченным пользователям, блокирование, удаление и уничтожение.
+Учётная запись хранится в период её использования. После подтверждённого запроса на прекращение обработки сведения, для которых отсутствует иное законное основание, удаляются или блокируются для последующего уничтожения в применимый срок. Технические журналы безопасности хранятся в пределах установленного оператором retention-периода; резервные копии ротируются по отдельному сроку. Данные клиента после прекращения договора возвращаются/удаляются в порядке и сроки, закреплённые договором поручения, с учётом обязательных сроков хранения и legal hold.
+Актуальные технические retention rules ведутся в KORVEX и подлежат утверждению ответственным лицом до production-эксплуатации.
 
-6. Защита
-Применяются организационные и технические меры, включая аутентификацию, управление доступом, серверную проверку полномочий, журналирование значимых событий, резервное копирование, контроль восстановления, защиту каналов связи и управление секретами. Конкретный набор мер определяется моделью угроз и уровнем защищённости ИСПДн.
+6. Локализация, получатели и трансграничная передача
+При сборе персональных данных граждан РФ первоначальная запись, систематизация, накопление, хранение, уточнение и извлечение выполняются в базах данных на территории Российской Федерации. Размещение PostgreSQL, файлов, журналов и резервных копий должно быть подтверждено настройками и документами инфраструктурных поставщиков.
+Доступ предоставляется только уполномоченным пользователям и привлечённым обработчикам в объёме, необходимом для соответствующей цели. Каждый внешний обработчик/интеграция должен быть внесён в реестр subprocessors и иметь оформленное договорное основание.
+Трансграничная передача не осуществляется без предварительной отдельной правовой проверки и выполнения обязательных процедур.
 
-7. Права субъекта
-Субъект вправе направлять запросы о наличии и обработке данных, требовать уточнения, блокирования или уничтожения в предусмотренных законом случаях, а также отзывать согласие в отношении операций, основанных на таком согласии. Канал обращений: ${email}.
+7. Защита
+Применяются организационные и технические меры, включая аутентификацию, управление доступом, tenant-изоляцию, серверную проверку полномочий, CSRF/origin-защиту, журналирование значимых событий, резервное копирование, контроль восстановления, защиту каналов связи и управление секретами. Конкретный состав мер определяется моделью угроз, установленным уровнем защищённости ИСПДн и результатами приёмочных проверок.
 
-8. Актуальность
-Актуальная версия Политики публикуется в сервисе. Изменения фиксируются версией и контрольной суммой.`;
+8. Права субъекта
+Субъект вправе направлять запросы о наличии и обработке данных, получать предусмотренные законом сведения, требовать уточнения, блокирования или уничтожения в установленных случаях, а также отзывать согласие в отношении операций, основанных на согласии. Запрос можно направить через личный кабинет либо на ${email}. До исполнения запроса оператор вправе выполнить разумную проверку личности заявителя.
+
+9. Файлы cookie и технические идентификаторы
+Сервис использует обязательный серверный cookie salary.sid для поддержания авторизованной сессии. Cookie имеет атрибуты Secure, HttpOnly и SameSite=Lax и не используется для рекламы или межсайтового профилирования. Срок серверной сессии ограничен настройками сервиса. Подключение аналитических, рекламных и иных необязательных cookie требует отдельной оценки до включения.
+
+10. Актуальность
+Актуальная версия Политики постоянно доступна в сервисе. Каждая опубликованная версия имеет дату, версию и SHA-256 контрольную сумму; публикация новой версии не изменяет доказательства ранее совершённых юридических действий.`;
   }
   if(type==='pd_consent'){
     return `СОГЛАСИЕ НА ОБРАБОТКУ ПЕРСОНАЛЬНЫХ ДАННЫХ
 
-Я свободно, своей волей и в своём интересе даю ${operator}, ИНН ${inn}, ОГРНИП ${ogrnip}, согласие на обработку персональных данных, которые я предоставляю при регистрации и использовании сервиса «Зарплата: учёт и расчёт».
+Я свободно, своей волей и в своём интересе отдельно даю ${operator}, ИНН ${inn}, ОГРНИП ${ogrnip}, согласие на обработку персональных данных, которые я самостоятельно предоставляю для создания и использования своей учётной записи KORVEX.
 
-Цели: создание и ведение учётной записи, предоставление функционала сервиса, идентификация и аутентификация, связь по вопросам использования сервиса, обеспечение безопасности и исполнение моих запросов.
+Цели: создание и ведение учётной записи, предоставление функционала сервиса, идентификация и аутентификация, связь по вопросам использования сервиса, обеспечение информационной безопасности и исполнение моих обращений.
 
-Перечень данных в рамках регистрации: ФИО, телефон, электронная почта, организация, сведения об учётной записи и технические сведения, необходимые для доказательства факта регистрации и обеспечения безопасности.
+Перечень данных: ФИО, электронная почта, при добровольном указании телефон, организация, сведения об учётной записи, IP-адрес, User-Agent, время входов и технические сведения, необходимые для подтверждения юридически значимых действий и обеспечения безопасности.
+
+Политика обработки персональных данных опубликована отдельно по адресу /legal/privacy_policy и доступна для ознакомления независимо от дачи настоящего согласия.
 
 Операции: сбор, запись, систематизация, накопление, хранение, уточнение, извлечение, использование, предоставление уполномоченным лицам в пределах целей, блокирование, удаление и уничтожение.
 
 Согласие действует до достижения целей обработки или его отзыва, если иное законное основание не требует продолжения обработки. Отзыв может быть направлен через функции сервиса или на ${email}. Отзыв согласия не прекращает обработку, если у оператора имеется иное предусмотренное законом основание.`;
   }
   if(type==='terms'){
-    return `ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ — БАЗОВАЯ ВЕРСИЯ
+    return `ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ KORVEX
 
 Владелец сервиса: ${operator}, ИНН ${inn}, ОГРНИП ${ogrnip}.
 
@@ -98,7 +114,7 @@ function buildLegalText(type){
 5. Права доступа, экспорт, удаление и иные чувствительные действия могут ограничиваться политиками безопасности и журналироваться.
 6. Условия тарифа, SLA, ответственности, прекращения обслуживания, возврата/экспорта и уничтожения данных должны быть определены договором или офертой владельца сервиса.
 
-Настоящий текст является базовой технической версией и до коммерческого публичного запуска должен быть согласован с фактической договорной моделью сервиса.`;
+Настоящее соглашение применяется совместно с договором, офертой, поручением на обработку персональных данных и иными документами, которые регулируют конкретные отношения между владельцем KORVEX и клиентом. Коммерческие условия, SLA, ответственность, порядок прекращения обслуживания и возврата/удаления данных определяются соответствующим договором или офертой.`;
   }
   if(type==='marketing_consent'){
     return `СОГЛАСИЕ НА РЕКЛАМНЫЕ И ИНФОРМАЦИОННЫЕ СООБЩЕНИЯ
@@ -376,6 +392,22 @@ async function ensureComplianceSchema(pool){
       ('marketing','Рекламные и маркетинговые сообщения','отдельное предварительное согласие','["email","phone"]'::jsonb,'до отзыва согласия','["authorized_marketing"]'::jsonb)
     ON CONFLICT(purpose_id) DO NOTHING`);
 
+  const retentionDefaults=[
+    ['account_identity','account_processing','до прекращения аккаунта; после подтверждённого запроса — удалить/заблокировать при отсутствии иного основания','account_closed_or_valid_deletion_request','delete_or_block','v1'],
+    ['security_log','account_processing',String(process.env.RETENTION_SECURITY_LOG_DAYS||'365')+' дней','event_created','delete','v1'],
+    ['session_data','account_processing','до истечения сессии','session_expired','delete','v1'],
+    ['email_codes','account_processing','до истечения одноразового кода','code_expired','delete','v1'],
+    ['backup_copy','account_processing',String(process.env.RETENTION_BACKUP_DAYS||'30')+' дней','backup_created','rotate_delete','v1'],
+    ['consent_evidence','account_processing',String(process.env.RETENTION_CONSENT_EVIDENCE_DAYS||'1095')+' дней после прекращения соответствующей обработки либо дольше при наличии обязательного основания','processing_ended','delete_after_legal_check','v1'],
+    ['dsar_evidence','account_processing',String(process.env.RETENTION_DSAR_EVIDENCE_DAYS||'1095')+' дней после закрытия запроса либо дольше при наличии обязательного основания','request_closed','delete_after_legal_check','v1']
+  ];
+  for(const row of retentionDefaults){
+    const exists=await pool.query("SELECT 1 FROM retention_rules WHERE tenant_id IS NULL AND data_category=$1 AND purpose_id=$2 AND version=$3 LIMIT 1",[row[0],row[1],row[5]]);
+    if(!exists.rows.length){
+      await pool.query("INSERT INTO retention_rules(tenant_id,data_category,purpose_id,duration_rule,trigger_event,action,version,active) VALUES(NULL,$1,$2,$3,$4,$5,$6,TRUE)",row);
+    }
+  }
+
   await seedLegalDocuments(pool);
 }
 
@@ -439,13 +471,25 @@ async function recordRegistrationConsents(client,req,user,options){
   }
 }
 
+const RU_NONWORKING_DATES=new Set(String(process.env.RU_NONWORKING_DATES||'').split(',').map(x=>x.trim()).filter(Boolean));
+const RU_WORKING_DATES=new Set(String(process.env.RU_WORKING_DATES||'').split(',').map(x=>x.trim()).filter(Boolean));
+function calendarDateKey(date){
+  const y=date.getFullYear(),m=String(date.getMonth()+1).padStart(2,'0'),d=String(date.getDate()).padStart(2,'0');
+  return y+'-'+m+'-'+d;
+}
+function isBusinessDay(date){
+  const key=calendarDateKey(date);
+  if(RU_WORKING_DATES.has(key))return true;
+  if(RU_NONWORKING_DATES.has(key))return false;
+  const day=date.getDay();
+  return day!==0&&day!==6;
+}
 function addBusinessDays(start,count){
   const d=new Date(start);
   let remaining=Number(count)||0;
   while(remaining>0){
     d.setDate(d.getDate()+1);
-    const day=d.getDay();
-    if(day!==0&&day!==6)remaining--;
+    if(isBusinessDay(d))remaining--;
   }
   return d;
 }
@@ -759,7 +803,7 @@ function installComplianceRoutes(app,deps){
       const actor=await refreshAccessUser(req);
       const r=isSiteWideUser(actor)
         ?await pool.query('SELECT * FROM retention_rules ORDER BY active DESC,created_at DESC,id DESC')
-        :await pool.query('SELECT * FROM retention_rules WHERE tenant_id=$1 ORDER BY active DESC,created_at DESC,id DESC',[actor.tenant_id||null]);
+        :await pool.query('SELECT * FROM retention_rules WHERE tenant_id=$1 OR tenant_id IS NULL ORDER BY tenant_id NULLS FIRST,active DESC,created_at DESC,id DESC',[actor.tenant_id||null]);
       res.json(r.rows);
     }catch(err){res.status(err.status||500).json({error:err.message});}
   });
@@ -879,6 +923,74 @@ function installComplianceRoutes(app,deps){
     }catch(err){res.status(err.status||500).json({error:err.message});}
   });
 
+  app.post('/api/compliance/deletion-jobs/:id/execute-account',requirePermission('compliance.manage'),async(req,res)=>{
+    const id=Number(req.params.id);
+    if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректная задача'});
+    const client=await pool.connect();
+    try{
+      await client.query('BEGIN');
+      const actor=await refreshAccessUser(req);
+      const q=isSiteWideUser(actor)
+        ?await client.query('SELECT * FROM deletion_jobs WHERE id=$1 FOR UPDATE',[id])
+        :await client.query('SELECT * FROM deletion_jobs WHERE id=$1 AND tenant_id=$2 FOR UPDATE',[id,actor.tenant_id||null]);
+      if(!q.rows.length){await client.query('ROLLBACK');return res.status(404).json({error:'Задача не найдена'});}
+      const job=q.rows[0];
+      if(job.status==='completed'){await client.query('ROLLBACK');return res.status(409).json({error:'Задача уже завершена'});}
+      const subject=String(job.subject_ref||'').trim();
+      const params=[subject];
+      let tenantSql='';
+      if(job.tenant_id!=null){params.push(job.tenant_id);tenantSql=' AND tenant_id=$2';}
+      const userResult=await client.query(
+        "SELECT id,login,email,fio,tenant_id FROM users WHERE upper(trim(login))<>'ADMIN' AND (lower(trim(COALESCE(email,'')))=lower(trim($1)) OR lower(trim(login))=lower(trim($1)) OR lower(trim(fio))=lower(trim($1)))"+tenantSql+" ORDER BY id LIMIT 2",
+        params
+      );
+      if(userResult.rows.length>1){
+        await client.query("UPDATE deletion_jobs SET status='blocked',started_at=COALESCE(started_at,NOW()),result=$1 WHERE id=$2",['Найдено несколько аккаунтов по идентификатору; требуется ручная идентификация субъекта.',id]);
+        await client.query('COMMIT');
+        return res.status(409).json({error:'Найдено несколько аккаунтов; требуется ручная идентификация'});
+      }
+      if(!userResult.rows.length){
+        await client.query("UPDATE deletion_jobs SET status='blocked',started_at=COALESCE(started_at,NOW()),result=$1 WHERE id=$2",['Аккаунт по subject_ref не найден. Кадровые/расчётные данные не удаляются автоматически без отдельного решения оператора-клиента.',id]);
+        await client.query('COMMIT');
+        return res.status(409).json({error:'Аккаунт не найден; задача переведена в blocked для ручной проверки'});
+      }
+      const user=userResult.rows[0];
+      const identifiers=[
+        ['email',normalizeEmail(user.email)],
+        ['login',String(user.login||'').trim().toLowerCase()],
+        ['fio',String(user.fio||'').trim().toLowerCase()]
+      ].filter(x=>x[1]);
+      for(const [type,value] of identifiers){
+        await client.query(
+          `INSERT INTO privacy_tombstones(identifier_hash,identifier_type,tenant_id,tenant_scope,reason)
+           VALUES($1,$2,$3,$4,$5)
+           ON CONFLICT(identifier_hash,identifier_type,tenant_scope) DO UPDATE SET reason=EXCLUDED.reason,tenant_id=EXCLUDED.tenant_id,released_at=NULL,created_at=NOW()`,
+          [sha256(value),type,user.tenant_id||null,String(user.tenant_id||''),'deletion_job:'+id]
+        );
+      }
+      await client.query("DELETE FROM app_sessions WHERE (sess->'user'->>'id')::text=$1",[String(user.id)]);
+      await client.query('DELETE FROM email_codes WHERE user_id=$1',[user.id]);
+      await client.query('DELETE FROM users WHERE id=$1',[user.id]);
+
+      const employeeMatches=await client.query(
+        "SELECT COUNT(*)::int AS n FROM employees WHERE lower(trim(fio))=lower(trim($1))"+(user.tenant_id!=null?' AND tenant_id=$2':''),
+        user.tenant_id!=null?[user.fio,user.tenant_id]:[user.fio]
+      );
+      const retainedEmployeeRows=Number(employeeMatches.rows[0]&&employeeMatches.rows[0].n||0);
+      const result='Аккаунт, активные сессии и одноразовые коды физически удалены. Consent/audit evidence сохранены в минимальном доказательственном составе без активной учётной записи. Совпадающих кадровых записей клиента: '+retainedEmployeeRows+'. Их обработка имеет отдельную роль/основание и требует решения оператора-клиента.';
+      const evidence='privacy_tombstone:'+id+':'+sha256(identifiers.map(x=>x[0]+':'+x[1]).join('|')).slice(0,24);
+      await client.query(
+        "UPDATE deletion_jobs SET status='completed',started_at=COALESCE(started_at,NOW()),completed_at=NOW(),result=$1,evidence_ref=$2 WHERE id=$3",
+        [result,evidence,id]
+      );
+      await client.query('COMMIT');
+      res.json({ok:true,status:'completed',result,evidence_ref:evidence,retained_employee_rows:retainedEmployeeRows});
+    }catch(err){
+      try{await client.query('ROLLBACK');}catch(e){}
+      res.status(err.status||500).json({error:err.message});
+    }finally{client.release();}
+  });
+
   app.get('/api/compliance/status',requirePermission('compliance.view'),async(req,res)=>{
     try{
       const operator=operatorDetails();
@@ -895,6 +1007,21 @@ function installComplianceRoutes(app,deps){
         legal_documents:Object.fromEntries(Object.entries(docs).map(([k,v])=>[k,{version:v.version,hash:v.content_hash,published_at:v.published_at}])),
         data_region:String(process.env.DATA_REGION||'RU'),
         platform_mfa_enabled:String(process.env.PLATFORM_MFA_ENABLED||'false').toLowerCase()==='true',
+        registration_invite_required:String(process.env.REGISTRATION_INVITE_REQUIRED||'true').toLowerCase()==='true',
+        readiness:{
+          infra_ru_confirmed:String(process.env.INFRA_RU_CONFIRMED||'false').toLowerCase()==='true',
+          rkn_notification_confirmed:String(process.env.RKN_OPERATOR_NOTIFICATION_CONFIRMED||'false').toLowerCase()==='true',
+          dpa_approved:String(process.env.DPA_APPROVED||'false').toLowerCase()==='true',
+          threat_model_approved:String(process.env.THREAT_MODEL_APPROVED||'false').toLowerCase()==='true',
+          incident_runbook_approved:String(process.env.INCIDENT_RUNBOOK_APPROVED||'false').toLowerCase()==='true',
+          backup_restore_verified:String(process.env.BACKUP_RESTORE_VERIFIED||'false').toLowerCase()==='true',
+          ru_business_calendar_confirmed:String(process.env.RU_BUSINESS_CALENDAR_CONFIRMED||'false').toLowerCase()==='true',
+          current_consents_enforced:String(process.env.COMPLIANCE_ENFORCE_CURRENT_CONSENTS||'false').toLowerCase()==='true',
+          legal_texts_approved:String(process.env.LEGAL_TEXTS_APPROVED||'false').toLowerCase()==='true',
+          organizational_measures_approved:String(process.env.ORGANIZATIONAL_MEASURES_APPROVED||'false').toLowerCase()==='true',
+          subprocessors_review_confirmed:String(process.env.SUBPROCESSORS_REVIEW_CONFIRMED||'false').toLowerCase()==='true',
+          security_review_accepted:String(process.env.SECURITY_REVIEW_ACCEPTED||'false').toLowerCase()==='true'
+        },
         tenant_backfill_missing:tenantNullCounts,
         notes:[
           'Конкретный уровень защищённости ИСПДн и набор мер определяются отдельной моделью угроз.',

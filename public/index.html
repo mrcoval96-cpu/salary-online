@@ -6,9 +6,9 @@
 <title>КОРВЕКС</title>
 <link rel="icon" type="image/svg+xml" sizes="any" href="/korvex-tab-icon.svg">
 <link rel="shortcut icon" type="image/svg+xml" href="/korvex-tab-icon.svg">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="/vendor/xlsx.full.min.js"></script>
+<script src="/vendor/html2canvas.min.js"></script>
+<script src="/vendor/jspdf.umd.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;font-family:system-ui,-apple-system,sans-serif}
 body{background:#f0f2f5;color:#1a1a2e}
@@ -367,15 +367,17 @@ button,input,select,textarea{max-width:100%}
     <h2 style="font-size:16px;margin-bottom:10px">Регистрация</h2>
     <div style="font-size:12px;color:#667085;margin:-3px 0 9px">Логин формируется автоматически из ФИО</div>
     <input type="text" id="regFio" placeholder="ФИО *" autocomplete="name" required oninput="formatRegistrationFio(this)">
-    <input type="tel" id="regPhone" placeholder="7 (900) 900-90-90 *" inputmode="numeric" autocomplete="tel" maxlength="18" required oninput="formatRegistrationPhone(this)">
+    <input type="tel" id="regPhone" placeholder="Телефон (необязательно)" inputmode="numeric" autocomplete="tel" maxlength="18" oninput="formatRegistrationPhone(this)">
     <input type="email" id="regEmail" placeholder="Электронная почта *" autocomplete="email" required>
-    <select id="regOrganization" required><option value="">Загрузка организаций…</option></select>
+    <input type="text" id="regInvite" placeholder="Код приглашения организации *" autocomplete="off" required oninput="scheduleInvitationCheck()">
+    <div id="regOrganizationResolved" style="font-size:12px;color:#667085;margin:-3px 0 8px">Организация определяется по приглашению.</div>
     <input type="text" id="regLogin" placeholder="Логин сформируется автоматически *" readonly required tabindex="-1" title="Логин формируется автоматически из ФИО">
     <input type="password" id="regPassword" placeholder="Пароль *" autocomplete="new-password" required>
     <input type="password" id="regPasswordConfirm" placeholder="Повторите пароль *" autocomplete="new-password" required>
     <div class="legal-consents">
       <label class="legal-consent-row"><input type="checkbox" id="regTermsAccepted"><span>Я принимаю <a href="/legal/terms" target="_blank" rel="noopener">Пользовательское соглашение</a>.</span></label>
-      <label class="legal-consent-row"><input type="checkbox" id="regPdConsent"><span>Я отдельно даю <a href="/legal/pd_consent" target="_blank" rel="noopener">согласие на обработку персональных данных</a> и ознакомлен(а) с <a href="/legal/privacy_policy" target="_blank" rel="noopener">Политикой обработки ПД</a>.</span></label>
+      <label class="legal-consent-row"><input type="checkbox" id="regPdConsent"><span>Я отдельно даю <a href="/legal/pd_consent" target="_blank" rel="noopener">согласие на обработку персональных данных</a>.</span></label>
+      <div style="font-size:11px;color:#667085;margin:6px 0 10px">До регистрации ознакомьтесь с <a href="/legal/privacy_policy" target="_blank" rel="noopener">Политикой обработки персональных данных</a>. Политика доступна независимо от дачи согласия.</div>
       <label class="legal-consent-row"><input type="checkbox" id="regMarketingConsent"><span>Я добровольно соглашаюсь получать рекламные сообщения в соответствии с <a href="/legal/marketing_consent" target="_blank" rel="noopener">отдельным рекламным согласием</a>. Это не обязательно для регистрации.</span></label>
       <div id="legalOperatorWarning" class="legal-warning">Реквизиты оператора ПД ещё не заполнены администратором. До коммерческого запуска их необходимо настроить.</div>
     </div>
@@ -423,7 +425,8 @@ button,input,select,textarea{max-width:100%}
     <div id="legalRequiredIntro" style="font-size:12px;color:#667085;margin-bottom:9px">Для продолжения работы отдельно подтвердите актуальные документы.</div>
     <div class="legal-consents">
       <label class="legal-consent-row"><input type="checkbox" id="currentTermsAccepted"><span>Я принимаю актуальное <a href="/legal/terms" target="_blank" rel="noopener">Пользовательское соглашение</a>.</span></label>
-      <label class="legal-consent-row"><input type="checkbox" id="currentPdConsent"><span>Я отдельно даю актуальное <a href="/legal/pd_consent" target="_blank" rel="noopener">согласие на обработку персональных данных</a> и ознакомлен(а) с <a href="/legal/privacy_policy" target="_blank" rel="noopener">Политикой обработки ПД</a>.</span></label>
+      <label class="legal-consent-row"><input type="checkbox" id="currentPdConsent"><span>Я отдельно даю актуальное <a href="/legal/pd_consent" target="_blank" rel="noopener">согласие на обработку персональных данных</a>.</span></label>
+      <div style="font-size:11px;color:#667085;margin:6px 0 10px">Актуальная <a href="/legal/privacy_policy" target="_blank" rel="noopener">Политика обработки персональных данных</a> опубликована отдельно.</div>
     </div>
     <button class="btn-primary" id="acceptCurrentLegalBtn" onclick="acceptCurrentLegal()">Подтвердить и продолжить</button>
     <div id="legalRequiredMsg" class="error"></div>
@@ -613,6 +616,12 @@ button,input,select,textarea{max-width:100%}
     <div class="card">
       <h2 style="margin-bottom:16px">Пользователи и роли</h2>
       <p id="usersScopeHint" style="color:#666;margin-bottom:12px;font-size:13px">После регистрации назначьте пользователю роль и при необходимости объект.</p>
+      <div id="registrationInviteTools" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 14px;padding:10px;background:#f8fafc;border:1px solid #e4e7ec;border-radius:8px">
+        <select id="inviteOrganizationSelect" style="min-width:220px"></select>
+        <select id="inviteValidDays"><option value="1">1 день</option><option value="3">3 дня</option><option value="7" selected>7 дней</option><option value="14">14 дней</option><option value="30">30 дней</option></select>
+        <button class="btn btn-blue btn-sm" onclick="createRegistrationInvite()">Создать приглашение</button>
+        <div id="registrationInviteResult" style="width:100%;font-size:12px;color:#344054"></div>
+      </div>
       <table id="usersTable"><thead><tr><th>ФИО</th><th>Логин</th><th>Email</th><th>Телефон</th><th>Роль</th><th>Организация / объект</th><th>Последний вход</th><th>Действия</th></tr></thead>
       <tbody id="usersBody"></tbody></table>
     </div>
@@ -1205,24 +1214,41 @@ async function resendLoginMfa(){
   }catch(e){msg.textContent=e.message;}
 }
 
-async function loadRegistrationOrganizations(){
-  const select=document.getElementById('regOrganization');
-  if(!select)return;
-  select.innerHTML='<option value="">Загрузка организаций…</option>';
-  select.disabled=true;
+let registrationInviteTimer=null;
+async function checkRegistrationInvitation(){
+  const input=document.getElementById('regInvite');
+  const info=document.getElementById('regOrganizationResolved');
+  if(!input||!info)return false;
+  const token=input.value.trim();
+  if(!token){info.textContent='Организация определяется по приглашению.';info.style.color='#667085';info.dataset.valid='false';return false;}
+  info.textContent='Проверяем приглашение…';info.style.color='#667085';
   try{
-    const list=await api('/api/public/organizations');
-    select.innerHTML='<option value="">Выберите организацию *</option>'+list.map(function(o){return '<option value="'+Number(o.id)+'">'+escapeHtml(o.name||'')+'</option>';}).join('');
-    if(!list.length)select.innerHTML='<option value="">Организации ещё не добавлены</option>';
+    const r=await api('/api/public/invitation/'+encodeURIComponent(token));
+    info.textContent='Организация: '+(r.organization||'');
+    info.style.color='#027a48';
+    info.dataset.valid='true';
+    info.dataset.organization=r.organization||'';
+    return true;
   }catch(e){
-    select.innerHTML='<option value="">Не удалось загрузить организации</option>';
-  }finally{select.disabled=false;}
+    info.textContent=e.message||'Приглашение недействительно';
+    info.style.color='#b42318';
+    info.dataset.valid='false';
+    info.dataset.organization='';
+    return false;
+  }
+}
+function scheduleInvitationCheck(){
+  clearTimeout(registrationInviteTimer);
+  registrationInviteTimer=setTimeout(checkRegistrationInvitation,350);
 }
 function showRegister() {
   document.getElementById('loginForm').style.display = 'none';
   document.getElementById('mfaLoginForm').style.display = 'none';
   document.getElementById('registerForm').style.display = 'block';
-  loadRegistrationOrganizations();
+  const invite=new URLSearchParams(location.search).get('invite')||'';
+  const input=document.getElementById('regInvite');
+  if(input&&invite&&!input.value)input.value=invite;
+  checkRegistrationInvitation();
   loadLegalMetadata();
 }
 function showRecover() {
@@ -1305,7 +1331,7 @@ async function doRegister() {
   const fio = document.getElementById('regFio').value.trim();
   const phone = document.getElementById('regPhone').value.trim();
   const email = document.getElementById('regEmail').value.trim().toLowerCase();
-  const organizationId = Number(document.getElementById('regOrganization').value);
+  const inviteToken = document.getElementById('regInvite').value.trim();
   const login = buildLoginFromFio(fio);
   document.getElementById('regLogin').value=login;
   const password = document.getElementById('regPassword').value;
@@ -1315,15 +1341,16 @@ async function doRegister() {
   const marketingConsent=document.getElementById('regMarketingConsent').checked;
   document.getElementById('regMsg').className = 'error';
   document.getElementById('regMsg').textContent = '';
-  if (!fio || !phone || !email || !organizationId || !login || !password || !passwordConfirm) { document.getElementById('regMsg').textContent = 'Все поля обязательны для заполнения, включая организацию'; return; }
+  if (!fio || !email || !inviteToken || !login || !password || !passwordConfirm) { document.getElementById('regMsg').textContent = 'Заполните обязательные поля и укажите приглашение организации'; return; }
   if (password !== passwordConfirm) { document.getElementById('regMsg').textContent = 'Пароли не совпадают'; return; }
-  if (password.length < 8) { document.getElementById('regMsg').textContent = 'Пароль должен содержать не менее 8 символов'; return; }
+  if (password.length < 12) { document.getElementById('regMsg').textContent = 'Пароль должен содержать не менее 12 символов'; return; }
   if (!termsAccepted) { document.getElementById('regMsg').textContent = 'Отдельно примите Пользовательское соглашение'; return; }
   if (!pdConsent) { document.getElementById('regMsg').textContent = 'Отдельно дайте согласие на обработку персональных данных'; return; }
-  if (fio.split(/\s+/).filter(Boolean).length < 3) { document.getElementById('regMsg').textContent = 'Введите ФИО полностью: Фамилия Имя Отчество'; return; }
-  if (!isValidRegistrationPhone(phone)) { document.getElementById('regMsg').textContent = 'Введите номер телефона полностью: 7 (900) 900-90-90'; return; }
+  if (fio.split(/\s+/).filter(Boolean).length < 2) { document.getElementById('regMsg').textContent = 'Введите фамилию и имя'; return; }
+  if (phone && !isValidRegistrationPhone(phone)) { document.getElementById('regMsg').textContent = 'Введите номер телефона полностью: 7 (900) 900-90-90'; return; }
+  if(!(await checkRegistrationInvitation())) { document.getElementById('regMsg').textContent = 'Проверьте код приглашения организации'; return; }
   try {
-    const created=await withBusyButton('regSubmitBtn','Регистрируем…',function(){return api('/api/register', 'POST', { fio, phone, email, login, password, organization_id:organizationId, terms_accepted:termsAccepted, pd_consent:pdConsent, marketing_consent:marketingConsent });});
+    const created=await withBusyButton('regSubmitBtn','Регистрируем…',function(){return api('/api/register', 'POST', { fio, phone, email, login, password, invite_token:inviteToken, terms_accepted:termsAccepted, pd_consent:pdConsent, marketing_consent:marketingConsent });});
     document.getElementById('regMsg').className = 'success';
     document.getElementById('regMsg').textContent = created.message;
     const verifyBlock=document.getElementById('regVerifyBlock');
@@ -1344,7 +1371,7 @@ async function loadLegalMetadata(){
   try{
     legalMetadata=await api('/api/public/legal-documents');
     const o=legalMetadata.operator||{};
-    const bits=[o.name,o.inn?('ИНН '+o.inn):'',o.ogrnip?('ОГРНИП '+o.ogrnip):'',o.email].filter(Boolean);
+    const bits=[o.name,o.inn?('ИНН '+o.inn):'',o.ogrnip?('ОГРНИП '+o.ogrnip):'',o.address,o.email].filter(Boolean);
     const summary=document.getElementById('legalOperatorSummary');
     if(summary)summary.textContent=bits.join(' · ');
     const warning=document.getElementById('legalOperatorWarning');
@@ -1450,12 +1477,30 @@ async function submitDsar(){
 function renderComplianceStatus(s){
   const el=document.getElementById('complianceStatus');if(!el)return;
   const missing=s.tenant_backfill_missing||{},missingTotal=Object.values(missing).reduce(function(a,b){return a+Number(b||0);},0);
+  const r=s.readiness||{};
+  const readinessRows=[
+    ['РФ-инфраструктура подтверждена',r.infra_ru_confirmed],
+    ['Уведомление Роскомнадзора подтверждено',r.rkn_notification_confirmed],
+    ['DPA/поручение с клиентами утверждено',r.dpa_approved],
+    ['Модель угроз / меры ИСПДн утверждены',r.threat_model_approved],
+    ['Incident runbook 24/72 утверждён',r.incident_runbook_approved],
+    ['Backup + restore проверены',r.backup_restore_verified],
+    ['Производственный календарь РФ подтверждён',r.ru_business_calendar_confirmed],
+    ['Актуальные согласия enforced',r.current_consents_enforced],
+    ['Юридические тексты утверждены',r.legal_texts_approved],
+    ['Организационные меры/локальные акты утверждены',r.organizational_measures_approved],
+    ['Subprocessors/integrations проверены',r.subprocessors_review_confirmed],
+    ['Security review/pentest принят',r.security_review_accepted]
+  ];
+  const readinessHtml=readinessRows.map(function(x){return '<div class="compliance-item">'+escapeHtml(x[0])+': <span class="'+(x[1]?'compliance-status-ok':'compliance-status-warn')+'">'+(x[1]?'ДА':'НЕТ')+'</span></div>';}).join('');
   el.innerHTML='<div class="compliance-list">'+
     '<div class="compliance-item">Реквизиты оператора: <span class="'+(s.operator_ready?'compliance-status-ok':'compliance-status-warn')+'">'+(s.operator_ready?'настроены':'ТРЕБУЮТ НАСТРОЙКИ')+'</span></div>'+
     '<div class="compliance-item">Юридические документы: <span class="'+(s.legal_documents_ready?'compliance-status-ok':'compliance-status-warn')+'">'+(s.legal_documents_ready?'опубликованы':'неполный комплект')+'</span></div>'+
     '<div class="compliance-item">Data region (конфигурация): <b>'+escapeHtml(s.data_region||'')+'</b></div>'+
+    '<div class="compliance-item">Регистрация только по приглашению: <span class="'+(s.registration_invite_required?'compliance-status-ok':'compliance-status-warn')+'">'+(s.registration_invite_required?'ДА':'НЕТ')+'</span></div>'+
     '<div class="compliance-item">MFA platform admin: <span class="'+(s.platform_mfa_enabled?'compliance-status-ok':'compliance-status-warn')+'">'+(s.platform_mfa_enabled?'включена':'выключена')+'</span></div>'+
     '<div class="compliance-item">Незаполненный tenant_id: <span class="'+(missingTotal===0?'compliance-status-ok':'compliance-status-warn')+'">'+missingTotal+'</span></div>'+
+    readinessHtml+
     '</div>';
 }
 function renderAdminDsar(rows){
@@ -1511,14 +1556,14 @@ function renderDeletionJobs(rows){
     const stores=Array.isArray(r.stores_targeted)?r.stores_targeted.join(', '):String(r.stores_targeted||'');
     let actions='';
     if(can('compliance.manage')){
-      if(r.status==='queued')actions='<button class="btn btn-blue btn-sm" onclick="setDeletionJobStatus('+Number(r.id)+',\'in_progress\')">В работу</button>';
-      else if(r.status==='in_progress'||r.status==='blocked')actions='<button class="btn btn-green btn-sm" onclick="completeDeletionJob('+Number(r.id)+')">Завершить с evidence</button> <button class="btn btn-gray btn-sm" onclick="setDeletionJobStatus('+Number(r.id)+',\'blocked\')">Блокировать</button>';
+      if(r.status==='queued')actions='<button class="btn btn-red btn-sm" onclick="executeAccountDeletion('+Number(r.id)+')">Удалить аккаунтные ПД</button> <button class="btn btn-blue btn-sm" onclick="setDeletionJobStatus('+Number(r.id)+',\'in_progress\')">В работу вручную</button>';
+      else if(r.status==='in_progress'||r.status==='blocked')actions='<button class="btn btn-red btn-sm" onclick="executeAccountDeletion('+Number(r.id)+')">Удалить аккаунтные ПД</button> <button class="btn btn-green btn-sm" onclick="completeDeletionJob('+Number(r.id)+')">Завершить вручную с evidence</button> <button class="btn btn-gray btn-sm" onclick="setDeletionJobStatus('+Number(r.id)+',\'blocked\')">Блокировать</button>';
     }
     return '<tr><td>'+Number(r.id)+'</td><td>'+escapeHtml(r.subject_ref||'')+'</td><td>'+escapeHtml(r.legal_reason||'')+'</td><td>'+escapeHtml(stores)+'</td><td>'+escapeHtml(r.status||'')+'</td><td>'+complianceDate(r.created_at)+'</td><td>'+escapeHtml(r.evidence_ref||'')+'</td><td>'+actions+'</td></tr>';
   }).join(''):'<tr><td colspan="8">Задач на уничтожение нет.</td></tr>';
 }
 async function createDeletionJobFromDsar(id){
-  if(!confirm('Создать задачу на уничтожение по этому запросу? Данные автоматически удалены не будут.'))return;
+  if(!confirm('Создать задачу на уничтожение по этому запросу? Аккаунтные данные можно будет удалить автоматически; кадровые и расчётные данные требуют отдельной проверки правового основания.'))return;
   try{
     await api('/api/compliance/dsar/'+id+'/deletion-job','POST',{stores_targeted:['users','employees','salary_records','hr_profile','files','backups-delayed-purge']});
     toast('Deletion job создана');loadCompliance();
@@ -1526,6 +1571,14 @@ async function createDeletionJobFromDsar(id){
 }
 async function setDeletionJobStatus(id,status){
   try{await api('/api/compliance/deletion-jobs/'+id,'PATCH',{status:status});toast('Статус задачи обновлён');loadCompliance();}catch(e){toast(e.message,'error');}
+}
+async function executeAccountDeletion(id){
+  if(!confirm('Физически удалить аккаунт, его активные сессии и одноразовые коды? Consent/audit evidence останутся в минимальном доказательственном составе.'))return;
+  try{
+    const r=await api('/api/compliance/deletion-jobs/'+id+'/execute-account','POST',{});
+    toast(r.result||'Аккаунтные данные удалены');
+    loadCompliance();
+  }catch(e){toast(e.message,'error');loadCompliance();}
 }
 async function completeDeletionJob(id){
   const result=prompt('Опишите фактический результат уничтожения/обезличивания:','Проверено и выполнено по утверждённой процедуре');
@@ -1603,7 +1656,7 @@ async function resetPasswordByEmail(){
   msg.className='error';
   if(!code||!password||!confirm){msg.textContent='Заполните код и новый пароль';return;}
   if(password!==confirm){msg.textContent='Пароли не совпадают';return;}
-  if(password.length<8){msg.textContent='Пароль должен содержать не менее 8 символов';return;}
+  if(password.length<12){msg.textContent='Пароль должен содержать не менее 12 символов';return;}
   try{await withBusyButton('recResetBtn','Сохраняем…',function(){return api('/api/recover/reset','POST',{identifier,code,password});});msg.className='success';msg.textContent='Пароль изменён. Теперь можно войти.';setTimeout(showLogin,1800);}
   catch(e){msg.textContent=e.message;}
 }
@@ -2943,8 +2996,36 @@ function formatLastLogin(user){
   const d=new Date(user.last_login_at);
   return '<span>'+escapeHtml(isNaN(d)?String(user.last_login_at):d.toLocaleString('ru-RU'))+'</span><div style="font-size:11px;color:#667085">Входов: '+Number(user.login_count||0)+'</div>';
 }
+function renderInviteTools(){
+  const select=document.getElementById('inviteOrganizationSelect');
+  if(!select||!currentUser)return;
+  let list=organizations.slice();
+  if(currentUser.role!=='Руководитель сайта'){
+    list=list.filter(function(o){return String(o.name||'').trim().toLocaleLowerCase('ru-RU')===String(currentUser.organization||'').trim().toLocaleLowerCase('ru-RU');});
+  }
+  select.innerHTML=list.map(function(o){return '<option value="'+Number(o.id)+'">'+escapeHtml(o.name||'')+'</option>';}).join('');
+  select.disabled=currentUser.role!=='Руководитель сайта';
+}
+async function createRegistrationInvite(){
+  try{
+    const select=document.getElementById('inviteOrganizationSelect');
+    const organizationId=Number(select&&select.value);
+    if(!organizationId){toast('Не выбрана организация','error');return;}
+    const validDays=Number(document.getElementById('inviteValidDays').value)||7;
+    const r=await api('/api/registration-invites','POST',{organization_id:organizationId,valid_days:validDays,max_uses:1});
+    const link=location.origin+location.pathname+'?invite='+encodeURIComponent(r.token);
+    const box=document.getElementById('registrationInviteResult');
+    box.innerHTML='Приглашение для <b>'+escapeHtml(r.organization||'')+'</b> действует до '+escapeHtml(new Date(r.expires_at).toLocaleString('ru-RU'))+'.<br><input id="createdInviteLink" readonly value="'+escapeHtml(link)+'" style="width:min(100%,700px);margin-top:6px"> <button class="btn btn-gray btn-sm" onclick="copyCreatedInvite()">Копировать</button>';
+  }catch(e){toast(e.message,'error');}
+}
+async function copyCreatedInvite(){
+  const input=document.getElementById('createdInviteLink');if(!input)return;
+  try{await navigator.clipboard.writeText(input.value);toast('Ссылка приглашения скопирована');}
+  catch(e){input.select();document.execCommand('copy');toast('Ссылка приглашения скопирована');}
+}
 function renderUsers() {
   if (!canManageUsers()) return;
+  renderInviteTools();
   const hint=document.getElementById('usersScopeHint');
   if(hint)hint.textContent=currentUser.role==='Руководитель сайта'
     ? 'Показаны пользователи всех организаций. Роль задаёт стандартные права, а кнопка «Изменить доступ» позволяет настроить исключения для конкретного пользователя.'
@@ -3322,6 +3403,11 @@ async function init() {
 
 document.addEventListener('DOMContentLoaded', function(){
   loadLegalMetadata();
+  const invite=new URLSearchParams(location.search).get('invite');
+  if(invite){
+    const input=document.getElementById('regInvite');if(input)input.value=invite;
+    showRegister();
+  }
   init();
   const regFio=document.getElementById('regFio');
   if(regFio){

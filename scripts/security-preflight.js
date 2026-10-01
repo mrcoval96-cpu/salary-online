@@ -17,7 +17,8 @@ const criticalTables=[
   'automatic_backups','security_log','email_codes','employee_balances',
   'bank_statement_payments','organization_aliases','processing_purposes','legal_documents',
   'consents','marketing_suppression','data_subject_requests','audit_events','incidents',
-  'admin_access_sessions','exports','deletion_jobs','retention_rules','subprocessors_integrations','app_sessions'
+  'admin_access_sessions','exports','deletion_jobs','retention_rules','subprocessors_integrations','app_sessions',
+  'registration_invites','privacy_tombstones'
 ];
 
 const requiredColumns={
@@ -33,7 +34,9 @@ const requiredColumns={
   data_subject_requests:['request_id','tenant_id','request_type','received_at','due_at','status'],
   audit_events:['event_id','occurred_at','actor_id','tenant_id','action','correlation_id'],
   incidents:['incident_id','severity','detected_at','confirmed_at','due_24h','due_72h','status'],
-  app_sessions:['sid','sess','expire','updated_at']
+  app_sessions:['sid','sess','expire','updated_at'],
+  registration_invites:['id','token_hash','organization_id','expires_at','max_uses','uses','revoked_at'],
+  privacy_tombstones:['id','identifier_hash','identifier_type','tenant_id','tenant_scope','created_at','released_at']
 };
 
 function sslOptions(urlString){
@@ -126,12 +129,34 @@ async function main(){
       if(!sslResult.rows[0].ssl)blockers.push('Hosted PostgreSQL connection is not using TLS');
     }
     if(String(process.env.DATA_REGION||'').trim().toUpperCase()!=='RU')blockers.push('DATA_REGION must be explicitly set to RU for the Russian production contour');
-    for(const key of ['LEGAL_OPERATOR_NAME','LEGAL_OPERATOR_INN','LEGAL_OPERATOR_OGRNIP','LEGAL_PRIVACY_EMAIL']){
+    for(const key of ['LEGAL_OPERATOR_NAME','LEGAL_OPERATOR_INN','LEGAL_OPERATOR_OGRNIP','LEGAL_OPERATOR_ADDRESS','LEGAL_PRIVACY_EMAIL']){
       if(!String(process.env[key]||'').trim())blockers.push('Missing legal operator setting: '+key);
     }
+    const requiredAttestations=[
+      ['INFRA_RU_CONFIRMED','Russian placement of production DB/storage/logs/backups has not been confirmed'],
+      ['RKN_OPERATOR_NOTIFICATION_CONFIRMED','Roskomnadzor operator notification has not been confirmed'],
+      ['DPA_APPROVED','Client personal-data processing agreement/DPA has not been approved'],
+      ['THREAT_MODEL_APPROVED','Threat model / ISPDn protection level has not been approved'],
+      ['INCIDENT_RUNBOOK_APPROVED','24/72 incident response runbook has not been approved'],
+      ['BACKUP_RESTORE_VERIFIED','Production backup and restore verification has not been confirmed'],
+      ['RU_BUSINESS_CALENDAR_CONFIRMED','Official Russian business-day calendar has not been confirmed'],
+      ['LEGAL_TEXTS_APPROVED','Final privacy policy, consent and terms have not been legally approved'],
+      ['ORGANIZATIONAL_MEASURES_APPROVED','Required organizational personal-data measures/local acts have not been approved'],
+      ['SUBPROCESSORS_REVIEW_CONFIRMED','Subprocessor and integration review has not been confirmed'],
+      ['SECURITY_REVIEW_ACCEPTED','Security review/pentest acceptance has not been confirmed']
+    ];
+    for(const [key,message] of requiredAttestations){
+      if(String(process.env[key]||'false').trim().toLowerCase()!=='true')blockers.push(message+' ('+key+'=true required after completion)');
+    }
+    if(String(process.env.REGISTRATION_INVITE_REQUIRED||'true').trim().toLowerCase()!=='true')blockers.push('Public registration must require organization invitations (REGISTRATION_INVITE_REQUIRED=true)');
     if(String(process.env.PLATFORM_MFA_ENABLED||'false').trim().toLowerCase()!=='true')blockers.push('Platform administrator MFA is not enabled (PLATFORM_MFA_ENABLED=true required for P0)');
     if(String(process.env.COMPLIANCE_ENFORCE_CURRENT_CONSENTS||'false').trim().toLowerCase()!=='true')blockers.push('Legacy/current user consent enforcement is disabled (COMPLIANCE_ENFORCE_CURRENT_CONSENTS=true required after legal rollout)');
     if(String(process.env.SESSION_SECRET||'').length<32)blockers.push('SESSION_SECRET must be configured with at least 32 characters');
+    if(!String(process.env.RU_NONWORKING_DATES||'').trim())blockers.push('RU_NONWORKING_DATES must contain the approved non-working dates for the active production calendar');
+    for(const key of ['RETENTION_SECURITY_LOG_DAYS','RETENTION_BACKUP_DAYS','RETENTION_CONSENT_EVIDENCE_DAYS','RETENTION_DSAR_EVIDENCE_DAYS']){
+      const value=Number(process.env[key]);
+      if(!Number.isFinite(value)||value<=0)blockers.push('Retention period must be explicitly configured: '+key);
+    }
 
     if(existing.has('users')){
       const admin=await client.query("SELECT password,email FROM users WHERE upper(trim(login))='ADMIN' LIMIT 1");
@@ -210,7 +235,7 @@ async function main(){
     try{
       const html=fs.readFileSync(path.join(__dirname,'..','public','index.html'),'utf8');
       const external=[...html.matchAll(/<(?:script|link)[^>]+(?:src|href)=["'](https?:\/\/[^"']+)/gi)].map(m=>m[1]);
-      if(external.length)warnings.push('External browser assets require documented data-egress review: '+[...new Set(external)].join(', '));
+      if(external.length)blockers.push('External browser assets are forbidden in the production P0 baseline: '+[...new Set(external)].join(', '));
     }catch(e){warnings.push('Could not inspect public/index.html for external browser assets');}
 
     if(existing.has('organizations')){

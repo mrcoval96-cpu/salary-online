@@ -110,6 +110,32 @@ async function ensureDatabaseSchema(){
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(lower(email)) WHERE email IS NOT NULL AND trim(email) <> ''");
   await pool.query("CREATE TABLE IF NOT EXISTS email_codes (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, email TEXT NOT NULL, purpose TEXT NOT NULL, code_hash TEXT NOT NULL, expires_at TIMESTAMP NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_email_codes_lookup ON email_codes(lower(email), purpose, created_at DESC)");
+  await pool.query(`CREATE TABLE IF NOT EXISTS registration_invites(
+    id BIGSERIAL PRIMARY KEY,
+    token_hash TEXT NOT NULL UNIQUE,
+    organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL,
+    max_uses INTEGER NOT NULL DEFAULT 1,
+    uses INTEGER NOT NULL DEFAULT 0,
+    revoked_at TIMESTAMP,
+    last_used_at TIMESTAMP
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_registration_invites_org ON registration_invites(organization_id,expires_at DESC)");
+  await pool.query(`CREATE TABLE IF NOT EXISTS privacy_tombstones(
+    id BIGSERIAL PRIMARY KEY,
+    identifier_hash TEXT NOT NULL,
+    identifier_type TEXT NOT NULL,
+    tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+    tenant_scope TEXT NOT NULL DEFAULT '',
+    reason TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    released_at TIMESTAMP
+  )`);
+  await pool.query("ALTER TABLE privacy_tombstones ADD COLUMN IF NOT EXISTS tenant_scope TEXT NOT NULL DEFAULT ''");
+  await pool.query("ALTER TABLE privacy_tombstones ADD COLUMN IF NOT EXISTS released_at TIMESTAMP");
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_privacy_tombstones_unique ON privacy_tombstones(identifier_hash,identifier_type,tenant_scope)");
   await pool.query("CREATE TABLE IF NOT EXISTS employee_balances (id SERIAL PRIMARY KEY, employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL, employee_fio TEXT NOT NULL, balance_date DATE NOT NULL, amount NUMERIC(14,2) NOT NULL DEFAULT 0, direction TEXT NOT NULL DEFAULT 'company_to_employee', comment TEXT NOT NULL DEFAULT '', created_by TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
   await pool.query("ALTER TABLE employee_balances ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'company_to_employee'");
   await pool.query("UPDATE employee_balances SET direction='employee_to_company' WHERE amount < 0 AND direction <> 'employee_to_company'");
@@ -329,7 +355,7 @@ function securityHeaders(req,res,next){
   res.setHeader('Referrer-Policy','no-referrer');
   res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=()');
   res.setHeader('Strict-Transport-Security','max-age=31536000');
-  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
+  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
   next();
 }
 app.use(securityHeaders);
@@ -420,6 +446,17 @@ app.use('/api',(req,res,next)=>{
     next();
   });
 });
+
+// Browser libraries are served from the application package itself so user browsers do not
+// contact third-party CDNs while working with personal data.
+const localVendorFiles={
+  '/vendor/xlsx.full.min.js':path.join(__dirname,'node_modules','xlsx','dist','xlsx.full.min.js'),
+  '/vendor/html2canvas.min.js':path.join(__dirname,'node_modules','html2canvas','dist','html2canvas.min.js'),
+  '/vendor/jspdf.umd.min.js':path.join(__dirname,'node_modules','jspdf','dist','jspdf.umd.min.js')
+};
+for(const [route,file] of Object.entries(localVendorFiles)){
+  app.get(route,(req,res)=>res.sendFile(file,err=>{if(err&&!res.headersSent)res.status(404).end();}));
+}
 
 // Static files
 app.use(express.static(path.join(__dirname, 'public'),{
@@ -1064,12 +1101,26 @@ function normalizePhone(phone) {
   if(d.length!==11)return '';
   return '7 ('+d.slice(1,4)+') '+d.slice(4,7)+'-'+d.slice(7,9)+'-'+d.slice(9,11);
 }
-app.get('/api/public/organizations', async (req,res)=>{
+function invitationTokenHash(value){
+  return crypto.createHash('sha256').update(String(value||'').trim(),'utf8').digest('hex');
+}
+app.get('/api/public/invitation/:token', async (req,res)=>{
   try{
-    const result=await pool.query("SELECT id,name FROM organizations WHERE trim(name)<>'' AND status='active' ORDER BY name");
+    const token=String(req.params.token||'').trim();
+    if(token.length<20)return res.status(404).json({error:'Приглашение не найдено'});
+    const r=await pool.query(
+      `SELECT i.id,i.expires_at,i.max_uses,i.uses,o.id AS organization_id,o.name AS organization
+       FROM registration_invites i
+       JOIN organizations o ON o.id=i.organization_id
+       WHERE i.token_hash=$1 AND i.revoked_at IS NULL AND i.expires_at>NOW()
+         AND i.uses<i.max_uses AND o.status='active'
+       LIMIT 1`,
+      [invitationTokenHash(token)]
+    );
+    if(!r.rows.length)return res.status(404).json({error:'Приглашение недействительно, истекло или уже использовано'});
     res.setHeader('Cache-Control','no-store');
-    res.json(result.rows);
-  }catch(err){res.status(500).json({error:'Не удалось загрузить список организаций'});}
+    res.json({ok:true,organization_id:r.rows[0].organization_id,organization:r.rows[0].organization,expires_at:r.rows[0].expires_at});
+  }catch(err){res.status(500).json({error:'Не удалось проверить приглашение'});}
 });
 
 app.post('/api/register', authRateLimit, async (req, res) => {
@@ -1079,27 +1130,60 @@ app.post('/api/register', authRateLimit, async (req, res) => {
   }
   const { fio, phone, password } = req.body;
   const email=normalizeEmail(req.body.email);
-  const organizationId=Number(req.body.organization_id);
+  const inviteToken=String(req.body.invite_token||'').trim();
+  const legacyOrganizationId=Number(req.body.organization_id);
+  const inviteRequired=String(process.env.REGISTRATION_INVITE_REQUIRED||'true').trim().toLowerCase()!=='false';
   const normalizedFio=normalizeRegistrationFio(fio);
   const login=buildLoginFromFio(normalizedFio);
-  const normalizedPhone=normalizePhone(phone);
+  const normalizedPhone=phone?normalizePhone(phone):'';
   const termsAccepted=req.body.terms_accepted===true;
   const pdConsent=req.body.pd_consent===true;
   const marketingConsent=req.body.marketing_consent===true;
-  if (!normalizedFio || !phone || !login || !password || !email || !Number.isInteger(organizationId) || organizationId<=0) return res.status(400).json({ error: 'Все поля обязательны для заполнения, включая организацию' });
+  if (!normalizedFio || !login || !password || !email) return res.status(400).json({ error: 'Заполните обязательные поля регистрации' });
+  if(inviteRequired&&!inviteToken)return res.status(400).json({error:'Для регистрации требуется действующее приглашение организации'});
   if (!termsAccepted || !pdConsent) return res.status(400).json({ error: 'Пользовательское соглашение и согласие на обработку персональных данных принимаются отдельными обязательными действиями' });
   if (!validEmail(email)) return res.status(400).json({ error: 'Введите корректный email' });
-  if (normalizedFio.split(' ').filter(Boolean).length < 3) return res.status(400).json({ error: 'Введите ФИО полностью: Фамилия Имя Отчество' });
-  if (!normalizedPhone) return res.status(400).json({ error: 'Некорректный номер телефона. Формат: 7 (900) 900-90-90' });
-  if (String(password).length < 8) return res.status(400).json({ error: 'Пароль должен содержать не менее 8 символов' });
+  if (normalizedFio.split(' ').filter(Boolean).length < 2) return res.status(400).json({ error: 'Введите фамилию и имя' });
+  if (phone&&!normalizedPhone) return res.status(400).json({ error: 'Некорректный номер телефона. Формат: 7 (900) 900-90-90' });
+  if (String(password).length < 12) return res.status(400).json({ error: 'Пароль должен содержать не менее 12 символов' });
 
   const client=await pool.connect();
-  let createdUser=null,organization='';
+  let createdUser=null,organization='',organizationId=null,inviteRow=null;
   try {
     await client.query('BEGIN');
-    const orgRes=await client.query("SELECT id,name FROM organizations WHERE id=$1 AND status='active'",[organizationId]);
-    if(!orgRes.rows.length){await client.query('ROLLBACK');return res.status(400).json({error:'Выбранная организация не найдена или недоступна'});}
-    organization=String(orgRes.rows[0].name||'').trim();
+    if(inviteToken){
+      const inviteRes=await client.query(
+        `SELECT i.*,o.name AS organization_name,o.status AS organization_status
+         FROM registration_invites i JOIN organizations o ON o.id=i.organization_id
+         WHERE i.token_hash=$1 FOR UPDATE`,
+        [invitationTokenHash(inviteToken)]
+      );
+      inviteRow=inviteRes.rows[0]||null;
+      if(!inviteRow||inviteRow.revoked_at||new Date(inviteRow.expires_at)<=new Date()||Number(inviteRow.uses)>=Number(inviteRow.max_uses)||inviteRow.organization_status!=='active'){
+        await client.query('ROLLBACK');
+        return res.status(400).json({error:'Приглашение недействительно, истекло или уже использовано'});
+      }
+      organizationId=Number(inviteRow.organization_id);
+      organization=String(inviteRow.organization_name||'').trim();
+    }else{
+      if(inviteRequired){await client.query('ROLLBACK');return res.status(400).json({error:'Для регистрации требуется приглашение'});}
+      const orgRes=await client.query("SELECT id,name FROM organizations WHERE id=$1 AND status='active'",[legacyOrganizationId]);
+      if(!orgRes.rows.length){await client.query('ROLLBACK');return res.status(400).json({error:'Выбранная организация не найдена или недоступна'});}
+      organizationId=Number(orgRes.rows[0].id);
+      organization=String(orgRes.rows[0].name||'').trim();
+    }
+    const reRegistrationIdentifiers=[
+      ['email',email],
+      ['login',String(login||'').trim().toLowerCase()],
+      ['fio',String(normalizedFio||'').trim().toLowerCase()]
+    ].filter(x=>x[1]);
+    for(const [type,value] of reRegistrationIdentifiers){
+      const hash=crypto.createHash('sha256').update(value,'utf8').digest('hex');
+      await client.query(
+        "UPDATE privacy_tombstones SET released_at=NOW(),reason=reason||CASE WHEN reason='' THEN '' ELSE '; ' END||'new registration authorized' WHERE identifier_hash=$1 AND identifier_type=$2 AND (tenant_scope=$3 OR tenant_scope='')",
+        [hash,type,String(organizationId)]
+      );
+    }
     const existing = await client.query('SELECT id FROM users WHERE lower(login) = lower($1) OR lower(email)=lower($2)', [login,email]);
     if (existing.rows.length > 0) {await client.query('ROLLBACK');return res.status(400).json({ error: 'Логин или электронная почта уже используются' });}
     const hash = await bcrypt.hash(password, 10);
@@ -1109,6 +1193,7 @@ app.post('/api/register', authRateLimit, async (req, res) => {
     );
     createdUser=inserted.rows[0];
     await compliance.recordRegistrationConsents(client,req,createdUser,{termsAccepted,pdConsent,marketingConsent});
+    if(inviteRow)await client.query('UPDATE registration_invites SET uses=uses+1,last_used_at=NOW() WHERE id=$1',[inviteRow.id]);
     await client.query('COMMIT');
   } catch (err) {
     try{await client.query('ROLLBACK');}catch(e){}
@@ -1144,7 +1229,7 @@ app.post('/api/recover/request', authRateLimit, async (req,res)=>{
 });
 app.post('/api/recover/reset', authRateLimit, async (req,res)=>{
   const identifier=normalizeEmail(req.body.identifier), code=String(req.body.code||'').trim(), password=String(req.body.password||'');
-  if(password.length<8)return res.status(400).json({error:'Новый пароль должен содержать не менее 8 символов'});
+  if(password.length<12)return res.status(400).json({error:'Новый пароль должен содержать не менее 12 символов'});
   try{
     const r=await pool.query("SELECT id,login,email,email_verified FROM users WHERE lower(login)=lower($1) OR lower(email)=lower($1) LIMIT 1",[identifier]);
     if(!r.rows.length || !r.rows[0].email || !r.rows[0].email_verified)return res.status(400).json({error:'Не удалось подтвердить запрос восстановления'});
@@ -1166,6 +1251,57 @@ app.get('/api/permissions/catalog', requireUserManager, async (req,res)=>{
     role_defaults:ROLE_PERMISSION_DEFAULTS,
     actor_permissions:effectivePermissions(actor)
   });
+});
+
+app.get('/api/registration-invites', requireUserManager, async (req,res)=>{
+  try{
+    const actor=req.accessUser||await refreshAccessUser(req);
+    const params=[];
+    let where='';
+    if(!isSiteWideUser(actor)){params.push(actor.tenant_id||0);where='WHERE i.organization_id=$1';}
+    const r=await pool.query(
+      `SELECT i.id,i.organization_id,o.name AS organization,i.created_at,i.expires_at,i.max_uses,i.uses,i.revoked_at,i.last_used_at
+       FROM registration_invites i JOIN organizations o ON o.id=i.organization_id
+       ${where} ORDER BY i.created_at DESC LIMIT 200`,
+      params
+    );
+    res.json(r.rows);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.post('/api/registration-invites', requireUserManager, async (req,res)=>{
+  try{
+    const actor=req.accessUser||await refreshAccessUser(req);
+    let organizationId=isSiteWideUser(actor)?Number(req.body.organization_id):Number(actor.tenant_id);
+    if(!Number.isInteger(organizationId)||organizationId<=0)return res.status(400).json({error:'Не выбрана организация'});
+    if(!isSiteWideUser(actor)&&organizationId!==Number(actor.tenant_id))return res.status(403).json({error:'Можно создавать приглашения только для своей организации'});
+    const org=await pool.query("SELECT id,name FROM organizations WHERE id=$1 AND status='active'",[organizationId]);
+    if(!org.rows.length)return res.status(404).json({error:'Организация не найдена или неактивна'});
+    const validDays=Math.min(30,Math.max(1,Number(req.body.valid_days)||7));
+    const maxUses=Math.min(20,Math.max(1,Number(req.body.max_uses)||1));
+    const token=crypto.randomBytes(32).toString('base64url');
+    const r=await pool.query(
+      `INSERT INTO registration_invites(token_hash,organization_id,created_by,expires_at,max_uses)
+       VALUES($1,$2,$3,NOW()+($4::text||' days')::interval,$5)
+       RETURNING id,organization_id,created_at,expires_at,max_uses,uses`,
+      [invitationTokenHash(token),organizationId,actor.id,String(validDays),maxUses]
+    );
+    await logSecurityEvent(req,'registration_invite_created',true,'invite='+r.rows[0].id+'; org='+organizationId+'; max_uses='+maxUses,actor.login);
+    res.status(201).json({...r.rows[0],organization:org.rows[0].name,token});
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.delete('/api/registration-invites/:id', requireUserManager, async (req,res)=>{
+  const id=Number(req.params.id);
+  if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректное приглашение'});
+  try{
+    const actor=req.accessUser||await refreshAccessUser(req);
+    const q=isSiteWideUser(actor)
+      ?await pool.query('SELECT * FROM registration_invites WHERE id=$1',[id])
+      :await pool.query('SELECT * FROM registration_invites WHERE id=$1 AND organization_id=$2',[id,actor.tenant_id||0]);
+    if(!q.rows.length)return res.status(404).json({error:'Приглашение не найдено'});
+    await pool.query('UPDATE registration_invites SET revoked_at=COALESCE(revoked_at,NOW()) WHERE id=$1',[id]);
+    await logSecurityEvent(req,'registration_invite_revoked',true,'invite='+id,actor.login);
+    res.json({ok:true});
+  }catch(err){res.status(err.status||500).json({error:err.message});}
 });
 
 app.get('/api/users', requireUserManager, async (req, res) => {
@@ -2414,6 +2550,7 @@ app.post('/api/restore', requirePermission('backups.manage'), requireRecentReaut
     }
 
     if(hasCompliance)await compliance.restoreComplianceBackup(client,data.compliance);
+    await enforcePrivacyTombstones(client);
 
     for(const table of ['users','employees','objects','organizations','salary_records','employee_balances','bank_statement_payments','action_log','security_log']){
       await client.query("SELECT setval(pg_get_serial_sequence('"+table+"','id'), COALESCE((SELECT MAX(id) FROM "+table+"),1), (SELECT COUNT(*)>0 FROM "+table+"))");
@@ -2470,9 +2607,54 @@ async function initAdmin() {
   }
 }
 
+async function enforcePrivacyTombstones(queryable){
+  try{
+    const tombstones=(await queryable.query("SELECT identifier_hash,identifier_type,tenant_scope,created_at,released_at FROM privacy_tombstones")).rows;
+    if(!tombstones.length)return 0;
+    const users=(await queryable.query("SELECT id,login,email,fio,tenant_id,created_at FROM users WHERE upper(trim(login))<>'ADMIN'")).rows;
+    let removed=0;
+    for(const user of users){
+      const scope=String(user.tenant_id||'');
+      const candidates=[
+        ['email',normalizeEmail(user.email)],
+        ['login',String(user.login||'').trim().toLowerCase()],
+        ['fio',String(user.fio||'').trim().toLowerCase()]
+      ].filter(x=>x[1]);
+      const matched=tombstones.some(t=>{
+        if(String(t.tenant_scope||'')&&String(t.tenant_scope)!==scope)return false;
+        if(t.released_at&&user.created_at&&new Date(user.created_at)>=new Date(t.released_at))return false;
+        const candidate=candidates.find(x=>x[0]===String(t.identifier_type||''));
+        if(!candidate)return false;
+        const hash=crypto.createHash('sha256').update(candidate[1],'utf8').digest('hex');
+        return hash===String(t.identifier_hash||'');
+      });
+      if(!matched)continue;
+      await queryable.query('DELETE FROM email_codes WHERE user_id=$1',[user.id]);
+      await queryable.query("DELETE FROM app_sessions WHERE (sess->'user'->>'id')::text=$1",[String(user.id)]);
+      await queryable.query('DELETE FROM users WHERE id=$1',[user.id]);
+      removed++;
+    }
+    if(removed)console.warn('Privacy tombstones removed resurrected accounts:',removed);
+    return removed;
+  }catch(err){console.error('Privacy tombstone enforcement failed:',err.message);return 0;}
+}
+
+async function runRetentionCleanup(){
+  const securityDays=Math.min(3650,Math.max(30,Number(process.env.RETENTION_SECURITY_LOG_DAYS)||365));
+  const backupDays=Math.min(3650,Math.max(1,Number(process.env.RETENTION_BACKUP_DAYS)||30));
+  try{
+    await pool.query('DELETE FROM email_codes WHERE expires_at<NOW()');
+    await pool.query('DELETE FROM app_sessions WHERE expire<NOW()');
+    await pool.query("DELETE FROM registration_invites WHERE (expires_at<NOW()-INTERVAL '30 days' OR revoked_at<NOW()-INTERVAL '30 days')");
+    await pool.query("DELETE FROM security_log WHERE created_at<NOW()-($1::text||' days')::interval",[String(securityDays)]);
+    await pool.query("DELETE FROM automatic_backups WHERE created_at<NOW()-($1::text||' days')::interval",[String(backupDays)]);
+  }catch(err){console.error('Retention cleanup failed:',err.message);}
+}
+
 async function startServer(){
   try{
     await ensureDatabaseSchema();
+    await enforcePrivacyTombstones(pool);
     await compliance.ensureComplianceSchema(pool);
     await initAdmin();
     databaseSchemaReady=true;
@@ -2489,6 +2671,8 @@ async function startServer(){
     console.log('Platform MFA: '+(platformMfaEnabled()?'enabled':'disabled'));
     verifyMailTransport();
     startAutomaticBackups();
+    runRetentionCleanup();
+    setInterval(runRetentionCleanup,24*60*60*1000).unref();
   });
 }
 startServer();

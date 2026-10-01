@@ -1,4 +1,4 @@
-# Адаптация Salary Online по ТЗ 152-ФЗ
+# Адаптация KORVEX по ТЗ 152-ФЗ
 
 Основание: документ «CRM с персональными данными — юридический чек-лист и техническое задание для разработчиков», версия 1.0 от 30.09.2026.
 
@@ -19,19 +19,24 @@
 - Добавлены permissions: compliance.view, compliance.manage, incidents.manage, legal.manage.
 - Site-only permissions не выдаются обычным tenant-пользователям.
 
-### Consent ledger и публичная регистрация
+### Consent ledger и регистрация по приглашениям
 - Пользовательское соглашение и согласие на ПД — разные обязательные действия.
 - Marketing consent — отдельный необязательный checkbox.
 - Согласие хранит document version/hash, timestamp, purpose, method, source form, IP и user-agent evidence.
 - Старые версии legal document не перезаписываются.
 - Withdrawal фиксируется отдельно; для marketing создаётся suppression record.
 - Актуальные legal pages доступны через /legal/:type.
+- Политика ПД вынесена из checkbox согласия: согласие и ознакомление с Политикой не объединены в одно действие.
+- Регистрация по умолчанию разрешена только по ограниченному invitation-токену организации; токен хранится только как SHA-256.
+- Публичный список организаций из registration flow удалён.
+- Телефон при регистрации необязателен; отчество технически не требуется.
 
 ### DSAR
 - Пользователь может создать запрос access, correction, blocking, deletion или consent withdrawal.
 - Есть workflow status и due_at.
-- Базовый срок рассчитывается как 10 будних дней; доступно мотивированное продление ещё на 5 будних дней.
-- ВАЖНО: производственный расчёт официальных рабочих дней РФ с учётом праздников требует календаря производственных дней.
+- Базовый срок рассчитывается как 10 рабочих дней; доступно мотивированное продление ещё на 5 рабочих дней.
+- Поддерживаются официальные overrides производственного календаря РФ через RU_NONWORKING_DATES / RU_WORKING_DATES.
+- Production preflight требует подтверждённого календаря (RU_BUSINESS_CALENDAR_CONFIRMED=true).
 
 ### Incident response
 - Реестр incidents.
@@ -74,8 +79,11 @@
 - Audit view.
 - Integration/subprocessor registry backend + UI.
 - Retention rules registry backend + UI.
-- Deletion jobs workflow backend + UI; завершение требует result + evidence_ref.
+- Deletion jobs workflow backend + UI; ручное завершение требует result + evidence_ref.
 - Из DSAR типа deletion создаётся отдельная deletion job.
+- Для аккаунтных данных реализовано фактическое удаление account/session/email-code данных и минимальный hash-tombstone.
+- Tombstone защищает встроенный restore/startup от восстановления старого удалённого аккаунта; повторная законная регистрация создаёт release marker, не разрешающий воскресить более старую запись.
+- Кадровые/расчётные записи клиента не уничтожаются автоматически без решения клиента-оператора и проверки обязательного хранения.
 - Legal document version/hash backend.
 - Пользовательская история согласий.
 - Active sessions.
@@ -93,7 +101,10 @@ npm run security:preflight теперь проверяет:
 - consent evidence integrity;
 - tenant mismatch;
 - append-only audit triggers;
-- внешние browser assets для egress review;
+- отсутствие внешних browser script/link assets (в production это blocker);
+- обязательность invitation-only регистрации;
+- retention settings и производственный календарь РФ;
+- внешние production attestations: РФ-инфраструктура, РКН, DPA, legal texts, организационные меры, модель угроз, incident runbook, subprocessors review, backup/restore и security acceptance;
 - существующие проверки целостности зарплатной/организационной модели.
 
 ## Требует настройки перед production launch
@@ -104,27 +115,27 @@ npm run security:preflight теперь проверяет:
 4. Немедленно сменить legacy пароль ADMIN, если он ещё равен ADMIN.
 5. Задать стабильный случайный SESSION_SECRET не короче 32 символов.
 6. Подтвердить документами/настройками, что production DB/storage/logs/backups расположены в РФ.
-7. Провести data-egress review внешних browser assets/CDN. Предпочтительно перенести XLSX/html2canvas/jsPDF на локальную раздачу из российского production-контура.
-8. Создать test/staging без production ПД и выполнить npm run test:cross-tenant.
-9. Фактически выполнить Stage 1 DB preflight.
-10. Создать независимый encrypted PostgreSQL backup и выполнить restore test.
-11. Настроить secret manager/Vault/KMS для production secrets и будущих encryption keys.
-12. Внедрить application-level encryption чувствительных HR/банковских данных отдельным этапом.
+7. Заполнить и подтвердить официальный производственный календарь РФ (RU_NONWORKING_DATES / RU_WORKING_DATES).
+8. Утвердить retention-периоды и оставить REGISTRATION_INVITE_REQUIRED=true.
+9. Создать test/staging без production ПД и выполнить npm run test:cross-tenant.
+10. Фактически выполнить Stage 1 DB/P0 preflight.
+11. Создать независимый PostgreSQL backup и выполнить restore test; сохранить evidence.
+12. Настроить безопасное хранение production secrets/ключей.
 13. Провести модель угроз, определить уровень защищённости ИСПДн и применимые меры.
 14. Провести security review/pentest и закрыть high/critical.
 15. Подать/актуализировать необходимые уведомления Роскомнадзора и проверить DPA/договоры.
-16. Документировать incident runbook и провести учебный 24/72 incident drill.
+16. Утвердить incident runbook и провести учебный 24/72 incident drill.
+17. Заполнить реестр subprocessors/integrations, включая SMTP/hosting/storage/monitoring.
+18. После фактического выполнения выставить соответствующие *_CONFIRMED / *_APPROVED / *_ACCEPTED flags в production env.
 
 ## Ещё не реализовано полностью
 
 ### P0/P1 gaps
 - Полное отделение platform control plane от tenant content и обязательный JIT workflow для технического support/admin. Таблица admin_access_sessions создана, но enforcement пока не включён, чтобы не заблокировать действующий ADMIN без согласованной операционной процедуры.
-- Полная автоматическая deletion orchestration по DB/files/cache/search с фактическим purge. Управляемые retention rules, deletion jobs, DSAR→deletion job и обязательное evidence уже реализованы, но автоматическое физическое уничтожение intentionally не запускается без утверждённых retention/legal-hold правил.
-- Tombstone/replay mechanism после restore, исключающий «воскрешение» ранее уничтоженных субъектов.
-- Автоматический календарь рабочих/праздничных дней РФ для DSAR deadlines.
-- Локальное размещение frontend vendor libraries вместо cdnjs.
-- Vault/KMS и app-layer AES-256-GCM.
-- Автоматическое шифрование независимых backup-копий.
+- Полная автоматическая deletion orchestration кадровых/расчётных данных клиента не запускается без решения клиента-оператора и утверждённых retention/legal-hold правил; account-контур удаляется фактически.
+- Полный disaster-recovery сценарий из старого снимка всей БД требует отдельного актуального deletion/tombstone ledger вне восстанавливаемого snapshot; встроенный application restore защищён tombstones.
+- Vault/KMS и app-layer шифрование отдельных чувствительных HR/банковских полей остаются дополнительным security-hardening этапом, состав которого определяется моделью угроз.
+- Политика шифрования независимых backup-копий должна быть подтверждена в production-инфраструктуре.
 - WORM/tamper-evident hash chain для audit (P1).
 - MFA для owner/org-admin как настраиваемая enterprise policy (P1).
 - Полная JIT support approval/customer visibility (P1).
