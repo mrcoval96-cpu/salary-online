@@ -471,13 +471,25 @@ async function recordRegistrationConsents(client,req,user,options){
   }
 }
 
+const RU_NONWORKING_DATES=new Set(String(process.env.RU_NONWORKING_DATES||'').split(',').map(x=>x.trim()).filter(Boolean));
+const RU_WORKING_DATES=new Set(String(process.env.RU_WORKING_DATES||'').split(',').map(x=>x.trim()).filter(Boolean));
+function calendarDateKey(date){
+  const y=date.getFullYear(),m=String(date.getMonth()+1).padStart(2,'0'),d=String(date.getDate()).padStart(2,'0');
+  return y+'-'+m+'-'+d;
+}
+function isBusinessDay(date){
+  const key=calendarDateKey(date);
+  if(RU_WORKING_DATES.has(key))return true;
+  if(RU_NONWORKING_DATES.has(key))return false;
+  const day=date.getDay();
+  return day!==0&&day!==6;
+}
 function addBusinessDays(start,count){
   const d=new Date(start);
   let remaining=Number(count)||0;
   while(remaining>0){
     d.setDate(d.getDate()+1);
-    const day=d.getDay();
-    if(day!==0&&day!==6)remaining--;
+    if(isBusinessDay(d))remaining--;
   }
   return d;
 }
