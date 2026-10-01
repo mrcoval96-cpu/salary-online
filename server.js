@@ -1237,6 +1237,57 @@ app.get('/api/permissions/catalog', requireUserManager, async (req,res)=>{
   });
 });
 
+app.get('/api/registration-invites', requireUserManager, async (req,res)=>{
+  try{
+    const actor=req.accessUser||await refreshAccessUser(req);
+    const params=[];
+    let where='';
+    if(!isSiteWideUser(actor)){params.push(actor.tenant_id||0);where='WHERE i.organization_id=$1';}
+    const r=await pool.query(
+      `SELECT i.id,i.organization_id,o.name AS organization,i.created_at,i.expires_at,i.max_uses,i.uses,i.revoked_at,i.last_used_at
+       FROM registration_invites i JOIN organizations o ON o.id=i.organization_id
+       ${where} ORDER BY i.created_at DESC LIMIT 200`,
+      params
+    );
+    res.json(r.rows);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.post('/api/registration-invites', requireUserManager, async (req,res)=>{
+  try{
+    const actor=req.accessUser||await refreshAccessUser(req);
+    let organizationId=isSiteWideUser(actor)?Number(req.body.organization_id):Number(actor.tenant_id);
+    if(!Number.isInteger(organizationId)||organizationId<=0)return res.status(400).json({error:'Не выбрана организация'});
+    if(!isSiteWideUser(actor)&&organizationId!==Number(actor.tenant_id))return res.status(403).json({error:'Можно создавать приглашения только для своей организации'});
+    const org=await pool.query("SELECT id,name FROM organizations WHERE id=$1 AND status='active'",[organizationId]);
+    if(!org.rows.length)return res.status(404).json({error:'Организация не найдена или неактивна'});
+    const validDays=Math.min(30,Math.max(1,Number(req.body.valid_days)||7));
+    const maxUses=Math.min(20,Math.max(1,Number(req.body.max_uses)||1));
+    const token=crypto.randomBytes(32).toString('base64url');
+    const r=await pool.query(
+      `INSERT INTO registration_invites(token_hash,organization_id,created_by,expires_at,max_uses)
+       VALUES($1,$2,$3,NOW()+($4::text||' days')::interval,$5)
+       RETURNING id,organization_id,created_at,expires_at,max_uses,uses`,
+      [invitationTokenHash(token),organizationId,actor.id,String(validDays),maxUses]
+    );
+    await logSecurityEvent(req,'registration_invite_created',true,'invite='+r.rows[0].id+'; org='+organizationId+'; max_uses='+maxUses,actor.login);
+    res.status(201).json({...r.rows[0],organization:org.rows[0].name,token});
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.delete('/api/registration-invites/:id', requireUserManager, async (req,res)=>{
+  const id=Number(req.params.id);
+  if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректное приглашение'});
+  try{
+    const actor=req.accessUser||await refreshAccessUser(req);
+    const q=isSiteWideUser(actor)
+      ?await pool.query('SELECT * FROM registration_invites WHERE id=$1',[id])
+      :await pool.query('SELECT * FROM registration_invites WHERE id=$1 AND organization_id=$2',[id,actor.tenant_id||0]);
+    if(!q.rows.length)return res.status(404).json({error:'Приглашение не найдено'});
+    await pool.query('UPDATE registration_invites SET revoked_at=COALESCE(revoked_at,NOW()) WHERE id=$1',[id]);
+    await logSecurityEvent(req,'registration_invite_revoked',true,'invite='+id,actor.login);
+    res.json({ok:true});
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+
 app.get('/api/users', requireUserManager, async (req, res) => {
   try {
     const actor=req.accessUser||await refreshAccessUser(req);
@@ -2539,6 +2590,18 @@ async function initAdmin() {
   }
 }
 
+async function runRetentionCleanup(){
+  const securityDays=Math.min(3650,Math.max(30,Number(process.env.RETENTION_SECURITY_LOG_DAYS)||365));
+  const backupDays=Math.min(3650,Math.max(1,Number(process.env.RETENTION_BACKUP_DAYS)||30));
+  try{
+    await pool.query('DELETE FROM email_codes WHERE expires_at<NOW()');
+    await pool.query('DELETE FROM app_sessions WHERE expire<NOW()');
+    await pool.query("DELETE FROM registration_invites WHERE (expires_at<NOW()-INTERVAL '30 days' OR revoked_at<NOW()-INTERVAL '30 days')");
+    await pool.query("DELETE FROM security_log WHERE created_at<NOW()-($1::text||' days')::interval",[String(securityDays)]);
+    await pool.query("DELETE FROM automatic_backups WHERE created_at<NOW()-($1::text||' days')::interval",[String(backupDays)]);
+  }catch(err){console.error('Retention cleanup failed:',err.message);}
+}
+
 async function startServer(){
   try{
     await ensureDatabaseSchema();
@@ -2558,6 +2621,8 @@ async function startServer(){
     console.log('Platform MFA: '+(platformMfaEnabled()?'enabled':'disabled'));
     verifyMailTransport();
     startAutomaticBackups();
+    runRetentionCleanup();
+    setInterval(runRetentionCleanup,24*60*60*1000).unref();
   });
 }
 startServer();
