@@ -139,7 +139,11 @@ async function main(){
       ['THREAT_MODEL_APPROVED','Threat model / ISPDn protection level has not been approved'],
       ['INCIDENT_RUNBOOK_APPROVED','24/72 incident response runbook has not been approved'],
       ['BACKUP_RESTORE_VERIFIED','Production backup and restore verification has not been confirmed'],
-      ['RU_BUSINESS_CALENDAR_CONFIRMED','Official Russian business-day calendar has not been confirmed']
+      ['RU_BUSINESS_CALENDAR_CONFIRMED','Official Russian business-day calendar has not been confirmed'],
+      ['LEGAL_TEXTS_APPROVED','Final privacy policy, consent and terms have not been legally approved'],
+      ['ORGANIZATIONAL_MEASURES_APPROVED','Required organizational personal-data measures/local acts have not been approved'],
+      ['SUBPROCESSORS_REVIEW_CONFIRMED','Subprocessor and integration review has not been confirmed'],
+      ['SECURITY_REVIEW_ACCEPTED','Security review/pentest acceptance has not been confirmed']
     ];
     for(const [key,message] of requiredAttestations){
       if(String(process.env[key]||'false').trim().toLowerCase()!=='true')blockers.push(message+' ('+key+'=true required after completion)');
