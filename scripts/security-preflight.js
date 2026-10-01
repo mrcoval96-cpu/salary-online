@@ -36,7 +36,7 @@ const requiredColumns={
   incidents:['incident_id','severity','detected_at','confirmed_at','due_24h','due_72h','status'],
   app_sessions:['sid','sess','expire','updated_at'],
   registration_invites:['id','token_hash','organization_id','expires_at','max_uses','uses','revoked_at'],
-  privacy_tombstones:['id','identifier_hash','identifier_type','tenant_id','tenant_scope','created_at']
+  privacy_tombstones:['id','identifier_hash','identifier_type','tenant_id','tenant_scope','created_at','released_at']
 };
 
 function sslOptions(urlString){
