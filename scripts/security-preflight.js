@@ -138,7 +138,8 @@ async function main(){
       ['DPA_APPROVED','Client personal-data processing agreement/DPA has not been approved'],
       ['THREAT_MODEL_APPROVED','Threat model / ISPDn protection level has not been approved'],
       ['INCIDENT_RUNBOOK_APPROVED','24/72 incident response runbook has not been approved'],
-      ['BACKUP_RESTORE_VERIFIED','Production backup and restore verification has not been confirmed']
+      ['BACKUP_RESTORE_VERIFIED','Production backup and restore verification has not been confirmed'],
+      ['RU_BUSINESS_CALENDAR_CONFIRMED','Official Russian business-day calendar has not been confirmed']
     ];
     for(const [key,message] of requiredAttestations){
       if(String(process.env[key]||'false').trim().toLowerCase()!=='true')blockers.push(message+' ('+key+'=true required after completion)');
@@ -147,6 +148,7 @@ async function main(){
     if(String(process.env.PLATFORM_MFA_ENABLED||'false').trim().toLowerCase()!=='true')blockers.push('Platform administrator MFA is not enabled (PLATFORM_MFA_ENABLED=true required for P0)');
     if(String(process.env.COMPLIANCE_ENFORCE_CURRENT_CONSENTS||'false').trim().toLowerCase()!=='true')blockers.push('Legacy/current user consent enforcement is disabled (COMPLIANCE_ENFORCE_CURRENT_CONSENTS=true required after legal rollout)');
     if(String(process.env.SESSION_SECRET||'').length<32)blockers.push('SESSION_SECRET must be configured with at least 32 characters');
+    if(!String(process.env.RU_NONWORKING_DATES||'').trim())blockers.push('RU_NONWORKING_DATES must contain the approved non-working dates for the active production calendar');
     for(const key of ['RETENTION_SECURITY_LOG_DAYS','RETENTION_BACKUP_DAYS','RETENTION_CONSENT_EVIDENCE_DAYS','RETENTION_DSAR_EVIDENCE_DAYS']){
       const value=Number(process.env[key]);
       if(!Number.isFinite(value)||value<=0)blockers.push('Retention period must be explicitly configured: '+key);
