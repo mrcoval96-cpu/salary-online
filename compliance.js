@@ -950,10 +950,10 @@ function installComplianceRoutes(app,deps){
       ].filter(x=>x[1]);
       for(const [type,value] of identifiers){
         await client.query(
-          `INSERT INTO privacy_tombstones(identifier_hash,identifier_type,tenant_id,reason)
-           VALUES($1,$2,$3,$4)
-           ON CONFLICT(identifier_hash,identifier_type,tenant_id) DO UPDATE SET reason=EXCLUDED.reason`,
-          [sha256(value),type,user.tenant_id||null,'deletion_job:'+id]
+          `INSERT INTO privacy_tombstones(identifier_hash,identifier_type,tenant_id,tenant_scope,reason)
+           VALUES($1,$2,$3,$4,$5)
+           ON CONFLICT(identifier_hash,identifier_type,tenant_scope) DO UPDATE SET reason=EXCLUDED.reason,tenant_id=EXCLUDED.tenant_id`,
+          [sha256(value),type,user.tenant_id||null,String(user.tenant_id||''),'deletion_job:'+id]
         );
       }
       await client.query("DELETE FROM app_sessions WHERE (sess->'user'->>'id')::text=$1",[String(user.id)]);
