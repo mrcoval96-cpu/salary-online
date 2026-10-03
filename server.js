@@ -144,6 +144,29 @@ async function ensureDatabaseSchema(){
   await pool.query("ALTER TABLE bank_statement_payments ADD COLUMN IF NOT EXISTS allocations JSONB NOT NULL DEFAULT '[]'::jsonb");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_bank_statement_payments_employee_date ON bank_statement_payments(lower(employee_fio), transaction_date, id)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_bank_statement_payments_transaction_key ON bank_statement_payments(transaction_key)");
+  await pool.query(`CREATE TABLE IF NOT EXISTS deals(
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+    organization TEXT NOT NULL DEFAULT '',
+    deal_no TEXT NOT NULL DEFAULT '',
+    customer TEXT NOT NULL DEFAULT '',
+    contract_description TEXT NOT NULL DEFAULT '',
+    contract_amount NUMERIC(16,2) NOT NULL DEFAULT 0,
+    customer_invoices JSONB NOT NULL DEFAULT '[]'::jsonb,
+    customer_payments JSONB NOT NULL DEFAULT '[]'::jsonb,
+    supplier_entries JSONB NOT NULL DEFAULT '[]'::jsonb,
+    additional_expenses JSONB NOT NULL DEFAULT '[]'::jsonb,
+    comments TEXT NOT NULL DEFAULT '',
+    obligation_salary NUMERIC(16,2) NOT NULL DEFAULT 0,
+    obligation_returns NUMERIC(16,2) NOT NULL DEFAULT 0,
+    obligation_transit NUMERIC(16,2) NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'quiet',
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_deals_organization ON deals(lower(trim(organization)),id)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_deals_tenant ON deals(tenant_id,id)");
   await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS full_name TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS inn TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS kpp TEXT NOT NULL DEFAULT ''");
@@ -202,7 +225,7 @@ async function repairOrganizationReferences(){
     }
   }catch(e){console.warn('Organization alias discovery:',e.message);}
 
-  for(const table of ['users','employees','objects','salary_records']){
+  for(const table of ['users','employees','objects','salary_records','deals']){
     await pool.query("UPDATE "+table+" t SET organization=o.name FROM organizations o WHERE trim(COALESCE(t.organization,''))<>'' AND lower(trim(t.organization))=lower(trim(o.name)) AND t.organization<>o.name");
     await pool.query("UPDATE "+table+" t SET organization=o.name FROM organization_aliases a JOIN organizations o ON o.id=a.organization_id WHERE lower(trim(COALESCE(t.organization,'')))=lower(trim(a.alias)) AND t.organization<>o.name");
   }
@@ -480,6 +503,7 @@ const PERMISSION_DEFINITIONS=[
   {key:'organizations.manage',group:'Организации',label:'Создание, изменение и удаление организаций',siteOnly:true},
   {key:'accounting.view',group:'Разделы сайта',label:'Доступ к разделу «Бухгалтерия»'},
   {key:'deals.view',group:'Разделы сайта',label:'Доступ к разделу «Сделки»'},
+  {key:'deals.manage',group:'Разделы сайта',label:'Создание, изменение, удаление и импорт сделок'},
   {key:'warehouse.view',group:'Разделы сайта',label:'Доступ к разделу «Склад»'},
   {key:'salary.view',group:'Зарплата',label:'Просмотр зарплаты и общего сальдо'},
   {key:'salary.create',group:'Зарплата',label:'Создание начислений'},
@@ -510,7 +534,7 @@ const ROLE_PERMISSION_DEFAULTS={
   'Руководитель сайта':Object.fromEntries(PERMISSION_DEFINITIONS.map(x=>[x.key,true])),
   'Руководитель организации':{
     'employees.view':true,'employees.manage':true,'objects.view':true,'objects.manage':true,
-    'organizations.view':true,'organizations.manage':false,'accounting.view':true,'deals.view':true,'warehouse.view':true,
+    'organizations.view':true,'organizations.manage':false,'accounting.view':true,'deals.view':true,'deals.manage':true,'warehouse.view':true,
     'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':true,
     'balances.manage':true,'bank.view':true,'bank.import':true,'bank.allocate':true,'bank.delete':true,
     'periods.close':true,'periods.reopen':true,'reports.export':true,
@@ -519,7 +543,7 @@ const ROLE_PERMISSION_DEFAULTS={
   },
   'Бухгалтер':{
     'employees.view':true,'employees.manage':false,'objects.view':true,'objects.manage':false,
-    'organizations.view':true,'organizations.manage':false,'accounting.view':true,'deals.view':true,'warehouse.view':false,
+    'organizations.view':true,'organizations.manage':false,'accounting.view':true,'deals.view':true,'deals.manage':true,'warehouse.view':false,
     'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':true,
     'balances.manage':true,'bank.view':true,'bank.import':true,'bank.allocate':true,'bank.delete':true,
     'periods.close':true,'periods.reopen':false,'reports.export':true,
@@ -527,7 +551,7 @@ const ROLE_PERMISSION_DEFAULTS={
   },
   'Руководитель':{
     'employees.view':true,'employees.manage':true,'objects.view':true,'objects.manage':false,
-    'organizations.view':true,'organizations.manage':false,'accounting.view':false,'deals.view':true,'warehouse.view':true,
+    'organizations.view':true,'organizations.manage':false,'accounting.view':false,'deals.view':true,'deals.manage':true,'warehouse.view':true,
     'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':false,
     'balances.manage':false,'bank.view':false,'bank.import':false,'bank.allocate':false,'bank.delete':false,
     'periods.close':false,'periods.reopen':false,'reports.export':true,
@@ -535,7 +559,7 @@ const ROLE_PERMISSION_DEFAULTS={
   },
   'Руководитель проекта':{
     'employees.view':true,'employees.manage':false,'objects.view':true,'objects.manage':false,
-    'organizations.view':false,'organizations.manage':false,'accounting.view':false,'deals.view':true,'warehouse.view':true,
+    'organizations.view':false,'organizations.manage':false,'accounting.view':false,'deals.view':true,'deals.manage':false,'warehouse.view':true,
     'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':false,
     'balances.manage':false,'bank.view':false,'bank.import':false,'bank.allocate':false,'bank.delete':false,
     'periods.close':false,'periods.reopen':false,'reports.export':true,
@@ -1797,7 +1821,7 @@ app.put('/api/organizations/:id', requireSiteManager, async (req, res) => {
     if(oldName&&oldName!==data.name){
       await client.query('INSERT INTO organization_aliases(alias,organization_id) VALUES($1,$2) ON CONFLICT(alias) DO UPDATE SET organization_id=EXCLUDED.organization_id',[normAccess(oldName),req.params.id]);
     }
-    for(const table of ['users','employees','objects','salary_records']){
+    for(const table of ['users','employees','objects','salary_records','deals']){
       await client.query("UPDATE "+table+" SET organization=$1 WHERE lower(trim(COALESCE(organization,'')))=lower(trim($2))",[data.name,oldName]);
     }
     if(oldName!==data.name){
@@ -1962,12 +1986,13 @@ async function prepareBankStatementTransactions(transactions,user){
   });
 }
 async function createAutomaticBackup(){
-  const [users,employees,objects,orgs,salary,responsibles,userResponsibles,periods,balances,bankPayments,aliases,log,securityLog,complianceData]=await Promise.all([
+  const [users,employees,objects,orgs,salary,deals,responsibles,userResponsibles,periods,balances,bankPayments,aliases,log,securityLog,complianceData]=await Promise.all([
     pool.query('SELECT * FROM users ORDER BY id'),
     pool.query('SELECT * FROM employees ORDER BY id'),
     pool.query('SELECT * FROM objects ORDER BY id'),
     pool.query('SELECT * FROM organizations ORDER BY id'),
     pool.query('SELECT * FROM salary_records ORDER BY id'),
+    pool.query('SELECT * FROM deals ORDER BY id'),
     pool.query('SELECT object_id,employee_id,created_at FROM object_responsibles ORDER BY object_id,employee_id'),
     pool.query('SELECT object_id,user_id,created_at FROM object_user_responsibles ORDER BY object_id,user_id'),
     pool.query('SELECT * FROM closed_salary_periods ORDER BY year,month'),
@@ -1987,6 +2012,7 @@ async function createAutomaticBackup(){
     objects:objects.rows,
     organizations:orgs.rows,
     salary:salary.rows,
+    deals:deals.rows,
     employee_balances:balances.rows,
     bank_statement_payments:bankPayments.rows,
     object_responsibles:responsibles.rows,
@@ -2006,6 +2032,104 @@ function startAutomaticBackups(){
   setTimeout(()=>createAutomaticBackup().catch(e=>console.error('Automatic backup error:',e.message)),15000);
   backupTimer=setInterval(()=>createAutomaticBackup().catch(e=>console.error('Automatic backup error:',e.message)),24*60*60*1000);
 }
+
+// === DEALS ===
+const DEAL_STATUSES=new Set(['quiet','current','attention','urgent','completed']);
+function dealText(value,max){
+  const s=String(value==null?'':value).trim();
+  return max?s.slice(0,max):s;
+}
+function dealNumber(value){
+  const n=Number(value);
+  return Number.isFinite(n)?Math.round(n*100)/100:0;
+}
+function cleanDealList(value,type){
+  const rows=Array.isArray(value)?value.slice(0,1000):[];
+  if(type==='customer'){
+    return rows.map(x=>({date:dealText(x&&x.date,10),number:dealText(x&&x.number,120),amount:dealNumber(x&&x.amount)}))
+      .filter(x=>x.date||x.number||Math.abs(x.amount)>0.0001);
+  }
+  if(type==='supplier'){
+    return rows.map(x=>({
+      planned_cost:dealNumber(x&&x.planned_cost),supplier:dealText(x&&x.supplier,500),subject:dealText(x&&x.subject,1000),
+      invoice_date:dealText(x&&x.invoice_date,10),invoice_number:dealText(x&&x.invoice_number,180),invoice_amount:dealNumber(x&&x.invoice_amount),
+      payment_date:dealText(x&&x.payment_date,10),payment_number:dealText(x&&x.payment_number,180),payment_amount:dealNumber(x&&x.payment_amount)
+    })).filter(x=>x.supplier||x.subject||x.invoice_date||x.invoice_number||x.payment_date||x.payment_number||Math.abs(x.planned_cost)+Math.abs(x.invoice_amount)+Math.abs(x.payment_amount)>0.0001);
+  }
+  return rows.map(x=>({supplier:dealText(x&&x.supplier,500),subject:dealText(x&&x.subject,1000),date:dealText(x&&x.date,10),amount:dealNumber(x&&x.amount)}))
+    .filter(x=>x.supplier||x.subject||x.date||Math.abs(x.amount)>0.0001);
+}
+function cleanDealPayload(body){
+  const input=body||{},status=dealText(input.status,30);
+  return {
+    deal_no:dealText(input.deal_no,80),
+    customer:dealText(input.customer,500),
+    contract_description:dealText(input.contract_description,4000),
+    contract_amount:dealNumber(input.contract_amount),
+    customer_invoices:cleanDealList(input.customer_invoices,'customer'),
+    customer_payments:cleanDealList(input.customer_payments,'customer'),
+    supplier_entries:cleanDealList(input.supplier_entries,'supplier'),
+    additional_expenses:cleanDealList(input.additional_expenses,'extra'),
+    comments:dealText(input.comments,8000),
+    obligation_salary:dealNumber(input.obligation_salary),
+    obligation_returns:dealNumber(input.obligation_returns),
+    obligation_transit:dealNumber(input.obligation_transit),
+    status:DEAL_STATUSES.has(status)?status:'quiet'
+  };
+}
+async function dealTargetScope(user,requestedOrganization){
+  const organization=isSiteWideUser(user)?dealText(requestedOrganization,500):accessOrganization(user);
+  if(!organization){const err=new Error('Для сделки необходимо выбрать организацию');err.status=400;throw err;}
+  const org=await pool.query('SELECT id,name FROM organizations WHERE lower(trim(name))=lower(trim($1)) LIMIT 1',[organization]);
+  if(!org.rows.length){const err=new Error('Организация сделки не найдена');err.status=400;throw err;}
+  return {organization:org.rows[0].name,tenant_id:org.rows[0].id};
+}
+app.get('/api/deals',requirePermission('deals.view'),async(req,res)=>{
+  try{
+    const user=req.accessUser||await refreshAccessUser(req);
+    const result=isSiteWideUser(user)
+      ?await pool.query('SELECT * FROM deals ORDER BY id DESC')
+      :await pool.query('SELECT * FROM deals WHERE lower(trim(organization))=lower(trim($1)) ORDER BY id DESC',[accessOrganization(user)]);
+    res.json(result.rows);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.post('/api/deals',requirePermission('deals.manage'),async(req,res)=>{
+  try{
+    const user=req.accessUser||await refreshAccessUser(req),data=cleanDealPayload(req.body),scope=await dealTargetScope(user,req.body&&req.body.organization);
+    const result=await pool.query(`INSERT INTO deals
+      (tenant_id,organization,deal_no,customer,contract_description,contract_amount,customer_invoices,customer_payments,supplier_entries,additional_expenses,comments,obligation_salary,obligation_returns,obligation_transit,status,created_by)
+      VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15,$16) RETURNING *`,
+      [scope.tenant_id,scope.organization,data.deal_no,data.customer,data.contract_description,data.contract_amount,JSON.stringify(data.customer_invoices),JSON.stringify(data.customer_payments),JSON.stringify(data.supplier_entries),JSON.stringify(data.additional_expenses),data.comments,data.obligation_salary,data.obligation_returns,data.obligation_transit,data.status,req.session.user.login]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Создана сделка '+(data.deal_no||('#'+result.rows[0].id))+' — '+data.customer]);
+    res.json(result.rows[0]);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.put('/api/deals/:id',requirePermission('deals.manage'),async(req,res)=>{
+  try{
+    const id=Number(req.params.id);if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректный ID сделки'});
+    const user=req.accessUser||await refreshAccessUser(req);
+    const before=await pool.query('SELECT * FROM deals WHERE id=$1',[id]);if(!before.rows.length)return res.status(404).json({error:'Сделка не найдена'});
+    if(!isSiteWideUser(user)&&!sameAccessValue(before.rows[0].organization,accessOrganization(user)))return res.status(403).json({error:'Нет доступа к этой сделке'});
+    const data=cleanDealPayload(req.body),scope=await dealTargetScope(user,req.body&&req.body.organization);
+    const result=await pool.query(`UPDATE deals SET tenant_id=$1,organization=$2,deal_no=$3,customer=$4,contract_description=$5,contract_amount=$6,
+      customer_invoices=$7::jsonb,customer_payments=$8::jsonb,supplier_entries=$9::jsonb,additional_expenses=$10::jsonb,comments=$11,
+      obligation_salary=$12,obligation_returns=$13,obligation_transit=$14,status=$15,updated_at=CURRENT_TIMESTAMP WHERE id=$16 RETURNING *`,
+      [scope.tenant_id,scope.organization,data.deal_no,data.customer,data.contract_description,data.contract_amount,JSON.stringify(data.customer_invoices),JSON.stringify(data.customer_payments),JSON.stringify(data.supplier_entries),JSON.stringify(data.additional_expenses),data.comments,data.obligation_salary,data.obligation_returns,data.obligation_transit,data.status,id]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Изменена сделка '+(data.deal_no||('#'+id))+' — '+data.customer]);
+    res.json(result.rows[0]);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.delete('/api/deals/:id',requirePermission('deals.manage'),async(req,res)=>{
+  try{
+    const id=Number(req.params.id);if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректный ID сделки'});
+    const user=req.accessUser||await refreshAccessUser(req);
+    const before=await pool.query('SELECT * FROM deals WHERE id=$1',[id]);if(!before.rows.length)return res.status(404).json({error:'Сделка не найдена'});
+    if(!isSiteWideUser(user)&&!sameAccessValue(before.rows[0].organization,accessOrganization(user)))return res.status(403).json({error:'Нет доступа к этой сделке'});
+    await pool.query('DELETE FROM deals WHERE id=$1',[id]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Удалена сделка '+(before.rows[0].deal_no||('#'+id))+' — '+before.rows[0].customer]);
+    res.json({ok:true});
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
 
 // === SALARY RECORDS ===
 app.get('/api/salary', requirePermission('salary.view'), async (req, res) => {
@@ -2451,12 +2575,13 @@ app.post('/api/import', requirePermission('backups.manage'), requireRecentReauth
 // === FULL BACKUP / RESTORE ===
 app.get('/api/backup', requirePermission('backups.manage'), requireRecentReauth, async (req, res) => {
   try {
-    const [users,employees,objects,orgs,salary,balances,bankPayments,objectResponsibles,objectUserResponsibles,closedPeriods,aliases,log,securityLog,complianceData] = await Promise.all([
+    const [users,employees,objects,orgs,salary,deals,balances,bankPayments,objectResponsibles,objectUserResponsibles,closedPeriods,aliases,log,securityLog,complianceData] = await Promise.all([
       pool.query('SELECT * FROM users ORDER BY id'),
       pool.query('SELECT * FROM employees ORDER BY id'),
       pool.query('SELECT * FROM objects ORDER BY id'),
       pool.query('SELECT * FROM organizations ORDER BY id'),
       pool.query('SELECT * FROM salary_records ORDER BY id'),
+      pool.query('SELECT * FROM deals ORDER BY id'),
       pool.query('SELECT * FROM employee_balances ORDER BY id'),
       pool.query('SELECT * FROM bank_statement_payments ORDER BY id'),
       pool.query('SELECT object_id, employee_id, created_at FROM object_responsibles ORDER BY object_id, employee_id'),
@@ -2477,6 +2602,7 @@ app.get('/api/backup', requirePermission('backups.manage'), requireRecentReauth,
       objects:objects.rows,
       organizations:orgs.rows,
       salary:salary.rows,
+      deals:deals.rows,
       employee_balances:balances.rows,
       bank_statement_payments:bankPayments.rows,
       object_responsibles:objectResponsibles.rows,
@@ -2502,6 +2628,7 @@ app.post('/api/restore', requirePermission('backups.manage'), requireRecentReaut
     if(hasCompliance)await compliance.restoreComplianceBackup(client,{});
 
     await client.query('DELETE FROM salary_records');
+    await client.query('DELETE FROM deals');
     await client.query('DELETE FROM employee_balances');
     await client.query('DELETE FROM bank_statement_payments');
     await client.query('DELETE FROM object_user_responsibles');
@@ -2539,6 +2666,17 @@ app.post('/api/restore', requirePermission('backups.manage'), requireRecentReaut
     for(const o of (data.objects||[])){
       await client.query('INSERT INTO objects (id,name,address,customer,organization,responsible,created_at,tenant_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
         [o.id,o.name||'',o.address||'',o.customer||'',o.organization||'',o.responsible||'',o.created_at||new Date(),o.tenant_id||null]);
+    }
+
+    for(const d of (data.deals||[])){
+      await client.query(`INSERT INTO deals
+        (id,tenant_id,organization,deal_no,customer,contract_description,contract_amount,customer_invoices,customer_payments,supplier_entries,additional_expenses,comments,obligation_salary,obligation_returns,obligation_transit,status,created_by,created_at,updated_at)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12,$13,$14,$15,$16,$17,$18,$19)`,
+        [d.id,d.tenant_id||null,d.organization||'',d.deal_no||'',d.customer||'',d.contract_description||'',d.contract_amount||0,
+         JSON.stringify(Array.isArray(d.customer_invoices)?d.customer_invoices:[]),JSON.stringify(Array.isArray(d.customer_payments)?d.customer_payments:[]),
+         JSON.stringify(Array.isArray(d.supplier_entries)?d.supplier_entries:[]),JSON.stringify(Array.isArray(d.additional_expenses)?d.additional_expenses:[]),
+         d.comments||'',d.obligation_salary||0,d.obligation_returns||0,d.obligation_transit||0,DEAL_STATUSES.has(d.status)?d.status:'quiet',
+         d.created_by||'',d.created_at||new Date(),d.updated_at||d.created_at||new Date()]);
     }
 
     for(const a of (data.organization_aliases||[])){
@@ -2593,7 +2731,7 @@ app.post('/api/restore', requirePermission('backups.manage'), requireRecentReaut
     if(hasCompliance)await compliance.restoreComplianceBackup(client,data.compliance);
     await enforcePrivacyTombstones(client);
 
-    for(const table of ['users','employees','objects','organizations','salary_records','employee_balances','bank_statement_payments','action_log','security_log']){
+    for(const table of ['users','employees','objects','organizations','salary_records','deals','employee_balances','bank_statement_payments','action_log','security_log']){
       await client.query("SELECT setval(pg_get_serial_sequence('"+table+"','id'), COALESCE((SELECT MAX(id) FROM "+table+"),1), (SELECT COUNT(*)>0 FROM "+table+"))");
     }
     await client.query('COMMIT');
@@ -2609,6 +2747,7 @@ app.post('/api/restore', requirePermission('backups.manage'), requireRecentReaut
 app.post('/api/clear', requirePermission('backups.manage'), requireRecentReauth, async (req, res) => {
   try {
     await pool.query('DELETE FROM salary_records');
+    await pool.query('DELETE FROM deals');
     await pool.query('DELETE FROM employee_balances');
     await pool.query('DELETE FROM bank_statement_payments');
     await pool.query('DELETE FROM object_user_responsibles');
