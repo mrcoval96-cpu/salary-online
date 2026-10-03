@@ -88,6 +88,20 @@ async function ensureDatabaseSchema(){
   await pool.query("ALTER TABLE closed_salary_periods ADD COLUMN IF NOT EXISTS organization TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE closed_salary_periods DROP CONSTRAINT IF EXISTS closed_salary_periods_pkey");
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_closed_salary_periods_scope ON closed_salary_periods(month,year,organization)");
+  await pool.query(`CREATE TABLE IF NOT EXISTS salary_reconciliations(
+    id BIGSERIAL PRIMARY KEY,
+    employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL,
+    employee_fio TEXT NOT NULL,
+    tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+    organization TEXT NOT NULL DEFAULT '',
+    month TEXT NOT NULL,
+    year TEXT NOT NULL,
+    reconciled_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    reconciled_by TEXT NOT NULL DEFAULT '',
+    reconciled_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_salary_reconciliations_scope ON salary_reconciliations(lower(trim(organization)),lower(trim(employee_fio)),month,year)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_salary_reconciliations_period ON salary_reconciliations(lower(trim(organization)),year,month)");
   await pool.query("CREATE TABLE IF NOT EXISTS automatic_backups (id SERIAL PRIMARY KEY, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, data JSONB NOT NULL)");
   await pool.query("CREATE TABLE IF NOT EXISTS security_log (id SERIAL PRIMARY KEY, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, event TEXT NOT NULL, user_login TEXT NOT NULL DEFAULT '', ip TEXT NOT NULL DEFAULT '', user_agent TEXT NOT NULL DEFAULT '', success BOOLEAN NOT NULL DEFAULT FALSE, details TEXT NOT NULL DEFAULT '')");
   await pool.query("CREATE TABLE IF NOT EXISTS app_sessions (sid TEXT PRIMARY KEY, sess JSONB NOT NULL, expire TIMESTAMP NOT NULL, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)");
@@ -618,6 +632,7 @@ const PERMISSION_DEFINITIONS=[
   {key:'salary.view',group:'Зарплата',label:'Просмотр зарплаты и общего сальдо'},
   {key:'salary.create',group:'Зарплата',label:'Создание начислений'},
   {key:'salary.edit',group:'Зарплата',label:'Изменение начислений и ручных выплат'},
+  {key:'salary.reconcile',group:'Зарплата',label:'Отметка сверки зарплаты с сотрудником'},
   {key:'salary.delete',group:'Зарплата',label:'Удаление и восстановление начислений'},
   {key:'balances.manage',group:'Выплаты и остатки',label:'Ввод и изменение начальных остатков'},
   {key:'bank.view',group:'Банк',label:'Просмотр банковских выплат'},
@@ -645,7 +660,7 @@ const ROLE_PERMISSION_DEFAULTS={
   'Руководитель организации':{
     'employees.view':true,'employees.manage':true,'objects.view':true,'objects.manage':true,
     'organizations.view':true,'organizations.manage':false,'accounting.view':true,'counterparties.manage':true,'loans.view':true,'loans.manage':true,'deals.view':true,'deals.manage':true,'warehouse.view':true,
-    'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':true,
+    'salary.view':true,'salary.create':true,'salary.edit':true,'salary.reconcile':true,'salary.delete':true,
     'balances.manage':true,'bank.view':true,'bank.import':true,'bank.allocate':true,'bank.delete':true,
     'periods.close':true,'periods.reopen':true,'reports.export':true,
     'users.manage':true,'users.customize':true,'users.delete':false,'logs.view':true,'security.view':false,
@@ -2663,6 +2678,54 @@ app.get('/api/salary', requirePermission('salary.view'), async (req, res) => {
   } catch (err) {
     res.status(err.status||500).json({ error: err.message });
   }
+});
+
+const SALARY_RECONCILIATION_MONTHS=new Set(['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']);
+async function salaryReconciliationTarget(user,body){
+  const fio=String(body&&body.employee_fio||'').trim(),month=String(body&&body.month||'').trim(),year=String(body&&body.year||'').trim();
+  if(!fio){const err=new Error('Укажите сотрудника');err.status=400;throw err;}
+  if(!SALARY_RECONCILIATION_MONTHS.has(month)||!/^\d{4}$/.test(year)){const err=new Error('Некорректный период сверки');err.status=400;throw err;}
+  const requestedOrg=String(body&&body.organization||'').trim();
+  const organization=isSiteWideUser(user)?requestedOrg:accessOrganization(user);
+  if(!organization){const err=new Error('Не удалось определить организацию');err.status=400;throw err;}
+  await ensureOrganizationAccess(user,organization);
+  const org=await pool.query('SELECT id,name FROM organizations WHERE lower(trim(name))=lower(trim($1)) LIMIT 1',[organization]);
+  if(!org.rows.length){const err=new Error('Организация не найдена');err.status=404;throw err;}
+  const employee=await pool.query('SELECT id,fio,organization FROM employees WHERE lower(trim(fio))=lower(trim($1)) AND lower(trim(organization))=lower(trim($2)) ORDER BY id LIMIT 1',[fio,org.rows[0].name]);
+  if(!employee.rows.length){const err=new Error('Сотрудник не найден в выбранной организации');err.status=404;throw err;}
+  return {employee:employee.rows[0],organization:org.rows[0].name,tenant_id:org.rows[0].id,month,year};
+}
+app.get('/api/salary-reconciliations',requirePermission('salary.view'),async(req,res)=>{
+  try{
+    const user=req.accessUser||await refreshAccessUser(req);
+    let r;
+    if(isSiteWideUser(user)){
+      r=await pool.query('SELECT id,employee_id,employee_fio,tenant_id,organization,month,year,reconciled_by,reconciled_at FROM salary_reconciliations ORDER BY year DESC,id DESC');
+    }else{
+      r=await pool.query('SELECT id,employee_id,employee_fio,tenant_id,organization,month,year,reconciled_by,reconciled_at FROM salary_reconciliations WHERE lower(trim(organization))=lower(trim($1)) ORDER BY year DESC,id DESC',[accessOrganization(user)]);
+    }
+    res.setHeader('Cache-Control','no-store');
+    res.json(r.rows);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.post('/api/salary-reconciliations/toggle',requirePermission('salary.reconcile'),async(req,res)=>{
+  const client=await pool.connect();
+  try{
+    const user=req.accessUser||await refreshAccessUser(req),target=await salaryReconciliationTarget(user,req.body),reconciled=!!(req.body&&req.body.reconciled);
+    await client.query('BEGIN');
+    await client.query('DELETE FROM salary_reconciliations WHERE lower(trim(organization))=lower(trim($1)) AND lower(trim(employee_fio))=lower(trim($2)) AND month=$3 AND year=$4',[target.organization,target.employee.fio,target.month,target.year]);
+    let row=null;
+    if(reconciled){
+      const r=await client.query('INSERT INTO salary_reconciliations(employee_id,employee_fio,tenant_id,organization,month,year,reconciled_by_user_id,reconciled_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,employee_id,employee_fio,tenant_id,organization,month,year,reconciled_by,reconciled_at',[target.employee.id,target.employee.fio,target.tenant_id,target.organization,target.month,target.year,user.id||null,user.fio||user.login||'']);
+      row=r.rows[0];
+    }
+    await client.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,(reconciled?'Отмечена':'Снята')+' сверка зарплаты: '+target.employee.fio+' · '+target.month+' '+target.year]);
+    await client.query('COMMIT');
+    res.json({ok:true,reconciled,row});
+  }catch(err){
+    try{await client.query('ROLLBACK');}catch(e){}
+    res.status(err.status||500).json({error:err.message});
+  }finally{client.release();}
 });
 
 // === BANK STATEMENT PAYMENTS ===
