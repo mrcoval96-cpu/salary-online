@@ -889,7 +889,7 @@ button,input,select,textarea{max-width:100%}
         <button class="btn btn-green" id="counterpartyAddBtn" type="button" onclick="openCounterpartyModal()">+ Контрагент</button>
       </div>
       <input class="counterparty-search" id="counterpartySearch" type="search" placeholder="Поиск по названию, ИНН, контакту..." oninput="renderCounterparties()">
-      <div class="counterparty-table-wrap"><table id="counterpartiesTable"><thead><tr><th>Тип</th><th>Наименование</th><th>ИНН / КПП</th><th>Руководитель / контакт</th><th>Телефон / email</th><th>Банк / счёт</th><th>Действия</th></tr></thead><tbody id="counterpartiesBody"></tbody></table></div>
+      <div class="counterparty-table-wrap"><table id="counterpartiesTable"><thead><tr><th>Тип</th><th>Наименование</th><th>ИНН / КПП</th><th>Руководитель</th><th>Контактные лица</th><th>Банк / счёт</th><th>Действия</th></tr></thead><tbody id="counterpartiesBody"></tbody></table></div>
     </div>
   </div>
 
@@ -3697,7 +3697,9 @@ function fillObjectOrganizationOptions(selected){
   let list=organizations.slice();
   const siteManager=can('organizations.manage');
   if(!siteManager){
-    list=list.filter(function(o){return String(o.name||'').trim().toLocaleLowerCase('ru-RU')===String(currentUser&&currentUser.organization||'').trim().toLocaleLowerCase('ru-RU');});
+    const currentOrg=String(currentUser&&currentUser.organization||'').trim();
+    list=list.filter(function(o){return String(o.name||'').trim().toLocaleLowerCase('ru-RU')===currentOrg.toLocaleLowerCase('ru-RU');});
+    if(currentOrg&&!list.some(function(o){return String(o.name||'').trim().toLocaleLowerCase('ru-RU')===currentOrg.toLocaleLowerCase('ru-RU');}))list=[{name:currentOrg}];
   }
   select.innerHTML='<option value="">— Выберите организацию —</option>'+list.map(function(o){return '<option value="'+escapeHtml(o.name||'')+'">'+escapeHtml(o.name||'')+'</option>';}).join('');
   const wanted=selected||(!siteManager&&currentUser?currentUser.organization:'')||'';
