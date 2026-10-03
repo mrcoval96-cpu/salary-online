@@ -2715,6 +2715,7 @@ async function saveEditSalary(){
     const paid=payments.reduce(function(s,e){return s+e.amount;},0);
     validateDateField(document.getElementById('editChargeDate').value,'Дата начисления',false);
     requireNonNegative(hourRate,'Ставка за час');requireNonNegative(hours,'Часы');requireNonNegative(perDiemDays,'Дни суточных');requireNonNegative(perDiemRate,'Ставка суточных');extra.forEach(function(x){requireNonNegative(x.amount,'Дополнительное начисление');});validatePaymentItems(payments);
+    payments.forEach(function(p){if(manualAllocatedTotal(p)>Number(p.amount||0)+0.005)throw new Error('Сумма ручной выплаты не может быть меньше уже распределённой суммы');});
     if(paid>total+0.005&&!confirm('Выплаты превышают начисление. Переплата '+formatMoney(paid-total)+' ₽. Всё равно сохранить?'))return;
     document.getElementById('editTotal').value=total.toFixed(2);
     document.getElementById('editPaid').value=paid.toFixed(2);
