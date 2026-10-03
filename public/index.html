@@ -139,6 +139,46 @@ header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .module-placeholder-inner{max-width:620px;text-align:center;padding:28px}
 .module-placeholder-inner h2{margin-bottom:10px;color:#16213e}
 .module-placeholder-inner p{color:#667085;line-height:1.5}
+.deals-toolbar{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px}
+.deals-toolbar h2{margin:0 0 4px}
+.deals-toolbar p{font-size:12px;color:#667085;max-width:760px;line-height:1.45}
+.deals-actions{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+.deals-import-org{min-width:190px;display:none}
+.deals-filters{display:grid;grid-template-columns:minmax(260px,1fr) minmax(190px,240px);gap:10px;margin:12px 0}
+.deals-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0}
+.deals-summary-item{padding:12px;border:1px solid #e4e7eb;border-radius:9px;background:#fafbfc}
+.deals-summary-item label{display:block;font-size:11px;color:#667085;margin-bottom:4px}
+.deals-summary-item b{font-size:17px;color:#16213e}
+.deals-table-wrap{overflow:auto;border:1px solid #e4e7eb;border-radius:10px}
+#dealsTable{min-width:1650px;margin:0}
+#dealsTable th{position:sticky;top:0;z-index:2;background:#f8fafc;white-space:nowrap}
+#dealsTable td{vertical-align:top}
+.deal-main-row.status-quiet td:first-child{border-left:5px solid #d0d5dd}
+.deal-main-row.status-current td:first-child{border-left:5px solid #06b6d4}
+.deal-main-row.status-attention td:first-child{border-left:5px solid #facc15}
+.deal-main-row.status-urgent td:first-child{border-left:5px solid #ef4444}
+.deal-main-row.status-completed td:first-child{border-left:5px solid #16a34a}
+.deal-status{display:inline-flex;align-items:center;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:700;white-space:nowrap}
+.deal-status.quiet{background:#f2f4f7;color:#475467}.deal-status.current{background:#cffafe;color:#155e75}.deal-status.attention{background:#fef9c3;color:#854d0e}.deal-status.urgent{background:#fee2e2;color:#991b1b}.deal-status.completed{background:#dcfce7;color:#166534}
+.deal-detail-row{display:none}.deal-detail-row.show{display:table-row}
+.deal-detail-panel{padding:14px;background:#fbfcfd}
+.deal-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.deal-detail-block{border:1px solid #e4e7eb;border-radius:8px;background:#fff;padding:10px;min-width:0}
+.deal-detail-block h4{font-size:13px;margin-bottom:6px;color:#344054}
+.deal-detail-block table{margin:0;min-width:520px}
+.deal-detail-scroll{overflow:auto}
+.deal-form-section{border:1px solid #e4e7eb;border-radius:9px;padding:12px;margin:12px 0;background:#fbfcfd}
+.deal-form-section h3{font-size:14px;margin:0 0 9px;color:#16213e}
+.deal-repeat-row{display:grid;gap:6px;align-items:end;margin:7px 0}
+.deal-repeat-row.customer{grid-template-columns:minmax(120px,1fr) minmax(130px,1.2fr) minmax(120px,1fr) auto}
+.deal-repeat-row.extra{grid-template-columns:minmax(150px,1.2fr) minmax(180px,1.5fr) minmax(120px,1fr) minmax(120px,1fr) auto}
+.deal-repeat-row.supplier{grid-template-columns:repeat(3,minmax(120px,1fr)) repeat(3,minmax(110px,.9fr)) repeat(3,minmax(110px,.9fr)) auto;overflow:auto}
+.deal-repeat-row input{min-width:0}
+.deal-repeat-label{font-size:10px;color:#667085;margin-bottom:2px}
+.deal-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0}
+.deal-metric{padding:9px;background:#f8fafc;border-radius:7px;border:1px solid #eaecf0}
+.deal-metric label{display:block;font-size:10px;color:#667085}.deal-metric b{font-size:13px}
+@media(max-width:768px){.deals-filters,.deals-summary,.deal-detail-grid,.deal-metrics{grid-template-columns:1fr}.deal-repeat-row.customer,.deal-repeat-row.extra,.deal-repeat-row.supplier{grid-template-columns:1fr}.deal-repeat-row.supplier{overflow:visible}.deals-actions{width:100%}.deals-actions .btn,.deals-actions label,.deals-import-org{flex:1 1 150px}}
 .salary-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
 .salary-toolbar-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .salary-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0}
@@ -812,7 +852,34 @@ button,input,select,textarea{max-width:100%}
 
   <!-- TAB: DEALS -->
   <div id="tab-deals" class="tab-content">
-    <div class="card module-placeholder"><div class="module-placeholder-inner"><h2>Сделки</h2><p>Раздел создан и подключён к системе ролей. Объекты уже доступны отдельным пунктом этого подраздела; карточки сделок и этапы будут добавляться сюда.</p></div></div>
+    <div class="card">
+      <div class="deals-toolbar">
+        <div><h2>Сделки</h2><p>Структура раздела повторяет реестр «Заказчики — ВИАДУК — Поставщики»: договор, счета и оплаты заказчика, плановые затраты, поставщики, дополнительные расходы, обязательства, итог и рентабельность сделки.</p></div>
+        <div class="deals-actions">
+          <select id="dealImportOrg" class="deals-import-org" aria-label="Организация для импорта"></select>
+          <button class="btn btn-green btn-sm" id="dealAddBtn" type="button" onclick="openDealModal()">+ Сделка</button>
+          <label class="btn btn-blue btn-sm" id="dealImportBtn" style="cursor:pointer">Импорт Excel<input type="file" accept=".xlsx,.xls" onchange="importDealsExcel(event)" style="display:none"></label>
+          <button class="btn btn-blue btn-sm" id="dealExportBtn" type="button" onclick="exportDealsExcel()">Экспорт Excel</button>
+        </div>
+      </div>
+      <div class="deals-summary">
+        <div class="deals-summary-item"><label>Сумма договоров</label><b id="dealSummaryContracts">0,00 ₽</b></div>
+        <div class="deals-summary-item"><label>Оплачено заказчиками</label><b id="dealSummaryCustomerPaid">0,00 ₽</b></div>
+        <div class="deals-summary-item"><label>Фактические расходы</label><b id="dealSummaryExpenses">0,00 ₽</b></div>
+        <div class="deals-summary-item"><label>Итог по сделкам</label><b id="dealSummaryResult">0,00 ₽</b></div>
+      </div>
+      <div class="deals-filters">
+        <input id="dealSearch" type="search" placeholder="Поиск по заказчику, договору, поставщику..." oninput="renderDeals()">
+        <select id="dealStatusFilter" onchange="renderDeals()"><option value="">Все статусы</option><option value="quiet">Тишина</option><option value="current">Текущая работа</option><option value="attention">Обратить внимание</option><option value="urgent">Срочно разобраться</option><option value="completed">Завершено</option></select>
+      </div>
+      <div class="deals-table-wrap">
+        <table id="dealsTable"><thead><tr>
+          <th>№</th><th>Статус</th><th>Заказчик</th><th>Договор / краткое описание</th><th>Сумма договора</th>
+          <th>Счета заказчику</th><th>Оплачено заказчиком</th><th>Плановые затраты</th><th>Поставщики / оплачено</th>
+          <th>Доп. расходы</th><th>З/П</th><th>Возврат и премии</th><th>Транзит</th><th>ИТОГ</th><th>% сделки</th><th>Действия</th>
+        </tr></thead><tbody id="dealsBody"></tbody></table>
+      </div>
+    </div>
   </div>
 
   <!-- TAB: WAREHOUSE -->
@@ -1049,6 +1116,19 @@ button,input,select,textarea{max-width:100%}
   <div class="form-group"><label>Дополнительные контакты / примечание</label><textarea id="orgContacts" maxlength="1000"></textarea></div>
   <button class="btn btn-green" onclick="saveOrg()">Сохранить</button>
 </div></div>
+<div class="modal-overlay" id="dealModal"><div class="modal" style="max-width:1180px;width:96%"><span class="modal-close" onclick="closeModal('dealModal')">&times;</span><h2 id="dealModalTitle">Новая сделка</h2>
+  <div class="form-row" id="dealOrganizationRow" style="display:none"><div class="form-group"><label>Организация *</label><select id="dealOrganization"></select></div></div>
+  <div class="form-row"><div class="form-group"><label>№ п/п</label><input type="text" id="dealNo" maxlength="80"></div><div class="form-group"><label>Заказчик *</label><input type="text" id="dealCustomer" maxlength="500"></div><div class="form-group"><label>Сумма договора</label><input type="number" id="dealContractAmount" step="0.01"></div><div class="form-group"><label>Статус</label><select id="dealStatus"><option value="quiet">Тишина</option><option value="current">Текущая работа</option><option value="attention">Обратить внимание</option><option value="urgent">Срочно разобраться</option><option value="completed">Завершено</option></select></div></div>
+  <div class="form-group"><label>№ договора / краткое описание</label><textarea id="dealContractDescription" rows="3" maxlength="4000"></textarea></div>
+  <div class="deal-form-section"><h3>Счета для заказчика</h3><div id="dealCustomerInvoices"></div><button class="btn btn-blue btn-sm" type="button" onclick="addDealCustomerRow('dealCustomerInvoices')">+ Счёт</button></div>
+  <div class="deal-form-section"><h3>Оплачено заказчиком</h3><div id="dealCustomerPayments"></div><button class="btn btn-blue btn-sm" type="button" onclick="addDealCustomerRow('dealCustomerPayments')">+ Оплата</button></div>
+  <div class="deal-form-section"><h3>Поставщики, счета и оплаты</h3><div id="dealSupplierEntries"></div><button class="btn btn-blue btn-sm" type="button" onclick="addDealSupplierRow()">+ Строка поставщика</button></div>
+  <div class="deal-form-section"><h3>Дополнительные расходы</h3><div id="dealAdditionalExpenses"></div><button class="btn btn-blue btn-sm" type="button" onclick="addDealExtraRow()">+ Доп. расход</button></div>
+  <div class="form-row"><div class="form-group"><label>З/П</label><input type="number" id="dealObligationSalary" step="0.01"></div><div class="form-group"><label>Возврат и премии</label><input type="number" id="dealObligationReturns" step="0.01"></div><div class="form-group"><label>Расходы по транзиту</label><input type="number" id="dealObligationTransit" step="0.01"></div></div>
+  <div class="form-group"><label>Комментарии</label><textarea id="dealComments" rows="3" maxlength="8000"></textarea></div>
+  <div class="deal-metrics"><div class="deal-metric"><label>Оплачено заказчиком</label><b id="dealCalcPaid">0,00 ₽</b></div><div class="deal-metric"><label>Оплачено поставщикам</label><b id="dealCalcSupplierPaid">0,00 ₽</b></div><div class="deal-metric"><label>ИТОГ</label><b id="dealCalcResult">0,00 ₽</b></div><div class="deal-metric"><label>% сделки</label><b id="dealCalcPercent">0,00 %</b></div></div>
+  <div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn btn-gray" type="button" onclick="closeModal('dealModal')">Отмена</button><button class="btn btn-green" type="button" onclick="saveDeal()">Сохранить сделку</button></div>
+</div></div>
 <div class="modal-overlay" id="salaryEditModal"><div class="modal"><span class="modal-close" onclick="closeModal('salaryEditModal')">&times;</span><h2>Редактирование записи</h2><div class="form-row"><div class="form-group" style="position:relative"><label>Сотрудник</label><input type="text" id="editFio" oninput="autocompleteFio(this)" onblur="setTimeout(()=>hideAutocomplete('fioAc2'),200)"><div class="autocomplete-list" id="fioAc2"></div></div><div class="form-group" style="position:relative"><label>Объект</label><input type="text" id="editObject" oninput="autocompleteObj(this)" onblur="setTimeout(()=>hideAutocomplete('objAc2'),200)"><div class="autocomplete-list" id="objAc2"></div></div></div><div class="form-row"><div class="form-group"><label>Месяц</label><select id="editMonth"><option value="">—</option><option>Январь</option><option>Февраль</option><option>Март</option><option>Апрель</option><option>Май</option><option>Июнь</option><option>Июль</option><option>Август</option><option>Сентябрь</option><option>Октябрь</option><option>Ноябрь</option><option>Декабрь</option></select></div><div class="form-group"><label>Год</label><input type="text" id="editYear"></div><div class="form-group"><label>Дата начисления</label><input type="text" id="editChargeDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div></div><div class="form-row"><div class="form-group"><label>Ставка за час</label><input type="number" id="editHourRate"></div><div class="form-group"><label>Часы</label><input type="number" id="editHours"></div><div class="form-group"><label>Дни суточных</label><input type="number" id="editPerDiemDays"></div><div class="form-group"><label>Ставка суточных</label><input type="number" id="editPerDiemRate"></div></div><div class="form-group"><label>Дополнительные начисления</label><div id="editExtraContainer"></div><button class="btn btn-blue btn-sm" type="button" onclick="addEditExtraCharge()">+ Начисление</button></div><div class="form-group"><label>Выплаты</label><div id="editPaymentsContainer"></div><button class="btn btn-blue btn-sm" type="button" onclick="addEditPayment()">+ Выплата</button></div><div class="form-row"><div class="form-group"><label>Итого</label><input type="number" id="editTotal" readonly></div><div class="form-group"><label>Выплачено</label><input type="number" id="editPaid"></div></div><button class="btn btn-green" onclick="saveEditSalary()">Сохранить изменения</button></div></div>
 <div class="modal-overlay" id="salaryArchiveModal"><div class="modal"><span class="modal-close" onclick="closeModal('salaryArchiveModal')">&times;</span><h2>Архив удалённых начислений</h2><div id="salaryArchiveList"></div></div></div>
 <div class="modal-overlay" id="quickPaymentModal"><div class="modal"><span class="modal-close" onclick="closeModal('quickPaymentModal')">&times;</span><h2 id="quickPaymentTitle">Добавить выплату</h2><div class="form-group"><label>Запись начисления</label><select id="quickPaymentRecord"></select></div><div class="form-row"><div class="form-group"><label>Дата</label><input type="text" id="quickPaymentDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div><div class="form-group"><label>Сумма</label><input type="number" id="quickPaymentAmount" min="0" step="0.01" placeholder="0,00"></div></div><button class="btn btn-green" id="quickPaymentSave" onclick="saveQuickPayment()">Сохранить выплату</button></div></div>
@@ -1068,6 +1148,8 @@ let employees = [];
 let objects = [];
 let organizations = [];
 let salaryRecords = [];
+let deals = [];
+let editingDealId = null;
 let employeeBalances = [];
 let bankStatementPayments = [];
 let objectResponsibleUsers = [];
@@ -1169,6 +1251,15 @@ function applyPermissionsToUi(){
   setVisibleById('employeeExportBtn',can('reports.export'));
   setVisibleById('objectAddBtn',can('objects.manage'));
   setVisibleById('orgAddBtn',currentUser.role==='Руководитель сайта');
+  setVisibleById('dealAddBtn',can('deals.manage'));
+  setVisibleById('dealImportBtn',can('deals.manage'));
+  setVisibleById('dealExportBtn',can('reports.export')&&can('deals.view'));
+  const siteWide=String(currentUser.login||'').trim().toUpperCase()==='ADMIN'||currentUser.role==='Руководитель сайта';
+  const importOrg=document.getElementById('dealImportOrg');
+  if(importOrg){
+    importOrg.style.display=siteWide&&can('deals.manage')?'':'none';
+    importOrg.innerHTML=organizations.map(function(o){return '<option value="'+escapeHtml(o.name)+'">'+escapeHtml(o.name)+'</option>';}).join('');
+  }
 }
 function firstAccessibleTab(){
   const order=['dashboard','input','salary','employees','organizations','accounting','deals','objects','warehouse','compliance','users','data'];
@@ -1928,6 +2019,7 @@ async function loadAll(){
     organizations=can('organizations.view')?await api('/api/organizations'):[];
     objectResponsibleUsers=can('objects.manage')?await api('/api/object-responsible-users'):[];
     salaryRecords=can('salary.view')?await api('/api/salary'):[];
+    deals=can('deals.view')?await api('/api/deals'):[];
     employeeBalances=can('salary.view')?await api('/api/employee-balances'):[];
     bankStatementPayments=can('bank.view')?await api('/api/bank-payments'):(can('salary.view')?await api('/api/financial-payments'):[]);
     closedSalaryPeriods=can('salary.view')?await api('/api/salary-periods'):[];
@@ -1955,6 +2047,7 @@ function showTab(tab) {
   if (tab === 'employees') renderEmployees();
   if (tab === 'objects') renderObjects();
   if (tab === 'organizations') renderOrganizations();
+  if (tab === 'deals') renderDeals();
   if (tab === 'users') renderUsers();
   if (tab === 'compliance') loadCompliance();
 }
