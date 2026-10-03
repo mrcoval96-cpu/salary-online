@@ -2969,6 +2969,15 @@ async function toggleSalaryReconciliation(fio,month,year,organization,reconciled
   }finally{if(input)input.disabled=false;}
 }
 function renderSalary(){
+  const salaryUiState={payments:new Set(),balances:new Set(),details:new Set()};
+  document.querySelectorAll('#salaryCards .salary-card').forEach(function(card){
+    const fio=String(card.dataset.employeeFio||'');
+    if(!fio)return;
+    const payments=card.querySelector('.salary-payment-detail'),balances=card.querySelector('.salary-balance-detail'),details=card.querySelector('.salary-detail');
+    if(payments&&payments.classList.contains('show'))salaryUiState.payments.add(fio);
+    if(balances&&balances.classList.contains('show'))salaryUiState.balances.add(fio);
+    if(details&&details.classList.contains('show'))salaryUiState.details.add(fio);
+  });
   fillSalaryObjectFilter();
   const filter=document.getElementById('salaryMonthFilter').value;
   const objectFilter=document.getElementById('salaryObjectFilter').value;
@@ -3040,7 +3049,7 @@ function renderSalary(){
     const position=employeePositionAt(fio,cutoff),opening=position.opening,paymentItems=manualPaymentItemsAfterOpening(fio,recs,cutoff).concat(historyBankItems).sort(function(a,b){return String(a.date||a.recordDate||'').localeCompare(String(b.date||b.recordDate||''));}),balanceItems=balanceItemsForEmployee(fio);
     const reconciliationOrg=salaryReconciliationOrganization(fio,recs);
     const reconciliation=filter?salaryReconciliationFor(fio,filter,periodYear,reconciliationOrg):null;
-    const card=document.createElement('div');card.className='salary-card'+(reconciliation?' salary-reconciled':'');
+    const card=document.createElement('div');card.className='salary-card'+(reconciliation?' salary-reconciled':'');card.dataset.employeeFio=fio;
     const head=document.createElement('button');head.type='button';head.className='salary-card-head';head.setAttribute('aria-expanded','false');
     const balanceDate=opening?'<span class="salary-balance-date">на '+formatDateRu(opening.balance_date)+'</span>':'';
     const openingDirection=opening?balanceDirectionLabel(opening):'Остаток не задан';
@@ -3060,13 +3069,13 @@ function renderSalary(){
       reconcileBar.appendChild(checkLabel);reconcileBar.appendChild(meta);
     }
 
-    const balanceDetail=document.createElement('div');balanceDetail.className='salary-balance-detail';
+    const balanceDetail=document.createElement('div');balanceDetail.className='salary-balance-detail';if(salaryUiState.balances.has(fio))balanceDetail.classList.add('show');
     balanceDetail.innerHTML='<div class="salary-payment-title">История остатков</div>'+(balanceItems.length?balanceItems.map(function(b){return '<div class="balance-history-row"><div class="balance-history-main"><span>'+formatDateRu(b.balance_date)+' — <b>'+formatMoney(Math.abs(Number(b.amount)||0))+' ₽</b></span><div style="font-size:12px;color:#475467;margin-top:2px">'+balanceDirectionLabel(b)+'</div>'+(b.comment?'<div class="balance-history-comment">'+escapeHtml(b.comment)+'</div>':'')+'</div>'+(can('balances.manage')?'<div class="balance-history-actions"><button class="btn btn-blue btn-sm" type="button" onclick="event.stopPropagation();editEmployeeBalance('+b.id+')">Изменить</button><button class="btn btn-red btn-sm" type="button" onclick="event.stopPropagation();deleteEmployeeBalance('+b.id+')">Удалить</button></div>':'')+'</div>';}).join(''):'<div class="salary-payment-empty">Остатки не вводились.</div>');
     const balanceLink=head.querySelector('.salary-balance-link');
     function toggleBalances(event){if(event){event.preventDefault();event.stopPropagation();}balanceDetail.classList.toggle('show');}
     balanceLink.addEventListener('click',toggleBalances);balanceLink.addEventListener('keydown',function(event){if(event.key==='Enter'||event.key===' '){toggleBalances(event);}});
 
-    const paymentDetail=document.createElement('div');paymentDetail.className='salary-payment-detail';
+    const paymentDetail=document.createElement('div');paymentDetail.className='salary-payment-detail';if(salaryUiState.payments.has(fio))paymentDetail.classList.add('show');
     paymentDetail.innerHTML='<div class="salary-payment-title">История выплат за выбранный период</div>'+(paymentItems.length?paymentItems.map(function(p){
       if(p.source==='bank'){
         let bankActions='<span class="badge badge-blue">Выписка</span>';
@@ -3081,7 +3090,7 @@ function renderSalary(){
     function togglePayments(event){if(event){event.preventDefault();event.stopPropagation();}paymentDetail.classList.toggle('show');}
     paidLink.addEventListener('click',togglePayments);paidLink.addEventListener('keydown',function(event){if(event.key==='Enter'||event.key===' '){togglePayments(event);}});
 
-    const detail=document.createElement('div');detail.className='salary-detail';
+    const detail=document.createElement('div');detail.className='salary-detail';if(salaryUiState.details.has(fio)){detail.classList.add('show');card.classList.add('open');head.setAttribute('aria-expanded','true');}
     detail.innerHTML=(monthGroups.length?'<div class="salary-records">'+monthGroups.map(salaryMonthGroupHtml).join('')+'</div>':'<div class="salary-payment-empty">После ввода остатка начислений за выбранный период нет.</div>')+((can('salary.edit')||can('reports.export'))?'<div class="salary-entry-actions">'+(can('salary.edit')?'<button class="btn btn-green btn-sm" type="button" onclick="event.stopPropagation();openQuickPaymentForEmployee('+JSON.stringify(fio).replace(/"/g,'&quot;')+')">+ Выплата сотруднику</button>':'')+(can('reports.export')?'<button class="btn btn-blue btn-sm" type="button" onclick="event.stopPropagation();exportSalaryCSV('+JSON.stringify(fio).replace(/"/g,'&quot;')+')">Экспорт</button>':'')+'</div>':'');
     head.onclick=function(){const open=detail.classList.toggle('show');card.classList.toggle('open',open);head.setAttribute('aria-expanded',open?'true':'false');};
     card.appendChild(head);if(reconcileBar)card.appendChild(reconcileBar);card.appendChild(balanceDetail);card.appendChild(paymentDetail);card.appendChild(detail);container.appendChild(card);
@@ -3210,9 +3219,12 @@ async function saveManualAllocation(){
     if(Number.isInteger(manualAllocationEdit.allocationIndex))allocations[manualAllocationEdit.allocationIndex]=next;else allocations.push(next);
     payments[manualAllocationEdit.paymentIndex]={...p,allocations:allocations};
     await saveRecordPayments(r,payments);
+    if(!Number.isInteger(manualAllocationEdit.allocationIndex))manualAllocationEdit.allocationIndex=allocations.length-1;
     salaryRecords=await api('/api/salary');
-    closeModal('manualAllocationModal');manualAllocationEdit=null;renderSalary();renderDashboard();
-    toast('Ручная выплата распределена');
+    renderSalary();renderDashboard();
+    document.getElementById('manualAllocationDeleteBtn').style.display='inline-block';
+    updateManualAllocationRemaining();
+    toast('Распределение сохранено. Окно оставлено открытым для продолжения работы.');
   }catch(e){toast(e.message,'error');}
 }
 async function deleteManualAllocation(){
@@ -3226,8 +3238,10 @@ async function deleteManualAllocation(){
     payments[manualAllocationEdit.paymentIndex]={...p,allocations:allocations};
     await saveRecordPayments(r,payments);
     salaryRecords=await api('/api/salary');
-    closeModal('manualAllocationModal');manualAllocationEdit=null;renderSalary();renderDashboard();
-    toast('Распределение отменено');
+    manualAllocationEdit.allocationIndex=null;
+    document.getElementById('manualAllocationDeleteBtn').style.display='none';
+    renderSalary();renderDashboard();updateManualAllocationRemaining();
+    toast('Распределение отменено. Окно оставлено открытым.');
   }catch(e){toast(e.message,'error');}
 }
 function salaryPeriodsForEmployee(fio){
@@ -3304,9 +3318,16 @@ async function saveBankAllocations(){
   try{
     await api('/api/bank-payments/'+p.id+'/allocations','PUT',{allocations:allocations});
     bankStatementPayments=await api('/api/bank-payments');
-    closeModal('bankAllocationModal');
     renderSalary();renderDashboard();
-    toast('Распределение выплаты сохранено');
+    const refreshed=bankStatementPayments.find(function(x){return Number(x.id)===Number(p.id);});
+    if(refreshed){
+      document.getElementById('bankAllocationInfo').innerHTML='<b>'+escapeHtml(refreshed.employee_fio||'')+'</b> · '+formatDateRu(refreshed.transaction_date)+' · '+formatMoney(refreshed.amount)+' ₽<br>'+escapeHtml(refreshed.purpose||'');
+      const box=document.getElementById('bankAllocationRows');box.innerHTML='';
+      const nextAllocations=normalizedBankAllocations(refreshed);
+      if(nextAllocations.length)nextAllocations.forEach(addBankAllocationRow);else addBankAllocationRow();
+      updateBankAllocationRemaining();
+    }
+    toast('Распределение выплаты сохранено. Окно оставлено открытым для продолжения работы.');
   }catch(e){toast(e.message,'error');}
 }
 async function deleteBankPayment(id){
