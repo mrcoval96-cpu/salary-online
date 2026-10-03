@@ -225,7 +225,7 @@ async function repairOrganizationReferences(){
     }
   }catch(e){console.warn('Organization alias discovery:',e.message);}
 
-  for(const table of ['users','employees','objects','salary_records']){
+  for(const table of ['users','employees','objects','salary_records','deals']){
     await pool.query("UPDATE "+table+" t SET organization=o.name FROM organizations o WHERE trim(COALESCE(t.organization,''))<>'' AND lower(trim(t.organization))=lower(trim(o.name)) AND t.organization<>o.name");
     await pool.query("UPDATE "+table+" t SET organization=o.name FROM organization_aliases a JOIN organizations o ON o.id=a.organization_id WHERE lower(trim(COALESCE(t.organization,'')))=lower(trim(a.alias)) AND t.organization<>o.name");
   }
@@ -1821,7 +1821,7 @@ app.put('/api/organizations/:id', requireSiteManager, async (req, res) => {
     if(oldName&&oldName!==data.name){
       await client.query('INSERT INTO organization_aliases(alias,organization_id) VALUES($1,$2) ON CONFLICT(alias) DO UPDATE SET organization_id=EXCLUDED.organization_id',[normAccess(oldName),req.params.id]);
     }
-    for(const table of ['users','employees','objects','salary_records']){
+    for(const table of ['users','employees','objects','salary_records','deals']){
       await client.query("UPDATE "+table+" SET organization=$1 WHERE lower(trim(COALESCE(organization,'')))=lower(trim($2))",[data.name,oldName]);
     }
     if(oldName!==data.name){
