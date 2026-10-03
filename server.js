@@ -2069,7 +2069,7 @@ async function prepareBankStatementTransactions(transactions,user){
   });
 }
 async function createAutomaticBackup(){
-  const [users,employees,objects,orgs,salary,deals,counterparties,responsibles,userResponsibles,periods,balances,bankPayments,aliases,log,securityLog,complianceData]=await Promise.all([
+  const [users,employees,objects,orgs,salary,deals,counterparties,loans,responsibles,userResponsibles,periods,balances,bankPayments,aliases,log,securityLog,complianceData]=await Promise.all([
     pool.query('SELECT * FROM users ORDER BY id'),
     pool.query('SELECT * FROM employees ORDER BY id'),
     pool.query('SELECT * FROM objects ORDER BY id'),
@@ -2077,6 +2077,7 @@ async function createAutomaticBackup(){
     pool.query('SELECT * FROM salary_records ORDER BY id'),
     pool.query('SELECT * FROM deals ORDER BY id'),
     pool.query('SELECT * FROM counterparties ORDER BY id'),
+    pool.query('SELECT * FROM loans ORDER BY id'),
     pool.query('SELECT object_id,employee_id,created_at FROM object_responsibles ORDER BY object_id,employee_id'),
     pool.query('SELECT object_id,user_id,created_at FROM object_user_responsibles ORDER BY object_id,user_id'),
     pool.query('SELECT * FROM closed_salary_periods ORDER BY year,month'),
@@ -2098,6 +2099,7 @@ async function createAutomaticBackup(){
     salary:salary.rows,
     deals:deals.rows,
     counterparties:counterparties.rows,
+    loans:loans.rows,
     employee_balances:balances.rows,
     bank_statement_payments:bankPayments.rows,
     object_responsibles:responsibles.rows,
@@ -2805,7 +2807,7 @@ app.post('/api/import', requirePermission('backups.manage'), requireRecentReauth
 // === FULL BACKUP / RESTORE ===
 app.get('/api/backup', requirePermission('backups.manage'), requireRecentReauth, async (req, res) => {
   try {
-    const [users,employees,objects,orgs,salary,deals,counterparties,balances,bankPayments,objectResponsibles,objectUserResponsibles,closedPeriods,aliases,log,securityLog,complianceData] = await Promise.all([
+    const [users,employees,objects,orgs,salary,deals,counterparties,loans,balances,bankPayments,objectResponsibles,objectUserResponsibles,closedPeriods,aliases,log,securityLog,complianceData] = await Promise.all([
       pool.query('SELECT * FROM users ORDER BY id'),
       pool.query('SELECT * FROM employees ORDER BY id'),
       pool.query('SELECT * FROM objects ORDER BY id'),
@@ -2813,6 +2815,7 @@ app.get('/api/backup', requirePermission('backups.manage'), requireRecentReauth,
       pool.query('SELECT * FROM salary_records ORDER BY id'),
       pool.query('SELECT * FROM deals ORDER BY id'),
       pool.query('SELECT * FROM counterparties ORDER BY id'),
+      pool.query('SELECT * FROM loans ORDER BY id'),
       pool.query('SELECT * FROM employee_balances ORDER BY id'),
       pool.query('SELECT * FROM bank_statement_payments ORDER BY id'),
       pool.query('SELECT object_id, employee_id, created_at FROM object_responsibles ORDER BY object_id, employee_id'),
@@ -2835,6 +2838,7 @@ app.get('/api/backup', requirePermission('backups.manage'), requireRecentReauth,
       salary:salary.rows,
       deals:deals.rows,
       counterparties:counterparties.rows,
+      loans:loans.rows,
       employee_balances:balances.rows,
       bank_statement_payments:bankPayments.rows,
       object_responsibles:objectResponsibles.rows,
@@ -2862,6 +2866,7 @@ app.post('/api/restore', requirePermission('backups.manage'), requireRecentReaut
     await client.query('DELETE FROM salary_records');
     await client.query('DELETE FROM deals');
     await client.query('DELETE FROM counterparties');
+    await client.query('DELETE FROM loans');
     await client.query('DELETE FROM employee_balances');
     await client.query('DELETE FROM bank_statement_payments');
     await client.query('DELETE FROM object_user_responsibles');
@@ -2914,9 +2919,16 @@ app.post('/api/restore', requirePermission('backups.manage'), requireRecentReaut
 
     for(const cp of (data.counterparties||[])){
       await client.query(`INSERT INTO counterparties
-        (id,tenant_id,organization,counterparty_type,name,full_name,inn,kpp,ogrn,legal_address,postal_address,director_fio,contact_person,phone,email,website,bank_name,bik,settlement_account,correspondent_account,comments,created_by,created_at,updated_at)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
-        [cp.id,cp.tenant_id||null,cp.organization||'',COUNTERPARTY_TYPES.has(cp.counterparty_type)?cp.counterparty_type:'both',cp.name||'',cp.full_name||'',cp.inn||'',cp.kpp||'',cp.ogrn||'',cp.legal_address||'',cp.postal_address||'',cp.director_fio||'',cp.contact_person||'',cp.phone||'',cp.email||'',cp.website||'',cp.bank_name||'',cp.bik||'',cp.settlement_account||'',cp.correspondent_account||'',cp.comments||'',cp.created_by||'',cp.created_at||new Date(),cp.updated_at||cp.created_at||new Date()]);
+        (id,tenant_id,organization,counterparty_type,name,full_name,inn,kpp,ogrn,legal_address,postal_address,director_fio,contact_person,phone,email,contact_people,website,bank_name,bik,settlement_account,correspondent_account,comments,created_by,created_at,updated_at)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18,$19,$20,$21,$22,$23,$24,$25)`,
+        [cp.id,cp.tenant_id||null,cp.organization||'',COUNTERPARTY_TYPES.has(cp.counterparty_type)?cp.counterparty_type:'both',cp.name||'',cp.full_name||'',cp.inn||'',cp.kpp||'',cp.ogrn||'',cp.legal_address||'',cp.postal_address||'',cp.director_fio||'',cp.contact_person||'',cp.phone||'',cp.email||'',JSON.stringify(Array.isArray(cp.contact_people)?cp.contact_people:[]),cp.website||'',cp.bank_name||'',cp.bik||'',cp.settlement_account||'',cp.correspondent_account||'',cp.comments||'',cp.created_by||'',cp.created_at||new Date(),cp.updated_at||cp.created_at||new Date()]);
+    }
+
+    for(const loan of (data.loans||[])){
+      await client.query(`INSERT INTO loans
+        (id,tenant_id,organization,lender_type,lender_name,lender_inn,contract_no,contract_date,received_date,principal,interest_rate,due_date,repayments,status,comments,created_by,created_at,updated_at)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16,$17,$18)`,
+        [loan.id,loan.tenant_id||null,loan.organization||'',LOAN_LENDER_TYPES.has(loan.lender_type)?loan.lender_type:'individual',loan.lender_name||'',loan.lender_inn||'',loan.contract_no||'',loan.contract_date||null,loan.received_date||null,loan.principal||0,loan.interest_rate||0,loan.due_date||null,JSON.stringify(Array.isArray(loan.repayments)?loan.repayments:[]),LOAN_STATUSES.has(loan.status)?loan.status:'active',loan.comments||'',loan.created_by||'',loan.created_at||new Date(),loan.updated_at||loan.created_at||new Date()]);
     }
 
     for(const a of (data.organization_aliases||[])){
@@ -2971,7 +2983,7 @@ app.post('/api/restore', requirePermission('backups.manage'), requireRecentReaut
     if(hasCompliance)await compliance.restoreComplianceBackup(client,data.compliance);
     await enforcePrivacyTombstones(client);
 
-    for(const table of ['users','employees','objects','organizations','salary_records','deals','counterparties','employee_balances','bank_statement_payments','action_log','security_log']){
+    for(const table of ['users','employees','objects','organizations','salary_records','deals','counterparties','loans','employee_balances','bank_statement_payments','action_log','security_log']){
       await client.query("SELECT setval(pg_get_serial_sequence('"+table+"','id'), COALESCE((SELECT MAX(id) FROM "+table+"),1), (SELECT COUNT(*)>0 FROM "+table+"))");
     }
     await client.query('COMMIT');
@@ -2989,6 +3001,7 @@ app.post('/api/clear', requirePermission('backups.manage'), requireRecentReauth,
     await pool.query('DELETE FROM salary_records');
     await pool.query('DELETE FROM deals');
     await pool.query('DELETE FROM counterparties');
+    await pool.query('DELETE FROM loans');
     await pool.query('DELETE FROM employee_balances');
     await pool.query('DELETE FROM bank_statement_payments');
     await pool.query('DELETE FROM object_user_responsibles');
