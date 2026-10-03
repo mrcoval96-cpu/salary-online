@@ -123,8 +123,12 @@ header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .period-status{font-size:13px;font-weight:600}.period-closed{color:#b42318}.period-open{color:#18794e}
 .archive-row{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid #eee;font-size:13px}
 .backup-list{margin-top:10px;font-size:13px}.backup-list div{padding:5px 0;border-bottom:1px solid #eee}
-.salary-filter-check{display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap}
-.salary-filter-check input{width:17px;height:17px;min-height:0}
+#tab-salary .salary-toolbar{align-items:flex-end}
+#tab-salary .salary-toolbar-actions{display:grid;grid-template-columns:minmax(190px,220px) minmax(220px,280px) minmax(320px,1fr);gap:12px;align-items:end;flex:1;max-width:900px}
+.salary-filter-field{display:grid;gap:5px;min-width:0}
+.salary-filter-field label{font-size:12px;font-weight:600;color:#475467}
+#tab-salary .salary-filter-field select,#tab-salary .salary-filter-field input{min-height:46px;padding:9px 12px;font-size:15px;border-radius:8px}
+#salarySearch{width:100%;min-width:320px}
 .salary-payment-actions{display:flex;gap:5px;align-items:center}
 .salary-payment-row .btn{padding:3px 7px}
 .backup-warning{font-size:12px;color:#777;margin-top:8px}
@@ -170,7 +174,13 @@ header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .salary-source-row-grid label{display:block;font-size:10px;color:#777;margin-bottom:2px}
 .salary-source-row-grid div{font-size:12px;word-break:break-word}
 .salary-source-row-totals{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;font-size:12px}
-.salary-export{margin:12px 0;padding:12px;border:1px solid #e4e7eb;border-radius:8px;background:#fafbfc}
+.salary-month-payments{margin-top:12px;padding:10px;border:1px solid #dce9e2;border-radius:8px;background:#f5fbf7}
+.salary-month-payments-title{font-size:12px;font-weight:700;color:#18794e;margin-bottom:6px}
+.salary-month-payment-row{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:7px 0;border-bottom:1px solid #e1eee6;font-size:12px}
+.salary-month-payment-row:last-child{border-bottom:0}
+.salary-export-actions{margin:12px 0}
+.salary-export-launch{min-height:44px;padding:10px 18px}
+.salary-export{margin:10px 0 0;padding:12px;border:1px solid #e4e7eb;border-radius:8px;background:#fafbfc}
 .salary-export-title{font-weight:600;margin-bottom:8px}
 .salary-export-grid{display:grid;grid-template-columns:minmax(180px,1.3fr) repeat(2,minmax(150px,1fr)) auto;gap:8px;align-items:end}
 .salary-export-grid .form-group{margin-bottom:0}
@@ -192,6 +202,8 @@ header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tab-content{padding:12px}
   .card{padding:14px}
   .salary-toolbar-actions,.salary-export-grid{display:grid;grid-template-columns:1fr;width:100%}
+  #tab-salary .salary-toolbar-actions{grid-template-columns:1fr;max-width:none}
+  #salarySearch{min-width:0}
   .salary-entry-grid,.salary-source-row-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .salary-summary{grid-template-columns:1fr}
   .dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -542,15 +554,14 @@ button,input,select,textarea{max-width:100%}
       <div class="salary-toolbar">
         <h2>Зарплата — сводка по сотрудникам</h2>
         <div class="salary-toolbar-actions">
-          <select id="salaryMonthFilter" onchange="renderSalary()">
+          <div class="salary-filter-field"><label for="salaryMonthFilter">Месяц</label><select id="salaryMonthFilter" onchange="renderSalary()">
             <option value="">Все месяцы</option>
             <option>Январь</option><option>Февраль</option><option>Март</option><option>Апрель</option>
             <option>Май</option><option>Июнь</option><option>Июль</option><option>Август</option>
             <option>Сентябрь</option><option>Октябрь</option><option>Ноябрь</option><option>Декабрь</option>
-          </select>
-          <select id="salaryObjectFilter" onchange="renderSalary()"><option value="">Все объекты</option></select>
-          <label class="salary-filter-check"><input type="checkbox" id="salaryDebtOnly" onchange="renderSalary()"> Только с задолженностью</label>
-          <input type="text" id="salarySearch" placeholder="Поиск по ФИО" oninput="renderSalary()">
+          </select></div>
+          <div class="salary-filter-field"><label for="salaryObjectFilter">Объект</label><select id="salaryObjectFilter" onchange="renderSalary()"><option value="">Все объекты</option></select></div>
+          <div class="salary-filter-field"><label for="salarySearch">Поиск сотрудника</label><input type="text" id="salarySearch" placeholder="Введите ФИО сотрудника" oninput="renderSalary()"></div>
         </div>
       </div>
       <div class="period-bar"><button class="btn btn-gray btn-sm" onclick="changeSalaryPeriod(-1)">← месяц</button><span id="salaryPeriodLabel">Период</span><button class="btn btn-gray btn-sm" onclick="changeSalaryPeriod(1)">месяц →</button><span id="salaryPeriodStatus" class="period-status"></span><button id="periodToggleBtn" class="btn btn-red btn-sm" style="display:none" onclick="toggleCurrentPeriod()">Закрыть период</button><button class="btn btn-gray btn-sm" id="salaryArchiveBtn" onclick="showSalaryArchive()">Архив удалённых</button></div>
@@ -560,15 +571,18 @@ button,input,select,textarea{max-width:100%}
         <div class="salary-summary-item"><label>Выплачено</label><b id="salarySummaryPaid">0,00 ₽</b></div>
         <div class="salary-summary-item"><label>Задолженность</label><b id="salarySummaryDebt">0,00 ₽</b></div>
       </div>
-      <div class="salary-export" id="salaryExportBlock">
-        <div class="salary-export-title">Выгрузка в Excel</div>
-        <div class="salary-export-grid">
-          <div class="form-group"><label>Сотрудник</label><select id="salaryExportEmployee"><option value="">Все сотрудники</option></select></div>
-          <div class="form-group"><label>Дата с</label><input type="text" id="salaryExportFrom" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div>
-          <div class="form-group"><label>Дата по</label><input type="text" id="salaryExportTo" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div>
-          <button class="btn btn-blue" type="button" onclick="exportSalaryCSV()">Скачать Excel</button>
+      <div class="salary-export-actions" id="salaryExportBlock">
+        <button class="btn btn-blue salary-export-launch" id="salaryExportToggleBtn" type="button" aria-expanded="false" onclick="toggleSalaryExport()">Скачать Excel</button>
+        <div class="salary-export" id="salaryExportPanel" hidden>
+          <div class="salary-export-title">Параметры выгрузки</div>
+          <div class="salary-export-grid">
+            <div class="form-group"><label>Сотрудник</label><select id="salaryExportEmployee"><option value="">Все сотрудники</option></select></div>
+            <div class="form-group"><label>Дата с</label><input type="text" id="salaryExportFrom" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div>
+            <div class="form-group"><label>Дата по</label><input type="text" id="salaryExportTo" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div>
+            <button class="btn btn-green" type="button" onclick="exportSalaryCSV()">Скачать файл</button>
+          </div>
+          <div class="export-hint">Пустые даты — весь доступный период. Для старых записей без даты используется месяц и год.</div>
         </div>
-        <div class="export-hint">Пустые даты — весь доступный период. Для старых записей без даты используется месяц и год.</div>
       </div>
       <div id="salaryCards"></div>
     </div>
@@ -870,7 +884,7 @@ button,input,select,textarea{max-width:100%}
 <div class="modal-overlay" id="salaryEditModal"><div class="modal"><span class="modal-close" onclick="closeModal('salaryEditModal')">&times;</span><h2>Редактирование записи</h2><div class="form-row"><div class="form-group" style="position:relative"><label>Сотрудник</label><input type="text" id="editFio" oninput="autocompleteFio(this)" onblur="setTimeout(()=>hideAutocomplete('fioAc2'),200)"><div class="autocomplete-list" id="fioAc2"></div></div><div class="form-group" style="position:relative"><label>Объект</label><input type="text" id="editObject" oninput="autocompleteObj(this)" onblur="setTimeout(()=>hideAutocomplete('objAc2'),200)"><div class="autocomplete-list" id="objAc2"></div></div></div><div class="form-row"><div class="form-group"><label>Месяц</label><select id="editMonth"><option value="">—</option><option>Январь</option><option>Февраль</option><option>Март</option><option>Апрель</option><option>Май</option><option>Июнь</option><option>Июль</option><option>Август</option><option>Сентябрь</option><option>Октябрь</option><option>Ноябрь</option><option>Декабрь</option></select></div><div class="form-group"><label>Год</label><input type="text" id="editYear"></div><div class="form-group"><label>Дата начисления</label><input type="text" id="editChargeDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div></div><div class="form-row"><div class="form-group"><label>Ставка за час</label><input type="number" id="editHourRate"></div><div class="form-group"><label>Часы</label><input type="number" id="editHours"></div><div class="form-group"><label>Дни суточных</label><input type="number" id="editPerDiemDays"></div><div class="form-group"><label>Ставка суточных</label><input type="number" id="editPerDiemRate"></div></div><div class="form-group"><label>Дополнительные начисления</label><div id="editExtraContainer"></div><button class="btn btn-blue btn-sm" type="button" onclick="addEditExtraCharge()">+ Начисление</button></div><div class="form-group"><label>Выплаты</label><div id="editPaymentsContainer"></div><button class="btn btn-blue btn-sm" type="button" onclick="addEditPayment()">+ Выплата</button></div><div class="form-row"><div class="form-group"><label>Итого</label><input type="number" id="editTotal" readonly></div><div class="form-group"><label>Выплачено</label><input type="number" id="editPaid"></div></div><button class="btn btn-green" onclick="saveEditSalary()">Сохранить изменения</button></div></div>
 <div class="modal-overlay" id="salaryArchiveModal"><div class="modal"><span class="modal-close" onclick="closeModal('salaryArchiveModal')">&times;</span><h2>Архив удалённых начислений</h2><div id="salaryArchiveList"></div></div></div>
 <div class="modal-overlay" id="quickPaymentModal"><div class="modal"><span class="modal-close" onclick="closeModal('quickPaymentModal')">&times;</span><h2 id="quickPaymentTitle">Добавить выплату</h2><div class="form-group"><label>Запись начисления</label><select id="quickPaymentRecord"></select></div><div class="form-row"><div class="form-group"><label>Дата</label><input type="text" id="quickPaymentDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div><div class="form-group"><label>Сумма</label><input type="number" id="quickPaymentAmount" min="0" step="0.01" placeholder="0,00"></div></div><button class="btn btn-green" id="quickPaymentSave" onclick="saveQuickPayment()">Сохранить выплату</button></div></div>
-<div class="modal-overlay" id="bankAllocationModal"><div class="modal" style="max-width:760px"><span class="modal-close" onclick="closeModal('bankAllocationModal')">&times;</span><h2>Распределение банковской выплаты по месяцам</h2><div id="bankAllocationInfo" class="balance-help" style="margin-bottom:12px"></div><div id="bankAllocationRows"></div><button class="btn btn-blue btn-sm" type="button" onclick="addBankAllocationRow()">+ Добавить месяц</button><div id="bankAllocationRemaining" style="font-size:13px;font-weight:600;margin:12px 0"></div><div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-gray" type="button" onclick="closeModal('bankAllocationModal')">Отмена</button><button class="btn btn-green" type="button" onclick="saveBankAllocations()">Сохранить распределение</button></div></div></div>
+<div class="modal-overlay" id="bankAllocationModal"><div class="modal" style="max-width:760px"><span class="modal-close" onclick="closeModal('bankAllocationModal')">&times;</span><h2>Распределение банковской выплаты</h2><div id="bankAllocationInfo" class="balance-help" style="margin-bottom:12px"></div><div id="bankAllocationRows"></div><button class="btn btn-blue btn-sm" type="button" onclick="addBankAllocationRow()">+ Добавить запись</button><div id="bankAllocationRemaining" style="font-size:13px;font-weight:600;margin:12px 0"></div><div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-gray" type="button" onclick="closeModal('bankAllocationModal')">Отмена</button><button class="btn btn-green" type="button" onclick="saveBankAllocations()">Распределить</button></div></div></div>
 <div class="modal-overlay" id="balanceModal"><div class="modal"><span class="modal-close" onclick="closeModal('balanceModal')">&times;</span><h2 id="balanceModalTitle">Ввод остатка</h2><div class="balance-help">Остаток фиксирует взаиморасчёт с сотрудником на указанную дату. Если галочка не отмечена — компания должна сотруднику. Если отмечена — сотрудник должен компании. Дальнейшие начисления и выплаты считаются от этого сальдо.</div><div class="form-group"><label>Сотрудник</label><select id="balanceEmployee" onchange="renderBalanceHistory()"></select></div><div class="form-row"><div class="form-group"><label>Дата остатка</label><input type="text" id="balanceDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div><div class="form-group"><label>Сумма остатка</label><input type="number" id="balanceAmount" min="0" step="0.01" placeholder="0,00"></div></div><div class="form-group"><label>Кто кому должен</label><label style="display:flex;align-items:center;gap:8px;padding:9px 10px;border:1px solid #ddd;border-radius:6px;cursor:pointer"><input type="checkbox" id="balanceEmployeeOwes" style="width:18px;height:18px;min-height:0" onchange="updateBalanceDirectionHint()"> <span>Сотрудник должен компании</span></label><div id="balanceDirectionHint" style="font-size:12px;color:#667085;margin-top:5px">Компания должна сотруднику</div></div><div class="form-group"><label>Комментарий</label><textarea id="balanceComment" rows="2" placeholder="Например: остаток на начало ведения учёта"></textarea></div><button class="btn btn-green" id="balanceSaveBtn" onclick="saveEmployeeBalance()">Сохранить остаток</button><h3 style="font-size:15px;margin:20px 0 8px">История остатков</h3><div id="balanceHistory"></div></div></div>
 <div class="modal-overlay" id="logModal"><div class="modal"><span class="modal-close" onclick="closeModal('logModal')">&times;</span><h2>Журнал действий</h2><table><thead><tr><th>Дата</th><th>Пользователь</th><th>Действие</th></tr></thead><tbody id="logBody"></tbody></table></div></div>
 <div class="modal-overlay" id="securityLogModal"><div class="modal" style="max-width:1050px"><span class="modal-close" onclick="closeModal('securityLogModal')">&times;</span><h2>Журнал безопасности</h2><div class="balance-help" style="margin-bottom:12px">Фиксируются успешные и неуспешные входы, блокировки по частоте запросов, отклонённые CSRF/CORS-запросы и попытки доступа без необходимых прав.</div><div style="overflow:auto;max-height:580px"><table style="min-width:900px"><thead><tr><th>Дата</th><th>Событие</th><th>Пользователь</th><th>IP</th><th>Результат</th><th>Подробности</th></tr></thead><tbody id="securityLogBody"></tbody></table></div></div></div>
@@ -1046,6 +1060,15 @@ function toggleMobileMenu(){
   if(!info || !btn) return;
   const open=info.classList.toggle('mobile-open');
   btn.setAttribute('aria-expanded',open ? 'true' : 'false');
+}
+function toggleSalaryExport(){
+  const panel=document.getElementById('salaryExportPanel'),btn=document.getElementById('salaryExportToggleBtn');
+  if(!panel||!btn)return;
+  const open=panel.hidden;
+  panel.hidden=!open;
+  btn.setAttribute('aria-expanded',open?'true':'false');
+  btn.textContent=open?'Скрыть параметры Excel':'Скачать Excel';
+  if(open)initDateInputs(panel);
 }
 function fillSalaryExportEmployees(selected){
   const select=document.getElementById('salaryExportEmployee');
@@ -1730,7 +1753,6 @@ function initDashboardPeriod(){
   if(dashboardInitialized)return;dashboardInitialized=true;
   const now=new Date(),months=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
   document.getElementById('dashboardMonth').value=months[now.getMonth()];document.getElementById('dashboardYear').value=now.getFullYear();
-  if(!document.getElementById('salaryMonthFilter').value)document.getElementById('salaryMonthFilter').value=months[now.getMonth()];
 }
 function setDashboardMode(mode){
   const month=document.getElementById('dashboardMonth');
@@ -2115,6 +2137,11 @@ function normalizedBankAllocations(payment){
     return {month:String(a.month||''),year:String(a.year||''),amount:Number(a.amount||0)};
   }).filter(function(a){return a.month&&a.year&&a.amount>0;});
 }
+function bankAllocatedTotal(payment){
+  return normalizedBankAllocations(payment).reduce(function(sum,a){return sum+Number(a.amount||0);},0);
+}
+// Accounting helper: for a selected month, allocated payments are attributed to that
+// salary month. Without a month filter, the full bank payment is counted once.
 function bankPaymentItemsForEmployee(fio,from,to){
   const key=String(fio||'').toLowerCase();
   const opening=latestBalanceForEmployee(fio,to||'9999-12-31');
@@ -2141,6 +2168,31 @@ function bankPaymentItemsForEmployee(fio,from,to){
   });
   return items.sort(function(a,b){return String(a.date||'').localeCompare(String(b.date||''));});
 }
+// History helper: allocated portions leave the general payment history. Only the
+// still-unallocated remainder is shown there.
+function bankUnallocatedHistoryItemsForEmployee(fio,from,to){
+  const key=String(fio||'').toLowerCase();
+  const opening=latestBalanceForEmployee(fio,to||'9999-12-31');
+  const start=opening?String(opening.balance_date||'').slice(0,10):'';
+  return bankStatementPayments.filter(function(p){
+    const d=String(p.transaction_date||'').slice(0,10);
+    return String(p.employee_fio||'').toLowerCase()===key && (!start||(d&&d>start)) && (!from||d>=from) && (!to||d<=to);
+  }).map(function(p){
+    const allocated=bankAllocatedTotal(p),remaining=Math.max(0,Number(p.amount||0)-allocated);
+    if(remaining<=0.005)return null;
+    return {date:String(p.transaction_date||'').slice(0,10),amount:remaining,source:'bank',bank:p.bank||'',purpose:p.purpose||'',document_number:p.document_number||'',id:p.id,allocated_total:allocated,original_amount:Number(p.amount||0)};
+  }).filter(Boolean).sort(function(a,b){return String(a.date||'').localeCompare(String(b.date||''));});
+}
+function allocatedBankItemsForEmployee(fio){
+  const key=String(fio||'').toLowerCase(),items=[];
+  bankStatementPayments.filter(function(p){return String(p.employee_fio||'').toLowerCase()===key;}).forEach(function(p){
+    const date=String(p.transaction_date||'').slice(0,10);
+    normalizedBankAllocations(p).forEach(function(a){
+      items.push({date:date,amount:Number(a.amount||0),source:'bank',bank:p.bank||'',purpose:p.purpose||'',document_number:p.document_number||'',id:p.id,allocation_month:a.month,allocation_year:a.year});
+    });
+  });
+  return items;
+}
 function fillSalaryObjectFilter(){
   const select=document.getElementById('salaryObjectFilter'); if(!select)return;
   const current=select.value;
@@ -2152,16 +2204,19 @@ function formatSalaryQty(value){
   const n=Number(value||0);
   return Number.isFinite(n)?n.toLocaleString('ru-RU',{maximumFractionDigits:2}):'0';
 }
-function groupSalaryRecordsByMonth(recs){
+function groupSalaryRecordsByMonth(recs,fio,includeBankAllocations){
   const groups={};
+  function ensureGroup(month,year){
+    const key=String(year||'')+'|'+String(month||'Без месяца');
+    if(!groups[key])groups[key]={
+      key:key,month:String(month||'Без месяца'),year:String(year||''),records:[],objects:new Set(),hours:0,hourlyAmount:0,
+      perDiemDays:0,perDiemAmount:0,extraTotal:0,total:0,paid:0,bankPaid:0,bankPayments:[],extras:Object.create(null)
+    };
+    return groups[key];
+  }
   recs.forEach(function(r){
     const month=String(r.month||'Без месяца'),year=String(r.year||'');
-    const key=year+'|'+month;
-    if(!groups[key])groups[key]={
-      key:key,month:month,year:year,records:[],objects:new Set(),hours:0,hourlyAmount:0,
-      perDiemDays:0,perDiemAmount:0,extraTotal:0,total:0,paid:0,extras:Object.create(null)
-    };
-    const g=groups[key],hourRate=Number(r.hour_rate||0),hours=Number(r.hours||0),perDays=Number(r.per_diem_days||0),perRate=Number(r.per_diem_rate||0);
+    const g=ensureGroup(month,year),hourRate=Number(r.hour_rate||0),hours=Number(r.hours||0),perDays=Number(r.per_diem_days||0),perRate=Number(r.per_diem_rate||0);
     g.records.push(r);
     if(r.object_name)g.objects.add(String(r.object_name));
     g.hours+=hours;
@@ -2177,6 +2232,13 @@ function groupSalaryRecordsByMonth(recs){
     g.total+=Number(r.total||0);
     g.paid+=Number(r.paid||0);
   });
+  if(includeBankAllocations!==false&&fio){
+    allocatedBankItemsForEmployee(fio).forEach(function(p){
+      const g=ensureGroup(p.allocation_month,p.allocation_year);
+      g.bankPaid+=Number(p.amount||0);
+      g.bankPayments.push(p);
+    });
+  }
   return Object.values(groups).sort(function(a,b){
     const ay=Number(a.year)||0,by=Number(b.year)||0;
     if(ay!==by)return ay-by;
@@ -2209,8 +2271,18 @@ function salarySourceRecordHtml(r){
     (rowActions?'<div class="salary-entry-actions">'+rowActions+'</div>':'')+
   '</div>';
 }
+function salaryMonthBankPaymentsHtml(group){
+  if(!group.bankPayments||!group.bankPayments.length)return '';
+  return '<div class="salary-month-payments"><div class="salary-month-payments-title">Распределённые выплаты</div>'+group.bankPayments.map(function(p){
+    let actions='';
+    if(can('bank.allocate'))actions+='<button class="btn btn-blue btn-sm" type="button" onclick="event.stopPropagation();openBankAllocation('+p.id+')">Изменить распределение</button>';
+    if(can('bank.delete'))actions+='<button class="btn btn-red btn-sm" type="button" onclick="event.stopPropagation();deleteBankPayment('+p.id+')">Удалить выплату</button>';
+    return '<div class="salary-month-payment-row"><span>'+(p.date?formatDateRu(p.date):'Дата не указана')+' — <b>'+formatMoney(p.amount)+' ₽</b><div style="font-size:11px;color:#667085;margin-top:2px">Из выписки · '+escapeHtml(p.bank||'Банк')+(p.purpose?' — '+escapeHtml(p.purpose):'')+'</div></span><span class="salary-payment-actions">'+actions+'</span></div>';
+  }).join('')+'</div>';
+}
 function salaryMonthGroupHtml(group){
-  const debt=group.total-group.paid;
+  const monthPaid=Number(group.paid||0)+Number(group.bankPaid||0);
+  const debt=Number(group.total||0)-monthPaid;
   const objects=Array.from(group.objects).sort(function(a,b){return a.localeCompare(b,'ru');});
   const sourceRows=group.records.slice().sort(function(a,b){return (recordExportDate(a)||'').localeCompare(recordExportDate(b)||'');}).map(salarySourceRecordHtml).join('');
   return '<div class="salary-entry salary-month-entry">'+
@@ -2221,18 +2293,19 @@ function salaryMonthGroupHtml(group){
       '<div class="salary-entry-field"><label>Суточные</label><div>'+formatSalaryQty(group.perDiemDays)+' дн. · '+formatMoney(group.perDiemAmount)+' ₽</div></div>'+
       '<div class="salary-entry-field"><label>Доп. начисления</label><div>'+salaryMonthExtrasHtml(group)+'</div></div>'+
     '</div>'+
-    '<div class="salary-entry-totals"><span>Начислено за месяц: <b>'+formatMoney(group.total)+' ₽</b></span><span>Выплачено в записях: <b>'+formatMoney(group.paid)+' ₽</b></span><span>Долг по записям месяца: <b>'+formatMoney(debt)+' ₽</b></span></div>'+
-    '<details class="salary-month-source"><summary>Исходные записи месяца ('+group.records.length+')</summary><div class="salary-source-list">'+sourceRows+'</div></details>'+
+    '<div class="salary-entry-totals"><span>Начислено за месяц: <b>'+formatMoney(group.total)+' ₽</b></span><span>Выплачено за месяц: <b>'+formatMoney(monthPaid)+' ₽</b></span><span>Долг за месяц: <b>'+formatMoney(debt)+' ₽</b></span></div>'+
+    salaryMonthBankPaymentsHtml(group)+
+    (group.records.length?'<details class="salary-month-source"><summary>Исходные записи месяца ('+group.records.length+')</summary><div class="salary-source-list">'+sourceRows+'</div></details>':'')+
   '</div>';
 }
 function renderSalary(){
   fillSalaryObjectFilter();
   const filter=document.getElementById('salaryMonthFilter').value;
   const objectFilter=document.getElementById('salaryObjectFilter').value;
-  const debtOnly=document.getElementById('salaryDebtOnly').checked;
   const search=(document.getElementById('salarySearch').value||'').toLowerCase();
   const periodYears=salaryRecords.filter(r=>!filter||r.month===filter).map(r=>String(r.year)).filter(Boolean).sort(),periodYear=periodYears.length?periodYears[periodYears.length-1]:String(new Date().getFullYear()),closed=filter&&isPeriodClosed(filter,periodYear);
   const cutoff=salaryCutoffDate(filter,periodYear);
+  const periodStart=filter?(String(periodYear)+'-'+String(monthNumber(filter)).padStart(2,'0')+'-01'):'';
   document.getElementById('salaryPeriodLabel').textContent=filter?(filter+' '+periodYear):'Все периоды';
   document.getElementById('salaryPeriodStatus').textContent=filter?(closed?'● Период закрыт':'● Период открыт'):'';
   document.getElementById('salaryPeriodStatus').className='period-status '+(closed?'period-closed':'period-open');
@@ -2256,17 +2329,21 @@ function renderSalary(){
     bankStatementPayments.forEach(function(p){
       const fio=p.employee_fio||'',d=String(p.transaction_date||'').slice(0,10);
       if(!fio||d>cutoff)return;
+      if(filter){
+        const allocatedHere=normalizedBankAllocations(p).some(function(a){return a.month===filter&&String(a.year)===String(periodYear);});
+        const remaining=Math.max(0,Number(p.amount||0)-bankAllocatedTotal(p));
+        const unallocatedHere=remaining>0.005&&d>=periodStart&&d<=cutoff;
+        if(!allocatedHere&&!unallocatedHere)return;
+      }
       if(search&&!fio.toLowerCase().includes(search))return;
       if(!byEmp[fio])byEmp[fio]=[];
     });
   }
 
-  let employeeNames=Object.keys(byEmp);
-  if(debtOnly)employeeNames=employeeNames.filter(function(fio){return Math.abs(employeePositionAt(fio,cutoff).debt)>0.005;});
+  const employeeNames=Object.keys(byEmp);
 
   const visibleRecords=[];
   employeeNames.forEach(function(fio){(byEmp[fio]||[]).forEach(function(r){visibleRecords.push(r);});});
-  const periodStart=filter?(String(periodYear)+'-'+String(monthNumber(filter)).padStart(2,'0')+'-01'):'';
   const summaryTotal=visibleRecords.reduce(function(sum,r){return sum+parseFloat(r.total||0);},0);
   const summaryManualPaid=employeeNames.reduce(function(sum,fio){return sum+manualPaidAfterOpeningForRecords(fio,byEmp[fio]||[],cutoff);},0);
   const summaryBankPaid=employeeNames.reduce(function(sum,fio){return sum+bankPaymentItemsForEmployee(fio,periodStart,filter?cutoff:'').reduce(function(s,p){return s+p.amount;},0);},0);
@@ -2283,12 +2360,14 @@ function renderSalary(){
 
   employeeNames.sort(function(a,b){return a.localeCompare(b,'ru');}).forEach(function(fio){
     const recs=(byEmp[fio]||[]).slice().sort(function(a,b){return (recordExportDate(a)||'').localeCompare(recordExportDate(b)||'');});
-    const monthGroups=groupSalaryRecordsByMonth(recs);
+    let monthGroups=groupSalaryRecordsByMonth(recs,fio,!objectFilter);
+    if(filter)monthGroups=monthGroups.filter(function(g){return g.month===filter&&String(g.year)===String(periodYear);});
     const total=recs.reduce(function(sum,r){return sum+parseFloat(r.total||0);},0);
     const manualPaid=manualPaidAfterOpeningForRecords(fio,recs,cutoff);
     const bankItems=bankPaymentItemsForEmployee(fio,periodStart,filter?cutoff:'');
     const paid=manualPaid+bankItems.reduce(function(sum,p){return sum+p.amount;},0);
-    const position=employeePositionAt(fio,cutoff),opening=position.opening,paymentItems=manualPaymentItemsAfterOpening(fio,recs,cutoff).concat(bankItems).sort(function(a,b){return String(a.date||a.recordDate||'').localeCompare(String(b.date||b.recordDate||''));}),balanceItems=balanceItemsForEmployee(fio);
+    const historyBankItems=bankUnallocatedHistoryItemsForEmployee(fio,periodStart,filter?cutoff:'');
+    const position=employeePositionAt(fio,cutoff),opening=position.opening,paymentItems=manualPaymentItemsAfterOpening(fio,recs,cutoff).concat(historyBankItems).sort(function(a,b){return String(a.date||a.recordDate||'').localeCompare(String(b.date||b.recordDate||''));}),balanceItems=balanceItemsForEmployee(fio);
     const card=document.createElement('div');card.className='salary-card';
     const head=document.createElement('button');head.type='button';head.className='salary-card-head';head.setAttribute('aria-expanded','false');
     const balanceDate=opening?'<span class="salary-balance-date">на '+formatDateRu(opening.balance_date)+'</span>':'';
@@ -2308,7 +2387,7 @@ function renderSalary(){
         let bankActions='<span class="badge badge-blue">Выписка</span>';
         if(can('bank.allocate'))bankActions+='<button class="btn btn-blue btn-sm" type="button" onclick="event.stopPropagation();openBankAllocation('+p.id+')">Распределить</button>';
         if(can('bank.delete'))bankActions+='<button class="btn btn-red btn-sm" type="button" onclick="event.stopPropagation();deleteBankPayment('+p.id+')">Удалить</button>';
-        return '<div class="salary-payment-row"><span>'+(p.date?formatDateRu(p.date):'Дата не указана')+' — <b>'+formatMoney(p.amount)+' ₽</b>'+(p.allocation_month?'<div style="font-size:11px;color:#027a48;margin-top:3px">Распределено: '+escapeHtml(p.allocation_month+' '+p.allocation_year)+'</div>':'')+'<div style="font-size:11px;color:#667085;margin-top:3px"><b>Из выписки · '+escapeHtml(p.bank||'Банк')+'</b>'+(p.purpose?' — '+escapeHtml(p.purpose):'')+'</div></span><span class="salary-payment-actions">'+bankActions+'</span></div>';
+        return '<div class="salary-payment-row"><span>'+(p.date?formatDateRu(p.date):'Дата не указана')+' — <b>'+formatMoney(p.amount)+' ₽</b>'+(p.allocated_total>0?'<div style="font-size:11px;color:#667085;margin-top:3px">Уже распределено: '+formatMoney(p.allocated_total)+' ₽ из '+formatMoney(p.original_amount)+' ₽</div>':'')+'<div style="font-size:11px;color:#667085;margin-top:3px"><b>Из выписки · '+escapeHtml(p.bank||'Банк')+'</b>'+(p.purpose?' — '+escapeHtml(p.purpose):'')+'</div></span><span class="salary-payment-actions">'+bankActions+'</span></div>';
       }
       const manualActions=can('salary.edit')?'<button class="btn btn-blue btn-sm" type="button" onclick="editPayment('+p.recordId+','+p.index+')">Изменить</button><button class="btn btn-red btn-sm" type="button" onclick="deletePayment('+p.recordId+','+p.index+')">Удалить</button>':'';
       return '<div class="salary-payment-row"><span>'+(p.date?formatDateRu(p.date):'Дата не указана')+' — <b>'+formatMoney(p.amount)+' ₽</b><div style="font-size:11px;color:#667085;margin-top:3px">Внесено вручную</div></span><span class="salary-payment-actions">'+manualActions+'</span></div>';
@@ -2374,22 +2453,45 @@ async function deletePayment(recordId,index){
   const r=salaryRecords.find(function(x){return x.id===recordId;});if(!r||!confirm('Удалить эту выплату?'))return;
   try{const payments=parseJsonArray(r.payments);payments.splice(index,1);await saveRecordPayments(r,payments);salaryRecords=await api('/api/salary');renderSalary();toast('Выплата удалена');}catch(e){toast(e.message,'error');}
 }
-function bankAllocationMonthOptions(selected){
-  const months=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
-  return months.map(function(m){return '<option '+(m===selected?'selected':'')+'>'+m+'</option>';}).join('');
+function salaryPeriodsForEmployee(fio){
+  const map={};
+  salaryRecords.filter(function(r){return String(r.employee_fio||'').toLowerCase()===String(fio||'').toLowerCase()&&r.month&&r.year;}).forEach(function(r){
+    const key=String(r.year)+'|'+String(r.month);
+    map[key]={month:String(r.month),year:String(r.year)};
+  });
+  return Object.values(map).sort(function(a,b){
+    const dy=(Number(b.year)||0)-(Number(a.year)||0);
+    return dy||monthNumber(b.month)-monthNumber(a.month);
+  });
+}
+function bankAllocationPeriodOptions(selectedMonth,selectedYear){
+  const p=bankStatementPayments.find(function(x){return Number(x.id)===Number(editingBankAllocationId);});
+  let periods=salaryPeriodsForEmployee(p&&p.employee_fio||'');
+  const selectedKey=String(selectedYear||'')+'|'+String(selectedMonth||'');
+  if(selectedMonth&&selectedYear&&!periods.some(function(x){return String(x.year)+'|'+x.month===selectedKey;})){
+    periods.unshift({month:String(selectedMonth),year:String(selectedYear)});
+  }
+  if(!periods.length){
+    const now=new Date(),months=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+    periods=[{month:months[now.getMonth()],year:String(now.getFullYear())}];
+  }
+  return periods.map(function(x){
+    const key=String(x.year)+'|'+x.month;
+    return '<option value="'+escapeHtml(key)+'" '+(key===selectedKey?'selected':'')+'>'+escapeHtml(x.month+' '+x.year)+'</option>';
+  }).join('');
 }
 function addBankAllocationRow(value){
   const box=document.getElementById('bankAllocationRows');
   const row=document.createElement('div');row.className='form-row bank-allocation-row';
-  const now=new Date(),months=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
   value=value||{};
-  row.innerHTML='<div class="form-group"><label>Месяц</label><select class="bank-allocation-month" onchange="updateBankAllocationRemaining()">'+bankAllocationMonthOptions(value.month||months[now.getMonth()])+'</select></div><div class="form-group"><label>Год</label><input class="bank-allocation-year" type="number" min="2000" max="2100" value="'+escapeHtml(value.year||now.getFullYear())+'" oninput="updateBankAllocationRemaining()"></div><div class="form-group"><label>Сумма</label><input class="bank-allocation-amount" type="number" min="0" step="0.01" value="'+(value.amount||'')+'" oninput="updateBankAllocationRemaining()"></div><div class="form-group" style="align-self:end"><button class="btn btn-red btn-sm" type="button" onclick="this.closest(\'.bank-allocation-row\').remove();updateBankAllocationRemaining()">Удалить строку</button></div>';
+  row.innerHTML='<div class="form-group" style="flex:2"><label>Запись зарплаты</label><select class="bank-allocation-period" onchange="updateBankAllocationRemaining()">'+bankAllocationPeriodOptions(value.month,value.year)+'</select></div><div class="form-group"><label>Сумма</label><input class="bank-allocation-amount" type="number" min="0" step="0.01" value="'+(value.amount||'')+'" oninput="updateBankAllocationRemaining()"></div><div class="form-group" style="align-self:end"><button class="btn btn-red btn-sm" type="button" onclick="this.closest(\'.bank-allocation-row\').remove();updateBankAllocationRemaining()">Удалить</button></div>';
   box.appendChild(row);updateBankAllocationRemaining();
 }
 function readBankAllocationRows(){
   return Array.from(document.querySelectorAll('#bankAllocationRows .bank-allocation-row')).map(function(row){
-    return {month:row.querySelector('.bank-allocation-month').value,year:String(row.querySelector('.bank-allocation-year').value||''),amount:Number(row.querySelector('.bank-allocation-amount').value||0)};
-  }).filter(function(x){return x.amount>0;});
+    const parts=String(row.querySelector('.bank-allocation-period').value||'').split('|');
+    return {year:String(parts[0]||''),month:String(parts.slice(1).join('|')||''),amount:Number(row.querySelector('.bank-allocation-amount').value||0)};
+  }).filter(function(x){return x.month&&x.year&&x.amount>0;});
 }
 function updateBankAllocationRemaining(){
   const p=bankStatementPayments.find(function(x){return Number(x.id)===Number(editingBankAllocationId);});
@@ -2409,9 +2511,10 @@ function openBankAllocation(id){
   if(allocations.length)allocations.forEach(addBankAllocationRow);
   else{
     const selected=document.getElementById('salaryMonthFilter').value;
-    const years=salaryRecords.filter(function(r){return r.employee_fio===p.employee_fio&&(!selected||r.month===selected);}).map(function(r){return String(r.year||'');}).filter(Boolean).sort();
-    const d=new Date(),months=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
-    addBankAllocationRow({month:selected||months[d.getMonth()],year:years.length?years[years.length-1]:String(d.getFullYear()),amount:Number(p.amount||0)});
+    const periods=salaryPeriodsForEmployee(p.employee_fio);
+    let preferred=selected?periods.find(function(x){return x.month===selected;}):null;
+    if(!preferred)preferred=periods[0]||null;
+    addBankAllocationRow({month:preferred&&preferred.month||'',year:preferred&&preferred.year||'',amount:Number(p.amount||0)});
   }
   updateBankAllocationRemaining();
   document.getElementById('bankAllocationModal').classList.add('show');
