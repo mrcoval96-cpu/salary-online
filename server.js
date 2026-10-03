@@ -2415,6 +2415,13 @@ function loanPayload(body){
     principal:dealNumber(x.principal),interest_rate:dealNumber(x.interest_rate),due_date:dealText(x.due_date,10)||null,repayments:cleanLoanRepayments(x.repayments),
     status:LOAN_STATUSES.has(status)?status:'active',comments:dealText(x.comments,8000)};
 }
+function validateLoanInterestPeriod(d){
+  if(Number(d.interest_rate||0)<=0)return;
+  const start=String(d.received_date||d.contract_date||'').slice(0,10),due=String(d.due_date||'').slice(0,10);
+  if(!start||!due){const err=new Error('Для кредита с процентами укажите дату получения (или дату договора) и срок возврата');err.status=400;throw err;}
+  const startMs=Date.parse(start+'T00:00:00Z'),dueMs=Date.parse(due+'T00:00:00Z');
+  if(!Number.isFinite(startMs)||!Number.isFinite(dueMs)||dueMs<=startMs){const err=new Error('Срок возврата кредита с процентами должен быть позже даты получения');err.status=400;throw err;}
+}
 async function loanScope(user,requestedOrganization){return counterpartyScope(user,requestedOrganization);}
 async function requireLoanAccess(id,user){
   const r=await pool.query('SELECT id,tenant_id,organization,lender_name,contract_no FROM loans WHERE id=$1',[id]);
@@ -2440,14 +2447,14 @@ app.get('/api/loans',requirePermission('loans.view'),async(req,res)=>{
   catch(err){res.status(err.status||500).json({error:err.message});}
 });
 app.post('/api/loans',requirePermission('loans.manage'),async(req,res)=>{
-  try{const user=req.accessUser||await refreshAccessUser(req),d=loanPayload(req.body),scope=await loanScope(user,req.body&&req.body.organization);if(!d.lender_name)return res.status(400).json({error:'Укажите займодавца'});if(d.principal<=0)return res.status(400).json({error:'Сумма займа должна быть больше нуля'});
+  try{const user=req.accessUser||await refreshAccessUser(req),d=loanPayload(req.body),scope=await loanScope(user,req.body&&req.body.organization);if(!d.lender_name)return res.status(400).json({error:'Укажите займодавца'});if(d.principal<=0)return res.status(400).json({error:'Сумма займа должна быть больше нуля'});validateLoanInterestPeriod(d);
     const r=await pool.query(`INSERT INTO loans(tenant_id,organization,lender_type,lender_name,lender_inn,contract_no,contract_date,received_date,principal,interest_rate,due_date,repayments,status,comments,created_by)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15) RETURNING *`,[scope.tenant_id,scope.organization,d.lender_type,d.lender_name,d.lender_inn,d.contract_no,d.contract_date,d.received_date,d.principal,d.interest_rate,d.due_date,JSON.stringify(d.repayments),d.status,d.comments,req.session.user.login]);await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Создан займ / кредит: '+d.lender_name]);res.json(r.rows[0]);}
   catch(err){res.status(err.status||500).json({error:err.message});}
 });
 app.put('/api/loans/:id',requirePermission('loans.manage'),async(req,res)=>{
   try{const id=Number(req.params.id),user=req.accessUser||await refreshAccessUser(req),before=await pool.query('SELECT * FROM loans WHERE id=$1',[id]);if(!before.rows.length)return res.status(404).json({error:'Займ не найден'});if(!isSiteWideUser(user)&&!sameAccessValue(before.rows[0].organization,accessOrganization(user)))return res.status(403).json({error:'Нет доступа к займу'});
-    const d=loanPayload(req.body),scope=await loanScope(user,req.body&&req.body.organization);const r=await pool.query(`UPDATE loans SET tenant_id=$1,organization=$2,lender_type=$3,lender_name=$4,lender_inn=$5,contract_no=$6,contract_date=$7,received_date=$8,principal=$9,interest_rate=$10,due_date=$11,repayments=$12::jsonb,status=$13,comments=$14,updated_at=CURRENT_TIMESTAMP WHERE id=$15 RETURNING *`,[scope.tenant_id,scope.organization,d.lender_type,d.lender_name,d.lender_inn,d.contract_no,d.contract_date,d.received_date,d.principal,d.interest_rate,d.due_date,JSON.stringify(d.repayments),d.status,d.comments,id]);await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Изменён займ / кредит: '+d.lender_name]);res.json(r.rows[0]);}
+    const d=loanPayload(req.body),scope=await loanScope(user,req.body&&req.body.organization);validateLoanInterestPeriod(d);const r=await pool.query(`UPDATE loans SET tenant_id=$1,organization=$2,lender_type=$3,lender_name=$4,lender_inn=$5,contract_no=$6,contract_date=$7,received_date=$8,principal=$9,interest_rate=$10,due_date=$11,repayments=$12::jsonb,status=$13,comments=$14,updated_at=CURRENT_TIMESTAMP WHERE id=$15 RETURNING *`,[scope.tenant_id,scope.organization,d.lender_type,d.lender_name,d.lender_inn,d.contract_no,d.contract_date,d.received_date,d.principal,d.interest_rate,d.due_date,JSON.stringify(d.repayments),d.status,d.comments,id]);await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Изменён займ / кредит: '+d.lender_name]);res.json(r.rows[0]);}
   catch(err){res.status(err.status||500).json({error:err.message});}
 });
 app.get('/api/loans/:id/attachments',requirePermission('loans.view'),async(req,res)=>{
