@@ -1777,7 +1777,7 @@ async function saveObject(id,data,res,req){
   }
   if(customer){
     const customerMatch=await pool.query("SELECT id FROM counterparties WHERE lower(trim(organization))=lower(trim($1)) AND counterparty_type IN ('customer','both') AND lower(trim(name))=lower(trim($2)) LIMIT 1",[targetOrg,customer]);
-    const unchangedLegacy=currentObject&&sameAccessValue(currentObject.customer,customer);
+    const unchangedLegacy=currentObject&&sameAccessValue(currentObject.customer,customer)&&sameAccessValue(currentObject.organization,targetOrg);
     if(!customerMatch.rows.length&&!unchangedLegacy)return res.status(400).json({error:'Заказчик должен быть выбран из справочника контрагентов'});
   }
   const responsibleIds=await normalizeResponsibleIds(data,targetOrg);
@@ -2228,8 +2228,8 @@ app.post('/api/object-customers',requirePermission('objects.manage'),async(req,r
   try{
     const user=req.accessUser||await refreshAccessUser(req),scope=await counterpartyScope(user,req.body&&req.body.organization),data=counterpartyPayload({...req.body,counterparty_type:'customer'});
     if(!data.name)return res.status(400).json({error:'Укажите наименование заказчика'});
-    const duplicate=await pool.query("SELECT id FROM counterparties WHERE tenant_id=$1 AND lower(trim(name))=lower(trim($2)) LIMIT 1",[scope.tenant_id,data.name]);
-    if(duplicate.rows.length)return res.status(409).json({error:'Контрагент с таким наименованием уже существует'});
+    const duplicate=await pool.query("SELECT id FROM counterparties WHERE tenant_id=$1 AND (lower(trim(name))=lower(trim($2)) OR (trim($3)<>'' AND inn=$3)) LIMIT 1",[scope.tenant_id,data.name,data.inn]);
+    if(duplicate.rows.length)return res.status(409).json({error:'Контрагент с таким наименованием или ИНН уже существует'});
     const r=await pool.query(`INSERT INTO counterparties
       (tenant_id,organization,counterparty_type,name,full_name,inn,kpp,ogrn,legal_address,postal_address,director_fio,contact_person,phone,email,contact_people,website,bank_name,bik,settlement_account,correspondent_account,comments,created_by)
       VALUES($1,$2,'customer',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16,$17,$18,$19,$20,$21) RETURNING *`,
