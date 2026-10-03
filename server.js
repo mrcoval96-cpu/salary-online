@@ -183,6 +183,7 @@ async function ensureDatabaseSchema(){
     contact_person TEXT NOT NULL DEFAULT '',
     phone TEXT NOT NULL DEFAULT '',
     email TEXT NOT NULL DEFAULT '',
+    contact_people JSONB NOT NULL DEFAULT '[]'::jsonb,
     website TEXT NOT NULL DEFAULT '',
     bank_name TEXT NOT NULL DEFAULT '',
     bik TEXT NOT NULL DEFAULT '',
@@ -193,8 +194,30 @@ async function ensureDatabaseSchema(){
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`);
+  await pool.query("ALTER TABLE counterparties ADD COLUMN IF NOT EXISTS contact_people JSONB NOT NULL DEFAULT '[]'::jsonb");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_counterparties_organization ON counterparties(lower(trim(organization)),id)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_counterparties_inn ON counterparties(inn) WHERE trim(inn)<>''");
+  await pool.query(`CREATE TABLE IF NOT EXISTS loans(
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+    organization TEXT NOT NULL DEFAULT '',
+    lender_type TEXT NOT NULL DEFAULT 'individual',
+    lender_name TEXT NOT NULL DEFAULT '',
+    lender_inn TEXT NOT NULL DEFAULT '',
+    contract_no TEXT NOT NULL DEFAULT '',
+    contract_date DATE,
+    received_date DATE,
+    principal NUMERIC(16,2) NOT NULL DEFAULT 0,
+    interest_rate NUMERIC(8,4) NOT NULL DEFAULT 0,
+    due_date DATE,
+    repayments JSONB NOT NULL DEFAULT '[]'::jsonb,
+    status TEXT NOT NULL DEFAULT 'active',
+    comments TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_loans_organization ON loans(lower(trim(organization)),id)");
   await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS full_name TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS inn TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS kpp TEXT NOT NULL DEFAULT ''");
@@ -253,7 +276,7 @@ async function repairOrganizationReferences(){
     }
   }catch(e){console.warn('Organization alias discovery:',e.message);}
 
-  for(const table of ['users','employees','objects','salary_records','deals','counterparties']){
+  for(const table of ['users','employees','objects','salary_records','deals','counterparties','loans']){
     await pool.query("UPDATE "+table+" t SET organization=o.name FROM organizations o WHERE trim(COALESCE(t.organization,''))<>'' AND lower(trim(t.organization))=lower(trim(o.name)) AND t.organization<>o.name");
     await pool.query("UPDATE "+table+" t SET organization=o.name FROM organization_aliases a JOIN organizations o ON o.id=a.organization_id WHERE lower(trim(COALESCE(t.organization,'')))=lower(trim(a.alias)) AND t.organization<>o.name");
   }
@@ -531,6 +554,8 @@ const PERMISSION_DEFINITIONS=[
   {key:'organizations.manage',group:'Организации',label:'Создание, изменение и удаление организаций',siteOnly:true},
   {key:'accounting.view',group:'Разделы сайта',label:'Доступ к разделу «Бухгалтерия»'},
   {key:'counterparties.manage',group:'Бухгалтерия',label:'Создание, изменение и удаление контрагентов'},
+  {key:'loans.view',group:'Бухгалтерия',label:'Просмотр займов и кредитов'},
+  {key:'loans.manage',group:'Бухгалтерия',label:'Создание, изменение и удаление займов и погашений'},
   {key:'deals.view',group:'Разделы сайта',label:'Доступ к разделу «Сделки»'},
   {key:'deals.manage',group:'Разделы сайта',label:'Создание, изменение, удаление и импорт сделок'},
   {key:'warehouse.view',group:'Разделы сайта',label:'Доступ к разделу «Склад»'},
@@ -563,7 +588,7 @@ const ROLE_PERMISSION_DEFAULTS={
   'Руководитель сайта':Object.fromEntries(PERMISSION_DEFINITIONS.map(x=>[x.key,true])),
   'Руководитель организации':{
     'employees.view':true,'employees.manage':true,'objects.view':true,'objects.manage':true,
-    'organizations.view':true,'organizations.manage':false,'accounting.view':true,'counterparties.manage':true,'deals.view':true,'deals.manage':true,'warehouse.view':true,
+    'organizations.view':true,'organizations.manage':false,'accounting.view':true,'counterparties.manage':true,'loans.view':true,'loans.manage':true,'deals.view':true,'deals.manage':true,'warehouse.view':true,
     'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':true,
     'balances.manage':true,'bank.view':true,'bank.import':true,'bank.allocate':true,'bank.delete':true,
     'periods.close':true,'periods.reopen':true,'reports.export':true,
@@ -572,7 +597,7 @@ const ROLE_PERMISSION_DEFAULTS={
   },
   'Бухгалтер':{
     'employees.view':true,'employees.manage':false,'objects.view':true,'objects.manage':false,
-    'organizations.view':true,'organizations.manage':false,'accounting.view':true,'counterparties.manage':true,'deals.view':true,'deals.manage':true,'warehouse.view':false,
+    'organizations.view':true,'organizations.manage':false,'accounting.view':true,'counterparties.manage':true,'loans.view':true,'loans.manage':true,'deals.view':true,'deals.manage':true,'warehouse.view':false,
     'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':true,
     'balances.manage':true,'bank.view':true,'bank.import':true,'bank.allocate':true,'bank.delete':true,
     'periods.close':true,'periods.reopen':false,'reports.export':true,
@@ -580,7 +605,7 @@ const ROLE_PERMISSION_DEFAULTS={
   },
   'Руководитель':{
     'employees.view':true,'employees.manage':true,'objects.view':true,'objects.manage':false,
-    'organizations.view':true,'organizations.manage':false,'accounting.view':false,'counterparties.manage':false,'deals.view':true,'deals.manage':true,'warehouse.view':true,
+    'organizations.view':true,'organizations.manage':false,'accounting.view':false,'counterparties.manage':false,'loans.view':false,'loans.manage':false,'deals.view':true,'deals.manage':true,'warehouse.view':true,
     'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':false,
     'balances.manage':false,'bank.view':false,'bank.import':false,'bank.allocate':false,'bank.delete':false,
     'periods.close':false,'periods.reopen':false,'reports.export':true,
@@ -588,7 +613,7 @@ const ROLE_PERMISSION_DEFAULTS={
   },
   'Руководитель проекта':{
     'employees.view':true,'employees.manage':false,'objects.view':true,'objects.manage':false,
-    'organizations.view':false,'organizations.manage':false,'accounting.view':false,'counterparties.manage':false,'deals.view':true,'deals.manage':false,'warehouse.view':true,
+    'organizations.view':false,'organizations.manage':false,'accounting.view':false,'counterparties.manage':false,'loans.view':false,'loans.manage':false,'deals.view':true,'deals.manage':false,'warehouse.view':true,
     'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':false,
     'balances.manage':false,'bank.view':false,'bank.import':false,'bank.allocate':false,'bank.delete':false,
     'periods.close':false,'periods.reopen':false,'reports.export':true,
@@ -1743,8 +1768,15 @@ async function saveObject(id,data,res,req){
   if(!orgResult.rows.length)return res.status(400).json({error:'Выбранная организация не найдена'});
   const targetOrg=String(orgResult.rows[0].name||'').trim();
   await ensureOrganizationAccess(user,targetOrg);
+  const customer=String(data.customer||'').trim();
+  let currentObject=null;
+  if(id)currentObject=await ensureObjectAccess(user,Number(id));
+  if(customer){
+    const customerMatch=await pool.query("SELECT id FROM counterparties WHERE lower(trim(organization))=lower(trim($1)) AND counterparty_type IN ('customer','both') AND lower(trim(name))=lower(trim($2)) LIMIT 1",[targetOrg,customer]);
+    const unchangedLegacy=currentObject&&sameAccessValue(currentObject.customer,customer);
+    if(!customerMatch.rows.length&&!unchangedLegacy)return res.status(400).json({error:'Заказчик должен быть выбран из справочника контрагентов'});
+  }
   const responsibleIds=await normalizeResponsibleIds(data,targetOrg);
-  if(id)await ensureObjectAccess(user,Number(id));
   if(isProjectScoped(user)){
     const objectKeys=await requireProjectObjectKeys(user);
     if(!objectKeys.includes(normAccess(name))){const err=new Error('Руководитель проекта может изменять только назначенный объект');err.status=403;throw err;}
@@ -1754,10 +1786,10 @@ async function saveObject(id,data,res,req){
     await client.query('BEGIN');
     let result;
     if(id){
-      result=await client.query('UPDATE objects SET name=$1,address=$2,customer=$3,organization=$4,responsible=$5 WHERE id=$6 RETURNING id',[name,data.address||'',data.customer||'',targetOrg,'',id]);
+      result=await client.query('UPDATE objects SET name=$1,address=$2,customer=$3,organization=$4,responsible=$5 WHERE id=$6 RETURNING id',[name,data.address||'',customer,targetOrg,'',id]);
       if(!result.rows.length){await client.query('ROLLBACK');return res.status(404).json({error:'Объект не найден'});}
     }else{
-      result=await client.query('INSERT INTO objects (name,address,customer,organization,responsible) VALUES ($1,$2,$3,$4,$5) RETURNING id',[name,data.address||'',data.customer||'',targetOrg,'']);
+      result=await client.query('INSERT INTO objects (name,address,customer,organization,responsible) VALUES ($1,$2,$3,$4,$5) RETURNING id',[name,data.address||'',customer,targetOrg,'']);
       id=result.rows[0].id;
     }
     await client.query('DELETE FROM object_user_responsibles WHERE object_id=$1',[id]);
@@ -1872,7 +1904,7 @@ app.put('/api/organizations/:id', requireSiteManager, async (req, res) => {
     if(oldName&&oldName!==data.name){
       await client.query('INSERT INTO organization_aliases(alias,organization_id) VALUES($1,$2) ON CONFLICT(alias) DO UPDATE SET organization_id=EXCLUDED.organization_id',[normAccess(oldName),req.params.id]);
     }
-    for(const table of ['users','employees','objects','salary_records','deals','counterparties']){
+    for(const table of ['users','employees','objects','salary_records','deals','counterparties','loans']){
       await client.query("UPDATE "+table+" SET organization=$1 WHERE lower(trim(COALESCE(organization,'')))=lower(trim($2))",[data.name,oldName]);
     }
     if(oldName!==data.name){
@@ -2088,14 +2120,25 @@ function startAutomaticBackups(){
 
 // === COUNTERPARTIES ===
 const COUNTERPARTY_TYPES=new Set(['customer','supplier','both','other']);
+function cleanCounterpartyContacts(value,fallback){
+  let rows=Array.isArray(value)?value.slice(0,50):[];
+  if(!rows.length&&fallback&&(fallback.contact_person||fallback.phone||fallback.email))rows=[{name:fallback.contact_person||'',position:'',phone:fallback.phone||'',email:fallback.email||''}];
+  return rows.map(function(item){
+    const row=item&&typeof item==='object'?item:{},phoneRaw=dealText(row.phone,100);
+    const phone=phoneRaw?(normalizePhone(phoneRaw)||''):'',email=normalizeEmail(row.email);
+    if(phoneRaw&&!phone){const err=new Error('Некорректный телефон контактного лица. Формат: +7 (900) 900-90-90');err.status=400;throw err;}
+    if(email&&!validEmail(email)){const err=new Error('Некорректный email контактного лица');err.status=400;throw err;}
+    return {name:dealText(row.name,500),position:dealText(row.position,500),phone,email};
+  }).filter(function(x){return x.name||x.position||x.phone||x.email;});
+}
 function counterpartyPayload(body){
-  const x=body||{},type=dealText(x.counterparty_type,30);
+  const x=body||{},type=dealText(x.counterparty_type,30),contact_people=cleanCounterpartyContacts(x.contact_people,x),primary=contact_people[0]||{};
   return {
     counterparty_type:COUNTERPARTY_TYPES.has(type)?type:'both',
     name:dealText(x.name,500),full_name:dealText(x.full_name,1000),inn:dealText(x.inn,20),kpp:dealText(x.kpp,20),ogrn:dealText(x.ogrn,20),
     legal_address:dealText(x.legal_address,2000),postal_address:dealText(x.postal_address,2000),director_fio:dealText(x.director_fio,500),
-    contact_person:dealText(x.contact_person,500),phone:(function(){const raw=dealText(x.phone,100);return raw?(normalizePhone(raw)||raw):'';})(),email:dealText(x.email,500),website:dealText(x.website,500),
-    bank_name:dealText(x.bank_name,1000),bik:dealText(x.bik,20),settlement_account:dealText(x.settlement_account,40),
+    contact_person:dealText(primary.name,500),phone:dealText(primary.phone,100),email:dealText(primary.email,500),contact_people,
+    website:dealText(x.website,500),bank_name:dealText(x.bank_name,1000),bik:dealText(x.bik,20),settlement_account:dealText(x.settlement_account,40),
     correspondent_account:dealText(x.correspondent_account,40),comments:dealText(x.comments,8000)
   };
 }
@@ -2125,9 +2168,9 @@ app.post('/api/counterparties',requirePermission('counterparties.manage'),async(
       if(dup.rows.length)return res.status(409).json({error:'Контрагент с таким ИНН уже существует'});
     }
     const r=await pool.query(`INSERT INTO counterparties
-      (tenant_id,organization,counterparty_type,name,full_name,inn,kpp,ogrn,legal_address,postal_address,director_fio,contact_person,phone,email,website,bank_name,bik,settlement_account,correspondent_account,comments,created_by)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING *`,
-      [scope.tenant_id,scope.organization,data.counterparty_type,data.name,data.full_name,data.inn,data.kpp,data.ogrn,data.legal_address,data.postal_address,data.director_fio,data.contact_person,data.phone,data.email,data.website,data.bank_name,data.bik,data.settlement_account,data.correspondent_account,data.comments,req.session.user.login]);
+      (tenant_id,organization,counterparty_type,name,full_name,inn,kpp,ogrn,legal_address,postal_address,director_fio,contact_person,phone,email,contact_people,website,bank_name,bik,settlement_account,correspondent_account,comments,created_by)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18,$19,$20,$21,$22) RETURNING *`,
+      [scope.tenant_id,scope.organization,data.counterparty_type,data.name,data.full_name,data.inn,data.kpp,data.ogrn,data.legal_address,data.postal_address,data.director_fio,data.contact_person,data.phone,data.email,JSON.stringify(data.contact_people),data.website,data.bank_name,data.bik,data.settlement_account,data.correspondent_account,data.comments,req.session.user.login]);
     await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Создан контрагент '+data.name]);
     res.json(r.rows[0]);
   }catch(err){res.status(err.status||500).json({error:err.message});}
@@ -2146,9 +2189,9 @@ app.put('/api/counterparties/:id',requirePermission('counterparties.manage'),asy
       if(dup.rows.length)return res.status(409).json({error:'Контрагент с таким ИНН уже существует'});
     }
     const r=await pool.query(`UPDATE counterparties SET tenant_id=$1,organization=$2,counterparty_type=$3,name=$4,full_name=$5,inn=$6,kpp=$7,ogrn=$8,
-      legal_address=$9,postal_address=$10,director_fio=$11,contact_person=$12,phone=$13,email=$14,website=$15,bank_name=$16,bik=$17,
-      settlement_account=$18,correspondent_account=$19,comments=$20,updated_at=CURRENT_TIMESTAMP WHERE id=$21 RETURNING *`,
-      [scope.tenant_id,scope.organization,data.counterparty_type,data.name,data.full_name,data.inn,data.kpp,data.ogrn,data.legal_address,data.postal_address,data.director_fio,data.contact_person,data.phone,data.email,data.website,data.bank_name,data.bik,data.settlement_account,data.correspondent_account,data.comments,id]);
+      legal_address=$9,postal_address=$10,director_fio=$11,contact_person=$12,phone=$13,email=$14,contact_people=$15::jsonb,website=$16,bank_name=$17,bik=$18,
+      settlement_account=$19,correspondent_account=$20,comments=$21,updated_at=CURRENT_TIMESTAMP WHERE id=$22 RETURNING *`,
+      [scope.tenant_id,scope.organization,data.counterparty_type,data.name,data.full_name,data.inn,data.kpp,data.ogrn,data.legal_address,data.postal_address,data.director_fio,data.contact_person,data.phone,data.email,JSON.stringify(data.contact_people),data.website,data.bank_name,data.bik,data.settlement_account,data.correspondent_account,data.comments,id]);
     await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Изменён контрагент '+data.name]);
     res.json(r.rows[0]);
   }catch(err){res.status(err.status||500).json({error:err.message});}
@@ -2163,6 +2206,61 @@ app.delete('/api/counterparties/:id',requirePermission('counterparties.manage'),
     await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Удалён контрагент '+before.rows[0].name]);
     res.json({ok:true});
   }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+
+app.get('/api/object-customers',requirePermission('objects.view'),async(req,res)=>{
+  try{
+    const user=req.accessUser||await refreshAccessUser(req);
+    const org=isSiteWideUser(user)?String(req.query.organization||'').trim():accessOrganization(user);
+    if(!org)return res.json([]);
+    await ensureOrganizationAccess(user,org);
+    const r=await pool.query("SELECT id,name,full_name,inn,counterparty_type,contact_people FROM counterparties WHERE lower(trim(organization))=lower(trim($1)) AND counterparty_type IN ('customer','both') ORDER BY name",[org]);
+    res.json(r.rows);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.post('/api/object-customers',requirePermission('objects.manage'),async(req,res)=>{
+  try{
+    const user=req.accessUser||await refreshAccessUser(req),scope=await counterpartyScope(user,req.body&&req.body.organization),data=counterpartyPayload({...req.body,counterparty_type:'customer'});
+    if(!data.name)return res.status(400).json({error:'Укажите наименование заказчика'});
+    const r=await pool.query(`INSERT INTO counterparties
+      (tenant_id,organization,counterparty_type,name,full_name,inn,kpp,ogrn,legal_address,postal_address,director_fio,contact_person,phone,email,contact_people,website,bank_name,bik,settlement_account,correspondent_account,comments,created_by)
+      VALUES($1,$2,'customer',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16,$17,$18,$19,$20,$21) RETURNING *`,
+      [scope.tenant_id,scope.organization,data.name,data.full_name,data.inn,data.kpp,data.ogrn,data.legal_address,data.postal_address,data.director_fio,data.contact_person,data.phone,data.email,JSON.stringify(data.contact_people),data.website,data.bank_name,data.bik,data.settlement_account,data.correspondent_account,data.comments,req.session.user.login]);
+    res.json(r.rows[0]);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+
+// === LOANS ===
+const LOAN_LENDER_TYPES=new Set(['individual','legal']),LOAN_STATUSES=new Set(['active','closed','overdue']);
+function cleanLoanRepayments(value){
+  return (Array.isArray(value)?value:[]).slice(0,1000).map(function(x){return {date:dealText(x&&x.date,10),amount:dealNumber(x&&x.amount),comment:dealText(x&&x.comment,1000)};}).filter(function(x){return x.date||x.amount||x.comment;});
+}
+function loanPayload(body){
+  const x=body||{},type=dealText(x.lender_type,20),status=dealText(x.status,20);
+  return {lender_type:LOAN_LENDER_TYPES.has(type)?type:'individual',lender_name:dealText(x.lender_name,500),lender_inn:dealText(x.lender_inn,20),
+    contract_no:dealText(x.contract_no,120),contract_date:dealText(x.contract_date,10)||null,received_date:dealText(x.received_date,10)||null,
+    principal:dealNumber(x.principal),interest_rate:dealNumber(x.interest_rate),due_date:dealText(x.due_date,10)||null,repayments:cleanLoanRepayments(x.repayments),
+    status:LOAN_STATUSES.has(status)?status:'active',comments:dealText(x.comments,8000)};
+}
+async function loanScope(user,requestedOrganization){return counterpartyScope(user,requestedOrganization);}
+app.get('/api/loans',requirePermission('loans.view'),async(req,res)=>{
+  try{const user=req.accessUser||await refreshAccessUser(req);const r=isSiteWideUser(user)?await pool.query('SELECT * FROM loans ORDER BY id DESC'):await pool.query('SELECT * FROM loans WHERE lower(trim(organization))=lower(trim($1)) ORDER BY id DESC',[accessOrganization(user)]);res.json(r.rows);}
+  catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.post('/api/loans',requirePermission('loans.manage'),async(req,res)=>{
+  try{const user=req.accessUser||await refreshAccessUser(req),d=loanPayload(req.body),scope=await loanScope(user,req.body&&req.body.organization);if(!d.lender_name)return res.status(400).json({error:'Укажите займодавца'});if(d.principal<=0)return res.status(400).json({error:'Сумма займа должна быть больше нуля'});
+    const r=await pool.query(`INSERT INTO loans(tenant_id,organization,lender_type,lender_name,lender_inn,contract_no,contract_date,received_date,principal,interest_rate,due_date,repayments,status,comments,created_by)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15) RETURNING *`,[scope.tenant_id,scope.organization,d.lender_type,d.lender_name,d.lender_inn,d.contract_no,d.contract_date,d.received_date,d.principal,d.interest_rate,d.due_date,JSON.stringify(d.repayments),d.status,d.comments,req.session.user.login]);res.json(r.rows[0]);}
+  catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.put('/api/loans/:id',requirePermission('loans.manage'),async(req,res)=>{
+  try{const id=Number(req.params.id),user=req.accessUser||await refreshAccessUser(req),before=await pool.query('SELECT * FROM loans WHERE id=$1',[id]);if(!before.rows.length)return res.status(404).json({error:'Займ не найден'});if(!isSiteWideUser(user)&&!sameAccessValue(before.rows[0].organization,accessOrganization(user)))return res.status(403).json({error:'Нет доступа к займу'});
+    const d=loanPayload(req.body),scope=await loanScope(user,req.body&&req.body.organization);const r=await pool.query(`UPDATE loans SET tenant_id=$1,organization=$2,lender_type=$3,lender_name=$4,lender_inn=$5,contract_no=$6,contract_date=$7,received_date=$8,principal=$9,interest_rate=$10,due_date=$11,repayments=$12::jsonb,status=$13,comments=$14,updated_at=CURRENT_TIMESTAMP WHERE id=$15 RETURNING *`,[scope.tenant_id,scope.organization,d.lender_type,d.lender_name,d.lender_inn,d.contract_no,d.contract_date,d.received_date,d.principal,d.interest_rate,d.due_date,JSON.stringify(d.repayments),d.status,d.comments,id]);res.json(r.rows[0]);}
+  catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.delete('/api/loans/:id',requirePermission('loans.manage'),async(req,res)=>{
+  try{const id=Number(req.params.id),user=req.accessUser||await refreshAccessUser(req),before=await pool.query('SELECT * FROM loans WHERE id=$1',[id]);if(!before.rows.length)return res.status(404).json({error:'Займ не найден'});if(!isSiteWideUser(user)&&!sameAccessValue(before.rows[0].organization,accessOrganization(user)))return res.status(403).json({error:'Нет доступа к займу'});await pool.query('DELETE FROM loans WHERE id=$1',[id]);res.json({ok:true});}
+  catch(err){res.status(err.status||500).json({error:err.message});}
 });
 
 // === DEALS ===
