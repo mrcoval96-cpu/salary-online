@@ -225,6 +225,20 @@ async function ensureDatabaseSchema(){
   await pool.query("ALTER TABLE counterparties ADD COLUMN IF NOT EXISTS contact_people JSONB NOT NULL DEFAULT '[]'::jsonb");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_counterparties_organization ON counterparties(lower(trim(organization)),id)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_counterparties_inn ON counterparties(inn) WHERE trim(inn)<>''");
+  await pool.query(`CREATE TABLE IF NOT EXISTS counterparty_attachments(
+    id BIGSERIAL PRIMARY KEY,
+    counterparty_id BIGINT NOT NULL REFERENCES counterparties(id) ON DELETE CASCADE,
+    tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+    organization TEXT NOT NULL DEFAULT '',
+    file_name TEXT NOT NULL,
+    mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+    file_size INTEGER NOT NULL DEFAULT 0,
+    file_data BYTEA NOT NULL,
+    uploaded_by TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_counterparty_attachments_counterparty ON counterparty_attachments(counterparty_id,id DESC)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_counterparty_attachments_organization ON counterparty_attachments(lower(trim(organization)),counterparty_id)");
   await pool.query(`CREATE TABLE IF NOT EXISTS loans(
     id BIGSERIAL PRIMARY KEY,
     tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
@@ -2249,6 +2263,14 @@ async function counterpartyScope(user,requestedOrganization){
   if(!org.rows.length){const err=new Error('Организация не найдена');err.status=400;throw err;}
   return {organization:org.rows[0].name,tenant_id:org.rows[0].id};
 }
+async function requireCounterpartyAccess(id,user){
+  if(!Number.isInteger(id)||id<=0){const err=new Error('Некорректный ID контрагента');err.status=400;throw err;}
+  const r=await pool.query('SELECT id,tenant_id,organization,name FROM counterparties WHERE id=$1',[id]);
+  if(!r.rows.length){const err=new Error('Контрагент не найден');err.status=404;throw err;}
+  const cp=r.rows[0];
+  if(!isSiteWideUser(user)&&!sameAccessValue(cp.organization,accessOrganization(user))){const err=new Error('Нет доступа к этому контрагенту');err.status=403;throw err;}
+  return cp;
+}
 app.get('/api/counterparties',requirePermission('accounting.view'),async(req,res)=>{
   try{
     const user=req.accessUser||await refreshAccessUser(req);
@@ -2296,6 +2318,46 @@ app.put('/api/counterparties/:id',requirePermission('counterparties.manage'),asy
     res.json(r.rows[0]);
   }catch(err){res.status(err.status||500).json({error:err.message});}
 });
+app.get('/api/counterparties/:id/attachments',requirePermission('accounting.view'),async(req,res)=>{
+  try{
+    const id=Number(req.params.id),user=req.accessUser||await refreshAccessUser(req);await requireCounterpartyAccess(id,user);
+    const r=await pool.query('SELECT id,counterparty_id,file_name,mime_type,file_size,uploaded_by,created_at FROM counterparty_attachments WHERE counterparty_id=$1 ORDER BY id DESC',[id]);
+    res.setHeader('Cache-Control','no-store');
+    res.json(r.rows);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.post('/api/counterparties/:id/attachments',requirePermission('counterparties.manage'),async(req,res)=>{
+  try{
+    const id=Number(req.params.id),user=req.accessUser||await refreshAccessUser(req),cp=await requireCounterpartyAccess(id,user),file=cleanLoanAttachment(req.body);
+    const r=await pool.query('INSERT INTO counterparty_attachments(counterparty_id,tenant_id,organization,file_name,mime_type,file_size,file_data,uploaded_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,counterparty_id,file_name,mime_type,file_size,uploaded_by,created_at',[id,cp.tenant_id||null,cp.organization||'',file.file_name,file.mime_type,file.file_size,file.file_data,req.session.user.login]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Добавлен файл к контрагенту '+cp.name+' — '+file.file_name]);
+    res.json(r.rows[0]);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.get('/api/counterparties/:counterpartyId/attachments/:attachmentId/download',requirePermission('accounting.view'),async(req,res)=>{
+  try{
+    const counterpartyId=Number(req.params.counterpartyId),attachmentId=Number(req.params.attachmentId),user=req.accessUser||await refreshAccessUser(req);await requireCounterpartyAccess(counterpartyId,user);
+    const r=await pool.query('SELECT file_name,mime_type,file_size,file_data FROM counterparty_attachments WHERE id=$1 AND counterparty_id=$2',[attachmentId,counterpartyId]);
+    if(!r.rows.length)return res.status(404).json({error:'Файл не найден'});
+    const a=r.rows[0];
+    res.setHeader('Content-Type',a.mime_type||'application/octet-stream');
+    res.setHeader('Content-Length',String(a.file_size||a.file_data.length||0));
+    res.setHeader('Content-Disposition',"attachment; filename*=UTF-8''"+encodeURIComponent(a.file_name||'document'));
+    res.setHeader('Cache-Control','private, no-store');
+    res.send(a.file_data);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.delete('/api/counterparties/:counterpartyId/attachments/:attachmentId',requirePermission('counterparties.manage'),async(req,res)=>{
+  try{
+    const counterpartyId=Number(req.params.counterpartyId),attachmentId=Number(req.params.attachmentId),user=req.accessUser||await refreshAccessUser(req),cp=await requireCounterpartyAccess(counterpartyId,user);
+    const before=await pool.query('SELECT file_name FROM counterparty_attachments WHERE id=$1 AND counterparty_id=$2',[attachmentId,counterpartyId]);
+    if(!before.rows.length)return res.status(404).json({error:'Файл не найден'});
+    await pool.query('DELETE FROM counterparty_attachments WHERE id=$1 AND counterparty_id=$2',[attachmentId,counterpartyId]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Удалён файл из карточки контрагента '+cp.name+' — '+before.rows[0].file_name]);
+    res.json({ok:true});
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+
 app.delete('/api/counterparties/:id',requirePermission('counterparties.manage'),async(req,res)=>{
   try{
     const id=Number(req.params.id);if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректный ID контрагента'});
