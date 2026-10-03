@@ -288,6 +288,8 @@ header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .salary-card.open .chevron{transform:rotate(180deg)}
 .salary-card .stats{display:flex;gap:20px;flex-wrap:wrap;margin-top:8px}
 .salary-paid-link,.salary-balance-link{font-weight:600;color:#0f3460;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;cursor:pointer}
+.salary-card .stat .salary-paid-link.needs-allocation{color:#d92d20;font-weight:700}
+.salary-card .stat .salary-paid-link.needs-allocation:hover{color:#b42318}
 .salary-balance-date{font-size:11px;color:#777;margin-left:4px}
 .salary-balance-detail{display:none;border-top:1px solid #eef0f2;padding:10px 16px;background:#fffdf7}
 .salary-balance-detail.show{display:block}
@@ -3055,7 +3057,10 @@ function renderSalary(){
     const openingDirection=opening?balanceDirectionLabel(opening):'Остаток не задан';
     const debtDirection=debtDirectionLabel(position.debt);
     const reconciliationBadge=reconciliation?'<span class="salary-reconcile-badge" title="'+escapeHtml(salaryReconciliationMeta(reconciliation))+'">✓ Сверено</span>':'';
-    head.innerHTML='<div class="name"><span class="chevron">▼</span>'+escapeHtml(fio)+' <span style="font-size:12px;color:#777">('+monthGroups.length+' мес. / '+recs.length+' зап.)</span>'+reconciliationBadge+'</div><div class="stats"><div class="stat">Остаток: <span class="salary-balance-link" role="button" tabindex="0" title="Показать историю остатков">'+formatMoney(Math.abs(position.balance))+' ₽</span>'+balanceDate+' <span style="font-size:11px;color:#667085">— '+openingDirection+'</span></div><div class="stat">Начислено: <span>'+formatMoney(total)+' ₽</span></div><div class="stat">Выплачено: <span class="salary-paid-link" role="button" tabindex="0" title="Показать выплаты">'+formatMoney(paid)+' ₽</span></div><div class="stat">Сальдо: <span>'+formatMoney(Math.abs(position.debt))+' ₽</span> <span style="font-size:11px;color:#667085">— '+debtDirection+'</span></div></div>';
+    const requiresAllocation=paymentItems.some(function(p){return Number(p.amount||0)>0.005;});
+    const paidClass='salary-paid-link'+(requiresAllocation?' needs-allocation':'');
+    const paidTitle=requiresAllocation?'Есть выплаты, которые требуется распределить. Нажмите, чтобы открыть список выплат':'Распределение не требуется. Нажмите, чтобы открыть список выплат';
+    head.innerHTML='<div class="name"><span class="chevron">▼</span>'+escapeHtml(fio)+' <span style="font-size:12px;color:#777">('+monthGroups.length+' мес. / '+recs.length+' зап.)</span>'+reconciliationBadge+'</div><div class="stats"><div class="stat">Остаток: <span class="salary-balance-link" role="button" tabindex="0" title="Показать историю остатков">'+formatMoney(Math.abs(position.balance))+' ₽</span>'+balanceDate+' <span style="font-size:11px;color:#667085">— '+openingDirection+'</span></div><div class="stat">Начислено: <span>'+formatMoney(total)+' ₽</span></div><div class="stat">Выплачено: <span class="'+paidClass+'" role="button" tabindex="0" title="'+escapeHtml(paidTitle)+'">'+formatMoney(paid)+' ₽</span></div><div class="stat">Сальдо: <span>'+formatMoney(Math.abs(position.debt))+' ₽</span> <span style="font-size:11px;color:#667085">— '+debtDirection+'</span></div></div>';
 
     let reconcileBar=null;
     if(filter&&!objectFilter&&recs.length&&can('salary.reconcile')&&reconciliationOrg){
