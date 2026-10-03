@@ -1980,18 +1980,191 @@ function complianceDate(value){
   if(!value)return '—';
   try{return new Date(value).toLocaleString('ru-RU');}catch(e){return String(value);}
 }
+function complianceShortDate(value){
+  if(!value)return '—';
+  try{return new Date(value).toLocaleDateString('ru-RU');}catch(e){return String(value);}
+}
 function dsarTypeLabel(type){
   return ({access:'Доступ / сведения',correction:'Уточнение',blocking:'Блокирование',deletion:'Уничтожение',consent_withdrawal:'Отзыв согласия'})[type]||type;
+}
+function dsarStatusLabel(status){
+  return ({received:'Получен',identity_check:'Проверка личности',in_review:'В работе',action_required:'Нужно действие',completed:'Завершён',rejected:'Отклонён'})[status]||status||'—';
+}
+function incidentSeverityLabel(value){
+  return ({low:'Низкая',medium:'Средняя',high:'Высокая',critical:'Критическая'})[value]||value||'—';
+}
+function incidentStatusLabel(value){
+  return ({open:'Открыт',investigating:'Расследование',contained:'Локализован',closed:'Закрыт'})[value]||value||'—';
+}
+function deletionStatusLabel(value){
+  return ({queued:'В очереди',in_progress:'В работе',blocked:'Заблокирована',completed:'Завершена',failed:'Ошибка'})[value]||value||'—';
+}
+function pdBadge(text,tone){
+  return '<span class="pd-badge '+(tone||'gray')+'">'+escapeHtml(text||'')+'</span>';
+}
+function dsarStatusTone(status){
+  return status==='completed'?'green':status==='rejected'?'gray':status==='action_required'?'red':status==='in_review'||status==='identity_check'?'blue':'orange';
+}
+function incidentSeverityTone(value){
+  return value==='critical'?'red':value==='high'?'orange':value==='medium'?'blue':'gray';
+}
+function incidentStatusTone(value){
+  return value==='closed'?'green':value==='contained'?'blue':value==='investigating'?'orange':'red';
+}
+function deletionStatusTone(value){
+  return value==='completed'?'green':value==='blocked'||value==='failed'?'red':value==='in_progress'?'blue':'orange';
+}
+function pdDuration(ms){
+  const abs=Math.abs(ms),minute=60000,hour=3600000,day=86400000;
+  if(abs<minute)return 'меньше минуты';
+  if(abs<hour)return Math.max(1,Math.round(abs/minute))+' мин.';
+  if(abs<day)return Math.max(1,Math.round(abs/hour))+' ч.';
+  return Math.max(1,Math.round(abs/day))+' дн.';
+}
+function pdDeadlineInfo(value,terminal){
+  if(!value)return {tone:'gray',text:'срок не задан'};
+  if(terminal)return {tone:'ok',text:'закрыто'};
+  const ms=new Date(value).getTime()-Date.now();
+  if(!Number.isFinite(ms))return {tone:'gray',text:'срок не распознан'};
+  if(ms<0)return {tone:'danger',text:'просрочено на '+pdDuration(ms)};
+  if(ms<=6*3600000)return {tone:'danger',text:'осталось '+pdDuration(ms)};
+  if(ms<=24*3600000)return {tone:'warn',text:'осталось '+pdDuration(ms)};
+  return {tone:'ok',text:'осталось '+pdDuration(ms)};
+}
+function pdDeadlineHtml(value,terminal){
+  const d=pdDeadlineInfo(value,terminal);
+  return '<div>'+complianceDate(value)+'</div><div class="pd-deadline '+d.tone+'">'+escapeHtml(d.text)+'</div>';
+}
+function scrollToComplianceSection(id){
+  const el=document.getElementById(id);if(!el)return;
+  if(el.tagName==='DETAILS')el.open=true;
+  el.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function toggleComplianceForm(id,button,closedLabel,openLabel){
+  const el=document.getElementById(id);if(!el)return;
+  const open=el.style.display==='none'||!el.style.display;
+  el.style.display=open?'block':'none';
+  if(button)button.textContent=open?(openLabel||'Скрыть'):(closedLabel||'Добавить');
+}
+function complianceReadinessRows(s){
+  const r=s&&s.readiness||{};
+  return [
+    ['Реквизиты оператора',!!(s&&s.operator_ready)],
+    ['Юридические документы опубликованы',!!(s&&s.legal_documents_ready)],
+    ['Регистрация только по приглашению',!!(s&&s.registration_invite_required)],
+    ['Регион данных указан как РФ',String(s&&s.data_region||'').trim().toUpperCase()==='RU'],
+    ['MFA администратора платформы',!!(s&&s.platform_mfa_enabled)],
+    ['РФ-инфраструктура подтверждена',!!r.infra_ru_confirmed],
+    ['Уведомление оператора подтверждено',!!r.rkn_notification_confirmed],
+    ['Поручение / DPA с клиентами утверждено',!!r.dpa_approved],
+    ['Модель угроз и меры ИСПДн утверждены',!!r.threat_model_approved],
+    ['Регламент реагирования на инциденты утверждён',!!r.incident_runbook_approved],
+    ['Backup + restore проверены',!!r.backup_restore_verified],
+    ['Производственный календарь подтверждён',!!r.ru_business_calendar_confirmed],
+    ['Актуальные согласия контролируются',!!r.current_consents_enforced],
+    ['Юридические тексты утверждены',!!r.legal_texts_approved],
+    ['Организационные меры / локальные акты утверждены',!!r.organizational_measures_approved],
+    ['Подрядчики и интеграции проверены',!!r.subprocessors_review_confirmed],
+    ['Security review / pentest принят',!!r.security_review_accepted]
+  ];
+}
+function renderComplianceLegalSummary(){
+  const el=document.getElementById('complianceLegalSummary');if(!el)return;
+  const docs=complianceStatusData&&complianceStatusData.legal_documents||{};
+  const items=[
+    ['privacy_policy','Политика обработки ПД','/legal/privacy_policy'],
+    ['pd_consent','Согласие на обработку ПД','/legal/pd_consent'],
+    ['terms','Пользовательское соглашение','/legal/terms'],
+    ['marketing_consent','Рекламное согласие','/legal/marketing_consent']
+  ];
+  el.innerHTML=items.map(function(item){
+    const d=docs[item[0]];
+    const meta=d?('Версия '+String(d.version||'—')+' · '+complianceShortDate(d.published_at)):'Документ не опубликован';
+    return '<a class="pd-legal-card" href="'+item[2]+'" target="_blank" rel="noopener"><b>'+escapeHtml(item[1])+'</b><span class="'+(d?'':'compliance-status-warn')+'">'+escapeHtml(meta)+'</span></a>';
+  }).join('');
+}
+function renderComplianceOverview(){
+  const overview=document.getElementById('complianceOverview'),attention=document.getElementById('complianceAttention');
+  if(!overview||!attention)return;
+  const admin=can('compliance.view');
+  document.querySelectorAll('.pd-admin-nav').forEach(function(x){x.style.display=admin?'':'none';});
+  if(!admin){
+    const activeConsents=complianceMyConsentsRows.filter(function(x){return x.status!=='withdrawn';}).length;
+    const openMine=complianceMyDsarRows.filter(function(x){return !['completed','rejected'].includes(x.status);}).length;
+    overview.innerHTML=
+      '<button class="pd-kpi" type="button" onclick="scrollToComplianceSection(\'pdPersonalSection\')"><label>Действующие согласия</label><b>'+activeConsents+'</b><small>История версий хранится в аккаунте</small></button>'+
+      '<button class="pd-kpi '+(openMine?'warn':'ok')+'" type="button" onclick="scrollToComplianceSection(\'pdPersonalSection\')"><label>Мои открытые запросы</label><b>'+openMine+'</b><small>Запросы по своим персональным данным</small></button>'+
+      '<button class="pd-kpi" type="button" onclick="scrollToComplianceSection(\'pdPersonalSection\')"><label>Активные сессии</label><b>'+complianceSessionRows.length+'</b><small>Неизвестные сессии можно завершить</small></button>';
+    attention.innerHTML='<div class="pd-attention-empty">Личный кабинет ПД готов к работе. Административные реестры доступны только пользователям с соответствующими правами.</div>';
+    return;
+  }
+
+  const status=complianceStatusData||{},readiness=complianceReadinessRows(status),passed=readiness.filter(function(x){return x[1];}).length;
+  const readinessPercent=readiness.length?Math.round(passed/readiness.length*100):0;
+  const openDsar=complianceDsarRows.filter(function(x){return !['completed','rejected'].includes(x.status);});
+  const overdueDsar=openDsar.filter(function(x){return x.due_at&&new Date(x.due_at).getTime()<Date.now();});
+  const activeIncidents=complianceIncidentRows.filter(function(x){return x.status!=='closed';});
+  const openDeletion=complianceDeletionRows.filter(function(x){return x.status!=='completed';});
+  const blockedDeletion=openDeletion.filter(function(x){return x.status==='blocked'||x.status==='failed';});
+
+  overview.innerHTML=
+    '<button class="pd-kpi '+(readinessPercent===100?'ok':readinessPercent<60?'danger':'warn')+'" type="button" onclick="scrollToComplianceSection(\'pdStatusSection\')"><label>Контрольные точки</label><b>'+readinessPercent+'%</b><small>'+passed+' из '+readiness.length+' подтверждены</small></button>'+
+    '<button class="pd-kpi '+(overdueDsar.length?'danger':openDsar.length?'warn':'ok')+'" type="button" onclick="scrollToComplianceSection(\'pdDsarSection\')"><label>Открытые запросы</label><b>'+openDsar.length+'</b><small>'+(overdueDsar.length?('Просрочено: '+overdueDsar.length):'Просроченных нет')+'</small></button>'+
+    '<button class="pd-kpi '+(activeIncidents.length?'danger':'ok')+'" type="button" onclick="scrollToComplianceSection(\'incidentAdminCard\')"><label>Активные инциденты</label><b>'+activeIncidents.length+'</b><small>'+(activeIncidents.length?'Проверьте таймеры и статус':'Открытых инцидентов нет')+'</small></button>'+
+    '<button class="pd-kpi '+(blockedDeletion.length?'danger':openDeletion.length?'warn':'ok')+'" type="button" onclick="scrollToComplianceSection(\'pdDeletionSection\')"><label>Задачи уничтожения</label><b>'+openDeletion.length+'</b><small>'+(blockedDeletion.length?('Проблемных: '+blockedDeletion.length):'Незавершённые задачи')+'</small></button>';
+
+  const items=[];
+  overdueDsar.slice(0,4).forEach(function(r){
+    items.push({title:'Просрочен запрос #'+r.request_id+' — '+dsarTypeLabel(r.request_type),meta:String(r.subject_ref||'')+' · срок '+complianceDate(r.due_at),section:'pdDsarSection',tone:'danger'});
+  });
+  openDsar.filter(function(r){const ms=new Date(r.due_at).getTime()-Date.now();return ms>=0&&ms<=24*3600000;}).slice(0,3).forEach(function(r){
+    items.push({title:'Срок запроса #'+r.request_id+' истекает скоро',meta:String(r.subject_ref||'')+' · '+pdDeadlineInfo(r.due_at,false).text,section:'pdDsarSection',tone:'warn'});
+  });
+  activeIncidents.slice(0,5).forEach(function(r){
+    if(!r.confirmed_at)return;
+    const d24=pdDeadlineInfo(r.due_24h,false),d72=pdDeadlineInfo(r.due_72h,false);
+    if(d24.tone==='danger'||d72.tone==='danger'){
+      items.push({title:'Инцидент #'+r.incident_id+' требует контроля таймеров',meta:'24ч: '+d24.text+' · 72ч: '+d72.text,section:'incidentAdminCard',tone:'danger'});
+    }
+  });
+  blockedDeletion.slice(0,4).forEach(function(r){
+    items.push({title:'Задача уничтожения #'+r.id+' — '+deletionStatusLabel(r.status),meta:String(r.subject_ref||'')+(r.result?' · '+String(r.result).slice(0,120):''),section:'pdDeletionSection',tone:'danger'});
+  });
+  const missingReadiness=readiness.filter(function(x){return !x[1];});
+  if(missingReadiness.length)items.push({title:'Не подтверждены контрольные точки: '+missingReadiness.length,meta:missingReadiness.slice(0,3).map(function(x){return x[0];}).join(' · ')+(missingReadiness.length>3?'…':''),section:'pdStatusSection',tone:'warn'});
+  const activeRetention=complianceRetentionRows.filter(function(x){return x.active;}).length;
+  if(!activeRetention)items.push({title:'Не задано активных правил хранения',meta:'Добавьте правила для используемых категорий данных и целей обработки.',section:'pdRetentionSection',tone:'warn'});
+  const integrationsNeedReview=complianceIntegrationRows.filter(function(x){
+    const d=String(x.dpa_status||'').toLowerCase(),t=String(x.transfer_status||'').toLowerCase();
+    return !d||d==='pending'||!t||t==='pending';
+  });
+  if(integrationsNeedReview.length)items.push({title:'Интеграции требуют проверки: '+integrationsNeedReview.length,meta:'Проверьте DPA/поручение и статус передачи данных.',section:'pdIntegrationsSection',tone:'warn'});
+
+  if(!items.length){
+    attention.innerHTML='<div class="pd-attention-empty">На текущий момент срочных задач в реестрах ПД не обнаружено.</div>';
+  }else{
+    attention.innerHTML='<div class="pd-attention-head"><b>Требует внимания</b><span class="pd-attention-count">'+items.length+' задач / проверок</span></div>'+
+      items.slice(0,10).map(function(x){
+        return '<div class="pd-attention-row"><div class="pd-attention-main"><b class="'+(x.tone==='danger'?'compliance-status-danger':'compliance-status-warn')+'">'+escapeHtml(x.title)+'</b><span>'+escapeHtml(x.meta||'')+'</span></div><button class="btn btn-gray btn-sm" type="button" onclick="scrollToComplianceSection(\''+x.section+'\')">Открыть</button></div>';
+      }).join('');
+  }
 }
 async function loadCompliance(){
   if(!currentUser)return;
   try{
     const parts=await Promise.all([api('/api/compliance/my-consents'),api('/api/compliance/dsar/my'),api('/api/sessions')]);
-    renderMyConsents(parts[0]||[]);
-    renderMyDsar(parts[1]||[]);
-    renderActiveSessions(parts[2]||[]);
+    complianceMyConsentsRows=parts[0]||[];
+    complianceMyDsarRows=parts[1]||[];
+    complianceSessionRows=parts[2]||[];
+    renderMyConsents(complianceMyConsentsRows);
+    renderMyDsar(complianceMyDsarRows);
+    renderActiveSessions(complianceSessionRows);
+
     const admin=can('compliance.view');
-    document.getElementById('complianceAdminSection').style.display=admin?'block':'none';
+    const adminSection=document.getElementById('complianceAdminSection');
+    if(adminSection)adminSection.style.display=admin?'block':'none';
+    complianceStatusData=null;complianceDsarRows=[];complianceAuditRows=[];complianceRetentionRows=[];complianceDeletionRows=[];complianceIntegrationRows=[];complianceIncidentRows=[];
+
     if(admin){
       const results=await Promise.all([
         api('/api/compliance/status'),
@@ -2001,27 +2174,48 @@ async function loadCompliance(){
         api('/api/compliance/deletion-jobs'),
         api('/api/compliance/integrations')
       ]);
-      renderComplianceStatus(results[0]);
-      renderAdminDsar(results[1]||[]);
-      renderComplianceAudit(results[2]||[]);
-      renderRetentionRules(results[3]||[]);
-      renderDeletionJobs(results[4]||[]);
-      renderIntegrations(results[5]||[]);
+      complianceStatusData=results[0]||{};
+      complianceDsarRows=results[1]||[];
+      complianceAuditRows=results[2]||[];
+      complianceRetentionRows=results[3]||[];
+      complianceDeletionRows=results[4]||[];
+      complianceIntegrationRows=results[5]||[];
+      renderComplianceStatus(complianceStatusData);
+      renderAdminDsar();
+      renderComplianceAudit();
+      renderRetentionRules();
+      renderDeletionJobs();
+      renderIntegrations();
+      renderComplianceLegalSummary();
+
       const canManage=can('compliance.manage');
-      document.getElementById('retentionCreateForm').style.display=canManage?'block':'none';
-      document.getElementById('integrationCreateForm').style.display=canManage?'block':'none';
-    }
+      const retentionToggle=document.getElementById('retentionCreateToggle'),integrationToggle=document.getElementById('integrationCreateToggle');
+      if(retentionToggle)retentionToggle.style.display=canManage?'inline-block':'none';
+      if(integrationToggle)integrationToggle.style.display=canManage?'inline-block':'none';
+      if(!canManage){
+        const rf=document.getElementById('retentionCreateForm'),inf=document.getElementById('integrationCreateForm');
+        if(rf)rf.style.display='none';if(inf)inf.style.display='none';
+      }
+    }else renderComplianceLegalSummary();
+
     const incidentAllowed=can('incidents.manage');
-    document.getElementById('incidentAdminCard').style.display=incidentAllowed?'block':'none';
-    if(incidentAllowed)renderIncidents(await api('/api/compliance/incidents'));
+    const incidentCard=document.getElementById('incidentAdminCard');
+    if(incidentCard)incidentCard.style.display=incidentAllowed?'block':'none';
+    if(incidentAllowed){
+      complianceIncidentRows=await api('/api/compliance/incidents')||[];
+      renderIncidents();
+    }
+    renderComplianceOverview();
     complianceLoaded=true;
   }catch(e){toast(e.message,'error');}
 }
 function renderActiveSessions(rows){
+  if(Array.isArray(rows))complianceSessionRows=rows;
   const el=document.getElementById('activeSessionsList');if(!el)return;
-  el.innerHTML=rows.length?rows.map(function(r){
+  const data=complianceSessionRows||[];
+  el.innerHTML=data.length?data.map(function(r){
     return '<div class="compliance-item"><b>'+(r.current?'Текущая сессия':'Активная сессия')+'</b><div class="meta">Обновлена: '+complianceDate(r.updated_at)+' · истекает: '+complianceDate(r.expire)+'</div>'+
-      (!r.current?'<button class="btn btn-red btn-sm" style="margin-top:7px" onclick="terminateSession(\''+String(r.handle||'').replace(/'/g,'')+'\')">Завершить</button>':'')+'</div>';
+      (!r.current?'<button class="btn btn-red btn-sm" style="margin-top:7px" onclick="terminateSession(\''+String(r.handle||'').replace(/'/g,'')+'\')">Завершить сессию</button>':'')+'</div>';
   }).join(''):'<div class="compliance-item">Активные сессии не найдены.</div>';
 }
 async function terminateSession(handle){
@@ -2046,11 +2240,14 @@ async function changeAccountPassword(){
   }catch(e){toast(e.message,'error');}
 }
 function renderMyConsents(rows){
+  if(Array.isArray(rows))complianceMyConsentsRows=rows;
   const el=document.getElementById('myConsentsList');if(!el)return;
-  if(!rows.length){el.innerHTML='<div class="compliance-item">Записей пока нет.</div>';return;}
-  el.innerHTML=rows.map(function(c){
+  const data=complianceMyConsentsRows||[];
+  if(!data.length){el.innerHTML='<div class="compliance-item">Записей пока нет.</div>';return;}
+  el.innerHTML=data.map(function(c){
     const withdrawn=c.status==='withdrawn';
     return '<div class="compliance-item"><b>'+escapeHtml(c.document_type)+'</b> · версия '+escapeHtml(c.document_version)+
+      ' '+pdBadge(withdrawn?'Отозвано':'Действует',withdrawn?'gray':'green')+
       '<div class="meta">SHA-256: '+escapeHtml(c.document_hash)+'<br>Дано: '+complianceDate(c.given_at)+(withdrawn?'<br>Отозвано: '+complianceDate(c.withdrawn_at):'')+'</div>'+
       (!withdrawn?'<button class="btn btn-gray btn-sm" style="margin-top:7px" onclick="withdrawConsent('+Number(c.consent_id)+')">Зафиксировать отзыв</button>':'')+'</div>';
   }).join('');
@@ -2061,69 +2258,133 @@ async function withdrawConsent(id){
   catch(e){toast(e.message,'error');}
 }
 function renderMyDsar(rows){
+  if(Array.isArray(rows))complianceMyDsarRows=rows;
   const el=document.getElementById('myDsarList');if(!el)return;
-  el.innerHTML=rows.length?rows.map(function(r){return '<div class="compliance-item"><b>#'+Number(r.request_id)+' · '+escapeHtml(dsarTypeLabel(r.request_type))+'</b><div class="meta">Статус: '+escapeHtml(r.status)+' · срок: '+complianceDate(r.due_at)+'</div></div>';}).join(''):'<div class="compliance-item">Запросов пока нет.</div>';
+  const data=complianceMyDsarRows||[];
+  el.innerHTML=data.length?data.map(function(r){
+    const terminal=['completed','rejected'].includes(r.status);
+    return '<div class="compliance-item"><b>#'+Number(r.request_id)+' · '+escapeHtml(dsarTypeLabel(r.request_type))+'</b> '+pdBadge(dsarStatusLabel(r.status),dsarStatusTone(r.status))+
+      '<div class="meta">Срок: '+complianceDate(r.due_at)+' · '+escapeHtml(pdDeadlineInfo(r.due_at,terminal).text)+(r.decision?'<br>Результат: '+escapeHtml(r.decision):'')+'</div></div>';
+  }).join(''):'<div class="compliance-item">Запросов пока нет.</div>';
 }
 async function submitDsar(){
   const type=document.getElementById('dsarType').value,details=document.getElementById('dsarDetails').value.trim();
+  if(!details){toast('Кратко опишите, какие данные или действие вас интересуют','error');return;}
   try{const r=await api('/api/compliance/dsar','POST',{type,details});document.getElementById('dsarDetails').value='';toast('Запрос #'+r.request_id+' зарегистрирован');loadCompliance();}
   catch(e){toast(e.message,'error');}
 }
 function renderComplianceStatus(s){
-  const el=document.getElementById('complianceStatus');if(!el)return;
-  const missing=s.tenant_backfill_missing||{},missingTotal=Object.values(missing).reduce(function(a,b){return a+Number(b||0);},0);
-  const r=s.readiness||{};
-  const readinessRows=[
-    ['РФ-инфраструктура подтверждена',r.infra_ru_confirmed],
-    ['Уведомление Роскомнадзора подтверждено',r.rkn_notification_confirmed],
-    ['DPA/поручение с клиентами утверждено',r.dpa_approved],
-    ['Модель угроз / меры ИСПДн утверждены',r.threat_model_approved],
-    ['Incident runbook 24/72 утверждён',r.incident_runbook_approved],
-    ['Backup + restore проверены',r.backup_restore_verified],
-    ['Производственный календарь РФ подтверждён',r.ru_business_calendar_confirmed],
-    ['Актуальные согласия enforced',r.current_consents_enforced],
-    ['Юридические тексты утверждены',r.legal_texts_approved],
-    ['Организационные меры/локальные акты утверждены',r.organizational_measures_approved],
-    ['Subprocessors/integrations проверены',r.subprocessors_review_confirmed],
-    ['Security review/pentest принят',r.security_review_accepted]
-  ];
-  const readinessHtml=readinessRows.map(function(x){return '<div class="compliance-item">'+escapeHtml(x[0])+': <span class="'+(x[1]?'compliance-status-ok':'compliance-status-warn')+'">'+(x[1]?'ДА':'НЕТ')+'</span></div>';}).join('');
-  el.innerHTML='<div class="compliance-list">'+
-    '<div class="compliance-item">Реквизиты оператора: <span class="'+(s.operator_ready?'compliance-status-ok':'compliance-status-warn')+'">'+(s.operator_ready?'настроены':'ТРЕБУЮТ НАСТРОЙКИ')+'</span></div>'+
-    '<div class="compliance-item">Юридические документы: <span class="'+(s.legal_documents_ready?'compliance-status-ok':'compliance-status-warn')+'">'+(s.legal_documents_ready?'опубликованы':'неполный комплект')+'</span></div>'+
-    '<div class="compliance-item">Data region (конфигурация): <b>'+escapeHtml(s.data_region||'')+'</b></div>'+
-    '<div class="compliance-item">Регистрация только по приглашению: <span class="'+(s.registration_invite_required?'compliance-status-ok':'compliance-status-warn')+'">'+(s.registration_invite_required?'ДА':'НЕТ')+'</span></div>'+
-    '<div class="compliance-item">MFA platform admin: <span class="'+(s.platform_mfa_enabled?'compliance-status-ok':'compliance-status-warn')+'">'+(s.platform_mfa_enabled?'включена':'выключена')+'</span></div>'+
-    '<div class="compliance-item">Незаполненный tenant_id: <span class="'+(missingTotal===0?'compliance-status-ok':'compliance-status-warn')+'">'+missingTotal+'</span></div>'+
-    readinessHtml+
-    '</div>';
+  if(s)complianceStatusData=s;
+  const el=document.getElementById('complianceStatus');if(!el||!complianceStatusData)return;
+  const data=complianceStatusData,missing=data.tenant_backfill_missing||{},missingTotal=Object.values(missing).reduce(function(a,b){return a+Number(b||0);},0);
+  const rows=complianceReadinessRows(data),passed=rows.filter(function(x){return x[1];}).length,percent=rows.length?Math.round(passed/rows.length*100):0;
+  const operator=data.operator||{},operatorBits=[operator.name,operator.inn?('ИНН '+operator.inn):'',operator.email].filter(Boolean);
+  const integrityOk=missingTotal===0;
+  el.innerHTML='<div class="pd-status-summary">'+
+    '<div class="pd-readiness-score"><label style="font-size:11px;color:#667085">Подтверждено контрольных точек</label><div><b>'+percent+'%</b> <span style="font-size:11px;color:#667085">'+passed+' / '+rows.length+'</span></div><div class="pd-progress"><span style="width:'+percent+'%"></span></div>'+
+      '<div style="font-size:11px;color:#667085;margin-top:10px">Регион данных: <b>'+escapeHtml(data.data_region||'—')+'</b><br>Tenant integrity: <span class="'+(integrityOk?'compliance-status-ok':'compliance-status-warn')+'">'+(integrityOk?'ошибок не найдено':('не заполнено: '+missingTotal))+'</span>'+(operatorBits.length?'<br>Оператор: '+escapeHtml(operatorBits.join(' · ')):'')+'</div></div>'+
+    '<div class="pd-checks">'+rows.map(function(x){return '<div class="pd-check '+(x[1]?'ok':'warn')+'"><b>'+(x[1]?'✓ ':'○ ')+escapeHtml(x[0])+'</b><div style="margin-top:3px;color:#667085">'+(x[1]?'Подтверждено':'Требует проверки / подтверждения')+'</div></div>';}).join('')+'</div>'+
+  '</div>';
 }
 function renderAdminDsar(rows){
+  if(Array.isArray(rows))complianceDsarRows=rows;
   const body=document.getElementById('adminDsarBody');if(!body)return;
-  body.innerHTML=rows.length?rows.map(function(r){
-    const deletionBtn=can('compliance.manage')&&r.request_type==='deletion'?'<button class="btn btn-gray btn-sm" onclick="createDeletionJobFromDsar('+Number(r.request_id)+')">Создать deletion job</button> ':'';
-    const actions=can('compliance.manage')?deletionBtn+'<button class="btn btn-blue btn-sm" onclick="setDsarStatus('+Number(r.request_id)+',\'in_review\')">В работу</button> <button class="btn btn-green btn-sm" onclick="setDsarStatus('+Number(r.request_id)+',\'completed\')">Завершить</button>':'';
-    return '<tr><td>'+Number(r.request_id)+'</td><td>'+escapeHtml(dsarTypeLabel(r.request_type))+'</td><td>'+escapeHtml(r.subject_ref)+'</td><td>'+complianceDate(r.received_at)+'</td><td>'+complianceDate(r.due_at)+'</td><td>'+escapeHtml(r.status)+'</td><td>'+actions+'</td></tr>';
-  }).join(''):'<tr><td colspan="7">Запросов нет.</td></tr>';
+  const q=String(document.getElementById('complianceDsarSearch')&&document.getElementById('complianceDsarSearch').value||'').trim().toLowerCase();
+  const filter=String(document.getElementById('complianceDsarStatusFilter')&&document.getElementById('complianceDsarStatusFilter').value||'');
+  let data=(complianceDsarRows||[]).slice();
+  if(q)data=data.filter(function(r){return [r.request_id,r.subject_ref,r.request_type,r.details,r.decision].join(' ').toLowerCase().includes(q);});
+  if(filter==='open')data=data.filter(function(r){return !['completed','rejected'].includes(r.status);});
+  else if(filter==='overdue')data=data.filter(function(r){return !['completed','rejected'].includes(r.status)&&r.due_at&&new Date(r.due_at).getTime()<Date.now();});
+  else if(filter)data=data.filter(function(r){return r.status===filter;});
+  body.innerHTML=data.length?data.map(function(r){
+    const terminal=['completed','rejected'].includes(r.status),manage=can('compliance.manage');
+    let actions='';
+    if(manage&&!terminal){
+      if(r.request_type==='deletion')actions+='<button class="btn btn-gray btn-sm" onclick="createDeletionJobFromDsar('+Number(r.request_id)+')">Задача уничтожения</button> ';
+      if(r.status==='received')actions+='<button class="btn btn-gray btn-sm" onclick="setDsarStatus('+Number(r.request_id)+',\'identity_check\')">Проверка личности</button> ';
+      if(r.status!=='in_review')actions+='<button class="btn btn-blue btn-sm" onclick="setDsarStatus('+Number(r.request_id)+',\'in_review\')">В работу</button> ';
+      if(r.status==='in_review')actions+='<button class="btn btn-gray btn-sm" onclick="setDsarStatus('+Number(r.request_id)+',\'action_required\')">Нужно действие</button> ';
+      if(!r.extended_at)actions+='<button class="btn btn-gray btn-sm" onclick="extendDsar('+Number(r.request_id)+')">Продлить</button> ';
+      actions+='<button class="btn btn-green btn-sm" onclick="setDsarStatus('+Number(r.request_id)+',\'completed\')">Завершить</button>';
+    }
+    const details=String(r.details||'').trim(),desc=details?'<div style="font-size:10px;color:#667085;margin-top:3px;max-width:310px" title="'+escapeHtml(details)+'">'+escapeHtml(details.length>140?details.slice(0,140)+'…':details)+'</div>':'';
+    return '<tr><td>#'+Number(r.request_id)+'</td><td><b>'+escapeHtml(dsarTypeLabel(r.request_type))+'</b>'+desc+'</td><td>'+escapeHtml(r.subject_ref||'')+'</td><td>'+complianceDate(r.received_at)+'</td><td>'+pdDeadlineHtml(r.due_at,terminal)+(r.extended_at?'<div style="font-size:10px;color:#667085">продлён</div>':'')+'</td><td>'+pdBadge(dsarStatusLabel(r.status),dsarStatusTone(r.status))+'</td><td>'+actions+'</td></tr>';
+  }).join(''):'<tr><td colspan="7">По выбранным фильтрам запросов нет.</td></tr>';
 }
 async function setDsarStatus(id,status){
-  const decision=status==='completed'?prompt('Кратко укажите результат/решение:','Исполнено'):'';
-  if(status==='completed'&&decision===null)return;
-  try{await api('/api/compliance/dsar/'+id,'PATCH',{status,decision:decision||''});toast('Статус обновлён');loadCompliance();}catch(e){toast(e.message,'error');}
+  const needDecision=status==='completed'||status==='rejected';
+  const decision=needDecision?prompt(status==='completed'?'Кратко укажите результат исполнения:':'Укажите основание отклонения:',status==='completed'?'Исполнено':''):'';
+  if(needDecision&&decision===null)return;
+  try{await api('/api/compliance/dsar/'+id,'PATCH',{status,decision:decision||''});toast('Статус запроса обновлён');loadCompliance();}catch(e){toast(e.message,'error');}
+}
+async function extendDsar(id){
+  const reason=prompt('Укажите мотивированную причину продления срока:','');
+  if(reason===null||!reason.trim())return;
+  try{await api('/api/compliance/dsar/'+id,'PATCH',{extend:true,extension_reason:reason.trim()});toast('Срок запроса продлён');loadCompliance();}catch(e){toast(e.message,'error');}
 }
 function renderIncidents(rows){
+  if(Array.isArray(rows))complianceIncidentRows=rows;
   const el=document.getElementById('incidentsList');if(!el)return;
-  el.innerHTML=rows&&rows.length?rows.map(function(r){return '<div class="compliance-item"><b>#'+Number(r.incident_id)+' · '+escapeHtml(r.severity)+' · '+escapeHtml(r.status)+'</b><div>'+escapeHtml(r.description||'')+'</div><div class="meta">Обнаружен: '+complianceDate(r.detected_at)+(r.confirmed_at?'<br>Подтверждён: '+complianceDate(r.confirmed_at)+'<br>24ч: '+complianceDate(r.due_24h)+' · 72ч: '+complianceDate(r.due_72h):'<br>Факт ещё не подтверждён — таймеры не запущены')+'</div></div>';}).join(''):'<div class="compliance-item">Инцидентов нет.</div>';
+  const filter=String(document.getElementById('incidentStatusFilter')&&document.getElementById('incidentStatusFilter').value||'');
+  let data=(complianceIncidentRows||[]).slice();
+  if(filter==='active')data=data.filter(function(r){return r.status!=='closed';});
+  else if(filter)data=data.filter(function(r){return r.status===filter;});
+  el.innerHTML=data.length?data.map(function(r){
+    const cats=Array.isArray(r.data_categories)?r.data_categories.join(', '):String(r.data_categories||'');
+    let timers='<div class="meta">Обнаружен: '+complianceDate(r.detected_at);
+    if(r.confirmed_at){
+      const d24=pdDeadlineInfo(r.due_24h,r.status==='closed'),d72=pdDeadlineInfo(r.due_72h,r.status==='closed');
+      timers+='<br>Подтверждён: '+complianceDate(r.confirmed_at)+'<br><span class="pd-deadline '+d24.tone+'">24ч: '+complianceDate(r.due_24h)+' · '+escapeHtml(d24.text)+'</span><br><span class="pd-deadline '+d72.tone+'">72ч: '+complianceDate(r.due_72h)+' · '+escapeHtml(d72.text)+'</span>';
+    }else timers+='<br><span class="compliance-status-warn">Факт ещё не подтверждён — контрольные таймеры не запущены</span>';
+    timers+='</div>';
+    let actions='';
+    if(can('incidents.manage')&&r.status!=='closed'){
+      if(!r.confirmed_at)actions+='<button class="btn btn-red btn-sm" onclick="confirmIncidentNow('+Number(r.incident_id)+')">Подтвердить сейчас</button> ';
+      if(r.status==='open')actions+='<button class="btn btn-blue btn-sm" onclick="setIncidentStatus('+Number(r.incident_id)+',\'investigating\')">Начать расследование</button> ';
+      if(r.status==='investigating')actions+='<button class="btn btn-blue btn-sm" onclick="setIncidentStatus('+Number(r.incident_id)+',\'contained\')">Локализован</button> ';
+      if(r.status==='contained'||r.status==='investigating')actions+='<button class="btn btn-green btn-sm" onclick="closeIncident('+Number(r.incident_id)+')">Закрыть</button>';
+    }
+    return '<div class="compliance-item"><div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;flex-wrap:wrap"><div><b>Инцидент #'+Number(r.incident_id)+'</b> '+pdBadge(incidentSeverityLabel(r.severity),incidentSeverityTone(r.severity))+' '+pdBadge(incidentStatusLabel(r.status),incidentStatusTone(r.status))+'</div><div>'+actions+'</div></div>'+
+      '<div style="margin-top:7px;line-height:1.45">'+escapeHtml(r.description||'')+'</div>'+
+      (cats?'<div class="meta">Категории: '+escapeHtml(cats)+(r.subject_count_estimate!=null?' · оценка субъектов: '+Number(r.subject_count_estimate):'')+'</div>':'')+
+      timers+(r.root_cause?'<div class="meta"><b>Причина:</b> '+escapeHtml(r.root_cause)+'</div>':'')+(r.corrective_actions?'<div class="meta"><b>Меры:</b> '+escapeHtml(r.corrective_actions)+'</div>':'')+'</div>';
+  }).join(''):'<div class="compliance-item">По выбранному фильтру инцидентов нет.</div>';
 }
 async function createIncident(){
   const severity=document.getElementById('incidentSeverity').value,description=document.getElementById('incidentDescription').value.trim(),confirmed=document.getElementById('incidentConfirmedAt').value;
-  if(!description){toast('Опишите инцидент','error');return;}
-  try{await api('/api/compliance/incidents','POST',{severity,description,detected_at:new Date().toISOString(),confirmed_at:confirmed?new Date(confirmed).toISOString():null});document.getElementById('incidentDescription').value='';toast('Инцидент зарегистрирован');loadCompliance();}catch(e){toast(e.message,'error');}
+  const categories=String(document.getElementById('incidentCategories').value||'').split(',').map(function(x){return x.trim();}).filter(Boolean);
+  const countRaw=document.getElementById('incidentSubjectCount').value,count=countRaw===''?null:Number(countRaw);
+  if(!description){toast('Опишите, что произошло','error');return;}
+  if(count!=null&&(!Number.isInteger(count)||count<0)){toast('Количество субъектов должно быть целым неотрицательным числом','error');return;}
+  try{
+    await api('/api/compliance/incidents','POST',{severity,description,detected_at:new Date().toISOString(),confirmed_at:confirmed?new Date(confirmed).toISOString():null,data_categories:categories,subject_count_estimate:count});
+    document.getElementById('incidentDescription').value='';document.getElementById('incidentConfirmedAt').value='';document.getElementById('incidentCategories').value='';document.getElementById('incidentSubjectCount').value='';
+    toast('Инцидент зарегистрирован');loadCompliance();
+  }catch(e){toast(e.message,'error');}
+}
+async function confirmIncidentNow(id){
+  if(!confirm('Подтвердить факт инцидента текущим временем и запустить контрольные таймеры?'))return;
+  try{await api('/api/compliance/incidents/'+id,'PATCH',{confirmed_at:new Date().toISOString()});toast('Инцидент подтверждён');loadCompliance();}catch(e){toast(e.message,'error');}
+}
+async function setIncidentStatus(id,status){
+  try{await api('/api/compliance/incidents/'+id,'PATCH',{status:status});toast('Статус инцидента обновлён');loadCompliance();}catch(e){toast(e.message,'error');}
+}
+async function closeIncident(id){
+  const root=prompt('Кратко укажите установленную причину инцидента:','');
+  if(root===null||!root.trim())return;
+  const actions=prompt('Какие корректирующие меры выполнены или запланированы?','');
+  if(actions===null||!actions.trim())return;
+  try{await api('/api/compliance/incidents/'+id,'PATCH',{status:'closed',root_cause:root.trim(),corrective_actions:actions.trim()});toast('Инцидент закрыт');loadCompliance();}catch(e){toast(e.message,'error');}
+}
+function retentionActionLabel(value){
+  return ({review_delete:'Проверка и уничтожение',anonymize:'Обезличивание',archive:'Архив',hold:'Удержание по основанию'})[value]||value||'—';
 }
 function renderRetentionRules(rows){
+  if(Array.isArray(rows))complianceRetentionRows=rows;
   const body=document.getElementById('retentionRulesBody');if(!body)return;
-  body.innerHTML=rows.length?rows.map(function(r){
-    return '<tr><td>'+Number(r.id)+'</td><td>'+escapeHtml(r.data_category||'')+'</td><td>'+escapeHtml(r.purpose_id||'')+'</td><td>'+escapeHtml(r.duration_rule||'')+'</td><td>'+escapeHtml(r.trigger_event||'')+'</td><td>'+escapeHtml(r.action||'')+'</td><td>'+escapeHtml(r.version||'')+'</td><td>'+(r.active?'<span class="compliance-status-ok">активно</span>':'<span class="compliance-status-warn">выключено</span>')+(can('compliance.manage')?' <button class="btn btn-gray btn-sm" onclick="toggleRetentionRule('+Number(r.id)+','+(r.active?'false':'true')+')">'+(r.active?'Отключить':'Включить')+'</button>':'')+'</td></tr>';
+  const data=complianceRetentionRows||[];
+  body.innerHTML=data.length?data.map(function(r){
+    return '<tr><td>'+Number(r.id)+'</td><td>'+escapeHtml(r.data_category||'')+'</td><td>'+escapeHtml(r.purpose_id||'')+'</td><td>'+escapeHtml(r.duration_rule||'')+'</td><td>'+escapeHtml(r.trigger_event||'')+'</td><td>'+escapeHtml(retentionActionLabel(r.action))+(r.exception_hold?'<div style="font-size:10px;color:#667085">Исключение: '+escapeHtml(r.exception_hold)+'</div>':'')+'</td><td>'+escapeHtml(r.version||'')+'</td><td>'+pdBadge(r.active?'Активно':'Выключено',r.active?'green':'gray')+(can('compliance.manage')?' <button class="btn btn-gray btn-sm" onclick="toggleRetentionRule('+Number(r.id)+','+(r.active?'false':'true')+')">'+(r.active?'Отключить':'Включить')+'</button>':'')+'</td></tr>';
   }).join(''):'<tr><td colspan="8">Правила хранения ещё не заданы.</td></tr>';
 }
 async function createRetentionRule(){
@@ -2136,32 +2397,38 @@ async function createRetentionRule(){
     exception_hold:document.getElementById('retentionHold').value.trim(),
     version:document.getElementById('retentionVersion').value.trim()
   };
+  if(!payload.data_category||!payload.purpose_id||!payload.duration_rule||!payload.trigger_event||!payload.version){toast('Заполните обязательные поля правила хранения','error');return;}
   try{
     await api('/api/compliance/retention-rules','POST',payload);
     ['retentionCategory','retentionPurpose','retentionDuration','retentionTrigger','retentionHold','retentionVersion'].forEach(function(id){document.getElementById(id).value='';});
-    toast('Retention rule добавлено');loadCompliance();
+    toast('Правило хранения добавлено');loadCompliance();
   }catch(e){toast(e.message,'error');}
 }
 async function toggleRetentionRule(id,active){
   try{await api('/api/compliance/retention-rules/'+id,'PATCH',{active:active});toast('Статус правила обновлён');loadCompliance();}catch(e){toast(e.message,'error');}
 }
 function renderDeletionJobs(rows){
+  if(Array.isArray(rows))complianceDeletionRows=rows;
   const body=document.getElementById('deletionJobsBody');if(!body)return;
-  body.innerHTML=rows.length?rows.map(function(r){
+  const filter=String(document.getElementById('deletionStatusFilter')&&document.getElementById('deletionStatusFilter').value||'');
+  let data=(complianceDeletionRows||[]).slice();
+  if(filter==='open')data=data.filter(function(r){return r.status!=='completed';});
+  else if(filter)data=data.filter(function(r){return r.status===filter;});
+  body.innerHTML=data.length?data.map(function(r){
     const stores=Array.isArray(r.stores_targeted)?r.stores_targeted.join(', '):String(r.stores_targeted||'');
     let actions='';
     if(can('compliance.manage')){
-      if(r.status==='queued')actions='<button class="btn btn-red btn-sm" onclick="executeAccountDeletion('+Number(r.id)+')">Удалить аккаунтные ПД</button> <button class="btn btn-blue btn-sm" onclick="setDeletionJobStatus('+Number(r.id)+',\'in_progress\')">В работу вручную</button>';
-      else if(r.status==='in_progress'||r.status==='blocked')actions='<button class="btn btn-red btn-sm" onclick="executeAccountDeletion('+Number(r.id)+')">Удалить аккаунтные ПД</button> <button class="btn btn-green btn-sm" onclick="completeDeletionJob('+Number(r.id)+')">Завершить вручную с evidence</button> <button class="btn btn-gray btn-sm" onclick="setDeletionJobStatus('+Number(r.id)+',\'blocked\')">Блокировать</button>';
+      if(r.status==='queued')actions='<button class="btn btn-red btn-sm" onclick="executeAccountDeletion('+Number(r.id)+')">Удалить аккаунтные ПД</button> <button class="btn btn-blue btn-sm" onclick="setDeletionJobStatus('+Number(r.id)+',\'in_progress\')">В работу</button>';
+      else if(r.status==='in_progress'||r.status==='blocked')actions='<button class="btn btn-red btn-sm" onclick="executeAccountDeletion('+Number(r.id)+')">Удалить аккаунтные ПД</button> <button class="btn btn-green btn-sm" onclick="completeDeletionJob('+Number(r.id)+')">Завершить с evidence</button> '+(r.status!=='blocked'?'<button class="btn btn-gray btn-sm" onclick="setDeletionJobStatus('+Number(r.id)+',\'blocked\')">Заблокировать</button>':'');
     }
-    return '<tr><td>'+Number(r.id)+'</td><td>'+escapeHtml(r.subject_ref||'')+'</td><td>'+escapeHtml(r.legal_reason||'')+'</td><td>'+escapeHtml(stores)+'</td><td>'+escapeHtml(r.status||'')+'</td><td>'+complianceDate(r.created_at)+'</td><td>'+escapeHtml(r.evidence_ref||'')+'</td><td>'+actions+'</td></tr>';
-  }).join(''):'<tr><td colspan="8">Задач на уничтожение нет.</td></tr>';
+    return '<tr><td>#'+Number(r.id)+'</td><td>'+escapeHtml(r.subject_ref||'')+'</td><td><div style="max-width:300px">'+escapeHtml(r.legal_reason||'')+'</div>'+(r.result?'<div style="font-size:10px;color:#667085;margin-top:3px">Результат: '+escapeHtml(r.result)+'</div>':'')+'</td><td>'+escapeHtml(stores)+'</td><td>'+pdBadge(deletionStatusLabel(r.status),deletionStatusTone(r.status))+'</td><td>'+complianceDate(r.created_at)+'</td><td>'+escapeHtml(r.evidence_ref||'—')+'</td><td>'+actions+'</td></tr>';
+  }).join(''):'<tr><td colspan="8">По выбранному фильтру задач нет.</td></tr>';
 }
 async function createDeletionJobFromDsar(id){
   if(!confirm('Создать задачу на уничтожение по этому запросу? Аккаунтные данные можно будет удалить автоматически; кадровые и расчётные данные требуют отдельной проверки правового основания.'))return;
   try{
     await api('/api/compliance/dsar/'+id+'/deletion-job','POST',{stores_targeted:['users','employees','salary_records','hr_profile','files','backups-delayed-purge']});
-    toast('Deletion job создана');loadCompliance();
+    toast('Задача на уничтожение создана');loadCompliance();
   }catch(e){toast(e.message,'error');}
 }
 async function setDeletionJobStatus(id,status){
@@ -2180,13 +2447,30 @@ async function completeDeletionJob(id){
   if(result===null||!result.trim())return;
   const evidence=prompt('Укажите номер акта, ссылку или идентификатор evidence:','');
   if(evidence===null||!evidence.trim()){toast('Evidence обязателен','error');return;}
-  try{await api('/api/compliance/deletion-jobs/'+id,'PATCH',{status:'completed',result:result.trim(),evidence_ref:evidence.trim()});toast('Deletion job завершена');loadCompliance();}catch(e){toast(e.message,'error');}
+  try{await api('/api/compliance/deletion-jobs/'+id,'PATCH',{status:'completed',result:result.trim(),evidence_ref:evidence.trim()});toast('Задача на уничтожение завершена');loadCompliance();}catch(e){toast(e.message,'error');}
+}
+function integrationStatusBadge(value,type){
+  const v=String(value||'').trim();
+  if(!v)return pdBadge('Не указан','red');
+  if(type==='dpa'){
+    if(v==='signed')return pdBadge('Подписано','green');
+    if(v==='not_required')return pdBadge('Не требуется','gray');
+    if(v==='pending')return pdBadge('На согласовании','orange');
+  }else{
+    if(v==='RU-only')return pdBadge('Только РФ','green');
+    if(v==='reviewed')return pdBadge('Проверено','green');
+    if(v==='blocked')return pdBadge('Запрещено','red');
+    if(v==='pending')return pdBadge('Требует проверки','orange');
+  }
+  return pdBadge(v,'gray');
 }
 function renderIntegrations(rows){
+  if(Array.isArray(rows))complianceIntegrationRows=rows;
   const body=document.getElementById('integrationsBody');if(!body)return;
-  body.innerHTML=rows.length?rows.map(function(r){
+  const data=complianceIntegrationRows||[];
+  body.innerHTML=data.length?data.map(function(r){
     const cats=Array.isArray(r.data_categories)?r.data_categories.join(', '):String(r.data_categories||'');
-    return '<tr><td>'+escapeHtml(r.vendor||'')+'</td><td>'+escapeHtml(r.country||'')+'</td><td>'+escapeHtml(cats)+'</td><td>'+escapeHtml(r.purpose||'')+'</td><td>'+escapeHtml(r.dpa_status||'')+'</td><td>'+escapeHtml(r.transfer_status||'')+'</td><td>'+escapeHtml(r.owner||'')+'</td></tr>';
+    return '<tr><td><b>'+escapeHtml(r.vendor||'')+'</b>'+(r.endpoint?'<div style="font-size:10px;color:#667085">'+escapeHtml(r.endpoint)+'</div>':'')+'</td><td>'+escapeHtml(r.country||'')+'</td><td>'+escapeHtml(cats||'—')+'</td><td>'+escapeHtml(r.purpose||'')+'</td><td>'+integrationStatusBadge(r.dpa_status,'dpa')+'</td><td>'+integrationStatusBadge(r.transfer_status,'transfer')+'</td><td>'+escapeHtml(r.owner||'—')+'</td></tr>';
   }).join(''):'<tr><td colspan="7">Внешние интеграции не зарегистрированы.</td></tr>';
 }
 async function createIntegration(){
@@ -2204,13 +2488,18 @@ async function createIntegration(){
   if(!payload.vendor||!payload.country||!payload.purpose){toast('Заполните поставщика, страну и цель','error');return;}
   try{
     await api('/api/compliance/integrations','POST',payload);
-    ['integrationVendor','integrationCountry','integrationOwner','integrationPurpose','integrationEndpoint','integrationCategories','integrationDpaStatus','integrationTransferStatus'].forEach(function(id){document.getElementById(id).value='';});
+    ['integrationVendor','integrationCountry','integrationOwner','integrationPurpose','integrationEndpoint','integrationCategories'].forEach(function(id){document.getElementById(id).value='';});
+    document.getElementById('integrationDpaStatus').value='';document.getElementById('integrationTransferStatus').value='';
     toast('Интеграция добавлена в реестр');loadCompliance();
   }catch(e){toast(e.message,'error');}
 }
 function renderComplianceAudit(rows){
+  if(Array.isArray(rows))complianceAuditRows=rows;
   const body=document.getElementById('complianceAuditBody');if(!body)return;
-  body.innerHTML=rows.length?rows.slice(0,250).map(function(r){return '<tr><td>'+complianceDate(r.occurred_at)+'</td><td>'+escapeHtml(r.action)+'</td><td>'+escapeHtml((r.object_type||'')+' '+(r.object_id||''))+'</td><td>'+escapeHtml(r.result||'')+'</td><td style="font-family:monospace;font-size:10px">'+escapeHtml(r.correlation_id||'')+'</td></tr>';}).join(''):'<tr><td colspan="5">Событий пока нет.</td></tr>';
+  const q=String(document.getElementById('complianceAuditSearch')&&document.getElementById('complianceAuditSearch').value||'').trim().toLowerCase();
+  let data=(complianceAuditRows||[]).slice();
+  if(q)data=data.filter(function(r){return [r.action,r.object_type,r.object_id,r.result,r.correlation_id].join(' ').toLowerCase().includes(q);});
+  body.innerHTML=data.length?data.slice(0,250).map(function(r){return '<tr><td>'+complianceDate(r.occurred_at)+'</td><td>'+escapeHtml(r.action)+'</td><td>'+escapeHtml((r.object_type||'')+' '+(r.object_id||''))+'</td><td>'+escapeHtml(r.result||'')+'</td><td style="font-family:monospace;font-size:10px">'+escapeHtml(r.correlation_id||'')+'</td></tr>';}).join(''):'<tr><td colspan="5">Событий по выбранному фильтру нет.</td></tr>';
 }
 
 function showEmailRequired(user){
