@@ -1156,10 +1156,31 @@ function buildLoginFromFio(fio) {
 }
 function normalizePhone(phone) {
   let d=String(phone||'').replace(/\D/g,'');
+  if(!d)return '';
   if(d.charAt(0)==='8')d='7'+d.slice(1);
-  if(d.charAt(0)!=='7')d='7'+d;
-  if(d.length!==11)return '';
-  return '7 ('+d.slice(1,4)+') '+d.slice(4,7)+'-'+d.slice(7,9)+'-'+d.slice(9,11);
+  if(d.length===10)d='7'+d;
+  if(d.charAt(0)!=='7'||d.length!==11)return '';
+  return '+7 ('+d.slice(1,4)+') '+d.slice(4,7)+'-'+d.slice(7,9)+'-'+d.slice(9,11);
+}
+function normalizeProfilePhones(profile){
+  const out={...(profile||{})};
+  if(out.additional_phone){
+    const normalized=normalizePhone(out.additional_phone);
+    if(!normalized){const err=new Error('Некорректный дополнительный телефон. Формат: +7 (900) 900-90-90');err.status=400;throw err;}
+    out.additional_phone=normalized;
+  }
+  if(Array.isArray(out.relatives)){
+    out.relatives=out.relatives.map(function(item){
+      const row={...(item||{})};
+      if(row.phone){
+        const normalized=normalizePhone(row.phone);
+        if(!normalized){const err=new Error('Некорректный телефон родственника / экстренного контакта. Формат: +7 (900) 900-90-90');err.status=400;throw err;}
+        row.phone=normalized;
+      }
+      return row;
+    });
+  }
+  return out;
 }
 function invitationTokenHash(value){
   return crypto.createHash('sha256').update(String(value||'').trim(),'utf8').digest('hex');
@@ -1204,7 +1225,7 @@ app.post('/api/register', authRateLimit, async (req, res) => {
   if (!termsAccepted || !pdConsent) return res.status(400).json({ error: 'Пользовательское соглашение и согласие на обработку персональных данных принимаются отдельными обязательными действиями' });
   if (!validEmail(email)) return res.status(400).json({ error: 'Введите корректный email' });
   if (normalizedFio.split(' ').filter(Boolean).length < 2) return res.status(400).json({ error: 'Введите фамилию и имя' });
-  if (phone&&!normalizedPhone) return res.status(400).json({ error: 'Некорректный номер телефона. Формат: 7 (900) 900-90-90' });
+  if (phone&&!normalizedPhone) return res.status(400).json({ error: 'Некорректный номер телефона. Формат: +7 (900) 900-90-90' });
   if (String(password).length < 12) return res.status(400).json({ error: 'Пароль должен содержать не менее 12 символов' });
 
   const client=await pool.connect();
@@ -1569,7 +1590,7 @@ app.put('/api/employees/:id/profile', requirePermission('employees.manage'), asy
     }
     const employee=await ensureEmployeeAccess(user,id);
     const rawProfile=req.body&&req.body.profile;
-    const profile=rawProfile&&typeof rawProfile==='object'&&!Array.isArray(rawProfile)?rawProfile:{};
+    const profile=normalizeProfilePhones(rawProfile&&typeof rawProfile==='object'&&!Array.isArray(rawProfile)?rawProfile:{});
     const photoData=String(req.body&&req.body.photo_data||'');
     if(photoData && !/^data:image\/(jpeg|png|webp);base64,/i.test(photoData))return res.status(400).json({error:'Фото должно быть в формате JPG, PNG или WEBP'});
     if(photoData.length>1600000)return res.status(400).json({error:'Фото слишком большое. Максимальный размер после обработки — около 1 МБ'});
@@ -1586,7 +1607,7 @@ app.post('/api/employees', requirePermission('employees.manage'), async (req, re
   const employment_status=req.body.employment_status==='dismissed'?'dismissed':'working';
   if (!fio) return res.status(400).json({ error: 'ФИО обязательно' });
   const normalizedPhone=phone ? normalizePhone(phone) : '';
-  if(phone && !normalizedPhone)return res.status(400).json({ error: 'Некорректный номер телефона. Формат: 7 (900) 900-90-90' });
+  if(phone && !normalizedPhone)return res.status(400).json({ error: 'Некорректный номер телефона. Формат: +7 (900) 900-90-90' });
   try {
     const user=req.accessUser||await refreshAccessUser(req);
     const targetOrg=isSiteWideUser(user)?String(organization||'').trim():accessOrganization(user);
@@ -1609,7 +1630,7 @@ app.put('/api/employees/:id', requirePermission('employees.manage'), async (req,
   const { fio, organization, position, phone, birth_date, comments } = req.body;
   const employment_status=req.body.employment_status==='dismissed'?'dismissed':'working';
   const normalizedPhone=phone ? normalizePhone(phone) : '';
-  if(phone && !normalizedPhone)return res.status(400).json({ error: 'Некорректный номер телефона. Формат: 7 (900) 900-90-90' });
+  if(phone && !normalizedPhone)return res.status(400).json({ error: 'Некорректный номер телефона. Формат: +7 (900) 900-90-90' });
   try {
     const user=req.accessUser||await refreshAccessUser(req);
     await ensureEmployeeAccess(user,Number(id));
@@ -1772,7 +1793,7 @@ function organizationPayload(body){
     address:String(src.address||'').trim(),
     postal_address:String(src.postal_address||'').trim(),
     director_fio:String(src.director_fio||'').trim(),
-    phone:String(src.phone||'').trim(),
+    phone:(function(){const raw=String(src.phone||'').trim();return raw?(normalizePhone(raw)||raw):'';})(),
     email:normalizeEmail(src.email),
     website:String(src.website||'').trim(),
     bank_name:String(src.bank_name||'').trim(),
@@ -1791,6 +1812,7 @@ function validateOrganizationPayload(data,requireExtended){
   if(requireExtended&&!data.ogrn)return 'ОГРН обязателен';
   if(data.ogrn&&!/^(?:\d{13}|\d{15})$/.test(data.ogrn))return 'ОГРН/ОГРНИП должен содержать 13 или 15 цифр';
   if(requireExtended&&!data.legal_address)return 'Юридический адрес обязателен';
+  if(data.phone&&!normalizePhone(data.phone))return 'Некорректный телефон организации. Формат: +7 (900) 900-90-90';
   if(data.email&&!validEmail(data.email))return 'Некорректный e-mail организации';
   if(data.bik&&!/^\d{9}$/.test(data.bik))return 'БИК должен содержать 9 цифр';
   if(data.settlement_account&&!/^\d{20}$/.test(data.settlement_account))return 'Расчётный счёт должен содержать 20 цифр';
@@ -2072,7 +2094,7 @@ function counterpartyPayload(body){
     counterparty_type:COUNTERPARTY_TYPES.has(type)?type:'both',
     name:dealText(x.name,500),full_name:dealText(x.full_name,1000),inn:dealText(x.inn,20),kpp:dealText(x.kpp,20),ogrn:dealText(x.ogrn,20),
     legal_address:dealText(x.legal_address,2000),postal_address:dealText(x.postal_address,2000),director_fio:dealText(x.director_fio,500),
-    contact_person:dealText(x.contact_person,500),phone:dealText(x.phone,100),email:dealText(x.email,500),website:dealText(x.website,500),
+    contact_person:dealText(x.contact_person,500),phone:(function(){const raw=dealText(x.phone,100);return raw?(normalizePhone(raw)||raw):'';})(),email:dealText(x.email,500),website:dealText(x.website,500),
     bank_name:dealText(x.bank_name,1000),bik:dealText(x.bik,20),settlement_account:dealText(x.settlement_account,40),
     correspondent_account:dealText(x.correspondent_account,40),comments:dealText(x.comments,8000)
   };
@@ -2097,6 +2119,7 @@ app.post('/api/counterparties',requirePermission('counterparties.manage'),async(
   try{
     const user=req.accessUser||await refreshAccessUser(req),data=counterpartyPayload(req.body),scope=await counterpartyScope(user,req.body&&req.body.organization);
     if(!data.name)return res.status(400).json({error:'Укажите наименование контрагента'});
+    if(data.phone&&!normalizePhone(data.phone))return res.status(400).json({error:'Некорректный телефон контрагента. Формат: +7 (900) 900-90-90'});
     if(data.inn){
       const dup=await pool.query('SELECT id FROM counterparties WHERE tenant_id=$1 AND inn=$2 LIMIT 1',[scope.tenant_id,data.inn]);
       if(dup.rows.length)return res.status(409).json({error:'Контрагент с таким ИНН уже существует'});
@@ -2117,6 +2140,7 @@ app.put('/api/counterparties/:id',requirePermission('counterparties.manage'),asy
     if(!isSiteWideUser(user)&&!sameAccessValue(before.rows[0].organization,accessOrganization(user)))return res.status(403).json({error:'Нет доступа к этому контрагенту'});
     const data=counterpartyPayload(req.body),scope=await counterpartyScope(user,req.body&&req.body.organization);
     if(!data.name)return res.status(400).json({error:'Укажите наименование контрагента'});
+    if(data.phone&&!normalizePhone(data.phone))return res.status(400).json({error:'Некорректный телефон контрагента. Формат: +7 (900) 900-90-90'});
     if(data.inn){
       const dup=await pool.query('SELECT id FROM counterparties WHERE tenant_id=$1 AND inn=$2 AND id<>$3 LIMIT 1',[scope.tenant_id,data.inn,id]);
       if(dup.rows.length)return res.status(409).json({error:'Контрагент с таким ИНН уже существует'});
