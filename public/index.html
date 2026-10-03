@@ -502,7 +502,7 @@ button,input,select,textarea{max-width:100%}
     <h2 style="font-size:16px;margin-bottom:10px">Регистрация</h2>
     <div style="font-size:12px;color:#667085;margin:-3px 0 9px">Логин формируется автоматически из ФИО</div>
     <input type="text" id="regFio" placeholder="ФИО *" autocomplete="name" required oninput="formatRegistrationFio(this)">
-    <input type="tel" id="regPhone" placeholder="Телефон (необязательно)" inputmode="numeric" autocomplete="tel" maxlength="18" oninput="formatRegistrationPhone(this)">
+    <input type="tel" id="regPhone" class="phone-input" placeholder="+7 (900) 900-90-90" inputmode="numeric" autocomplete="tel" maxlength="18" oninput="formatRegistrationPhone(this)">
     <input type="email" id="regEmail" placeholder="Электронная почта *" autocomplete="email" required>
     <input type="text" id="regInvite" placeholder="Код приглашения организации *" autocomplete="off" required oninput="scheduleInvitationCheck()">
     <div id="regOrganizationResolved" style="font-size:12px;color:#667085;margin:-3px 0 8px">Организация определяется по приглашению.</div>
@@ -1051,7 +1051,7 @@ button,input,select,textarea{max-width:100%}
 </div>
 
 <!-- MODALS -->
-<div class="modal-overlay" id="empModal"><div class="modal"><span class="modal-close" onclick="closeModal('empModal')">&times;</span><h2>Сотрудник</h2><div class="form-group"><label>ФИО</label><input type="text" id="empFio"></div><div class="form-group"><label>Организация</label><input type="text" id="empOrg"></div><div class="form-group"><label>Должность</label><input type="text" id="empPos"></div><div class="form-group"><label>Телефон</label><input type="tel" id="empPhone" class="phone-input" placeholder="7 (900) 900-90-90" inputmode="numeric" autocomplete="tel" maxlength="18" oninput="formatPhoneInput(this)"></div><div class="form-group"><label>Дата рождения</label><input type="text" id="empBirth" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div><div class="form-group"><label>Статус</label><select id="empStatus"><option value="working">Работает</option><option value="dismissed">Уволен</option></select></div><div class="form-group"><label>Комментарии</label><textarea id="empComments"></textarea></div><button class="btn btn-green" onclick="saveEmp()">Сохранить</button></div></div>
+<div class="modal-overlay" id="empModal"><div class="modal"><span class="modal-close" onclick="closeModal('empModal')">&times;</span><h2>Сотрудник</h2><div class="form-group"><label>ФИО</label><input type="text" id="empFio"></div><div class="form-group"><label>Организация</label><input type="text" id="empOrg"></div><div class="form-group"><label>Должность</label><input type="text" id="empPos"></div><div class="form-group"><label>Телефон</label><input type="tel" id="empPhone" class="phone-input" placeholder="+7 (900) 900-90-90" inputmode="numeric" autocomplete="tel" maxlength="18" oninput="formatPhoneInput(this)"></div><div class="form-group"><label>Дата рождения</label><input type="text" id="empBirth" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div><div class="form-group"><label>Статус</label><select id="empStatus"><option value="working">Работает</option><option value="dismissed">Уволен</option></select></div><div class="form-group"><label>Комментарии</label><textarea id="empComments"></textarea></div><button class="btn btn-green" onclick="saveEmp()">Сохранить</button></div></div>
 <div class="modal-overlay" id="employeeProfileModal"><div class="modal hr-modal">
   <span class="modal-close" onclick="closeModal('employeeProfileModal')">&times;</span>
   <h2 id="hrProfileTitle">Кадровая анкета сотрудника</h2>
@@ -1095,7 +1095,7 @@ button,input,select,textarea{max-width:100%}
   <div class="hr-section"><h3>Адреса и контакты</h3><div class="hr-grid two">
     <div class="form-group hr-wide"><label>Адрес регистрации</label><textarea id="hrRegistrationAddress" rows="2"></textarea></div>
     <div class="form-group hr-wide"><label>Фактический адрес проживания</label><textarea id="hrResidenceAddress" rows="2"></textarea></div>
-    <div class="form-group"><label>Дополнительный телефон</label><input id="hrAdditionalPhone"></div>
+    <div class="form-group"><label>Дополнительный телефон</label><input type="tel" id="hrAdditionalPhone" class="phone-input" placeholder="+7 (900) 900-90-90" inputmode="numeric" autocomplete="tel" maxlength="18" oninput="formatPhoneInput(this)"></div>
     <div class="form-group"><label>Личный email</label><input id="hrPersonalEmail" type="email"></div>
   </div></div>
 
@@ -1141,7 +1141,7 @@ button,input,select,textarea{max-width:100%}
   <div class="form-row"><div class="form-group"><label>ИНН *</label><input type="text" id="orgInn" inputmode="numeric" maxlength="12" placeholder="10 или 12 цифр"></div><div class="form-group"><label>КПП</label><input type="text" id="orgKpp" inputmode="numeric" maxlength="9" placeholder="9 цифр"></div><div class="form-group"><label>ОГРН / ОГРНИП *</label><input type="text" id="orgOgrn" inputmode="numeric" maxlength="15" placeholder="13 или 15 цифр"></div></div>
   <div class="form-group"><label>Юридический адрес *</label><input type="text" id="orgLegalAddress" maxlength="1000"></div>
   <div class="form-row"><div class="form-group"><label>Фактический адрес</label><input type="text" id="orgAddr" maxlength="1000"></div><div class="form-group"><label>Почтовый адрес</label><input type="text" id="orgPostalAddress" maxlength="1000"></div></div>
-  <div class="form-row"><div class="form-group"><label>Руководитель / директор</label><input type="text" id="orgDirector" maxlength="255"></div><div class="form-group"><label>Телефон</label><input type="tel" id="orgPhone" class="phone-input" maxlength="18" placeholder="7 (900) 900-90-90" oninput="formatPhoneInput(this)"></div></div>
+  <div class="form-row"><div class="form-group"><label>Руководитель / директор</label><input type="text" id="orgDirector" maxlength="255"></div><div class="form-group"><label>Телефон</label><input type="tel" id="orgPhone" class="phone-input" maxlength="18" placeholder="+7 (900) 900-90-90" inputmode="numeric" autocomplete="tel" oninput="formatPhoneInput(this)"></div></div>
   <div class="form-row"><div class="form-group"><label>E-mail</label><input type="email" id="orgEmail" maxlength="255" autocomplete="email"></div><div class="form-group"><label>Сайт</label><input type="text" id="orgWebsite" maxlength="255" placeholder="https://example.ru"></div></div>
   <h3 style="margin:10px 0">Банковские реквизиты</h3>
   <div class="form-row"><div class="form-group"><label>Банк</label><input type="text" id="orgBankName" maxlength="500"></div><div class="form-group"><label>БИК</label><input type="text" id="orgBik" inputmode="numeric" maxlength="9" placeholder="9 цифр"></div></div>
@@ -1163,7 +1163,7 @@ button,input,select,textarea{max-width:100%}
     <div class="form-group" style="grid-column:1/-1"><label>Юридический адрес</label><input id="counterpartyLegalAddress" maxlength="2000"></div>
     <div class="form-group" style="grid-column:1/-1"><label>Почтовый адрес</label><input id="counterpartyPostalAddress" maxlength="2000"></div>
     <div class="form-group"><label>Контактное лицо</label><input id="counterpartyContact" maxlength="500"></div>
-    <div class="form-group"><label>Телефон</label><input id="counterpartyPhone" maxlength="100"></div>
+    <div class="form-group"><label>Телефон</label><input type="tel" id="counterpartyPhone" class="phone-input" placeholder="+7 (900) 900-90-90" inputmode="numeric" autocomplete="tel" maxlength="18" oninput="formatPhoneInput(this)"></div>
     <div class="form-group"><label>Email</label><input id="counterpartyEmail" type="email" maxlength="500"></div>
     <div class="form-group"><label>Сайт</label><input id="counterpartyWebsite" maxlength="500"></div>
     <div class="form-group" style="grid-column:1/-1"><label>Банк</label><input id="counterpartyBank" maxlength="1000"></div>
@@ -1685,9 +1685,10 @@ function formatPhoneValue(value){
   let d=String(value||'').replace(/\D/g,'');
   if(!d)return '';
   if(d.charAt(0)==='8')d='7'+d.slice(1);
+  if(d.length===10)d='7'+d;
   if(d.charAt(0)!=='7')d='7'+d;
   d=d.slice(0,11);
-  let out='7';
+  let out='+7';
   if(d.length>1)out+=' ('+d.slice(1,4);
   if(d.length>=4)out+=')';
   if(d.length>4)out+=' '+d.slice(4,7);
@@ -1697,7 +1698,7 @@ function formatPhoneValue(value){
 }
 function formatPhoneInput(input){input.value=formatPhoneValue(input.value);}
 function formatRegistrationPhone(input){formatPhoneInput(input);}
-function isValidPhone(value){return /^7 \(\d{3}\) \d{3}-\d{2}-\d{2}$/.test(String(value||''));}
+function isValidPhone(value){return /^\+7 \(\d{3}\) \d{3}-\d{2}-\d{2}$/.test(String(value||''));}
 function isValidRegistrationPhone(value){return isValidPhone(value);}
 function setButtonBusy(button,busy,busyText){
   if(!button)return;
@@ -1737,7 +1738,7 @@ async function doRegister() {
   if (!termsAccepted) { document.getElementById('regMsg').textContent = 'Отдельно примите Пользовательское соглашение'; return; }
   if (!pdConsent) { document.getElementById('regMsg').textContent = 'Отдельно дайте согласие на обработку персональных данных'; return; }
   if (fio.split(/\s+/).filter(Boolean).length < 2) { document.getElementById('regMsg').textContent = 'Введите фамилию и имя'; return; }
-  if (phone && !isValidRegistrationPhone(phone)) { document.getElementById('regMsg').textContent = 'Введите номер телефона полностью: 7 (900) 900-90-90'; return; }
+  if (phone && !isValidRegistrationPhone(phone)) { document.getElementById('regMsg').textContent = 'Введите номер телефона полностью: +7 (900) 900-90-90'; return; }
   if(!(await checkRegistrationInvitation())) { document.getElementById('regMsg').textContent = 'Проверьте код приглашения организации'; return; }
   try {
     const created=await withBusyButton('regSubmitBtn','Регистрируем…',function(){return api('/api/register', 'POST', { fio, phone, email, login, password, invite_token:inviteToken, terms_accepted:termsAccepted, pd_consent:pdConsent, marketing_consent:marketingConsent });});
@@ -3273,7 +3274,7 @@ function renderEmployees() {
     const selector=can('employees.manage')?'<input type="checkbox" class="employee-row-check" aria-label="Выбрать сотрудника '+escapeHtml(e.fio||'')+'" '+(selectedEmployeeIds.has(id)?'checked':'')+' onchange="toggleEmployeeSelection('+id+',this.checked)">':'';
     const actions=can('employees.manage')?'<button class="btn btn-blue btn-sm" onclick="editEmp(' + id + ')">Изм.</button> <button class="btn btn-red btn-sm" onclick="deleteEmp(' + id + ')">Удал.</button>':'—';
     const canOpenProfile=currentUser&&currentUser.role!=='Руководитель проекта';
-    return '<tr class="'+(canOpenProfile?'employee-click-row':'')+'" '+(canOpenProfile?'onclick="openEmployeeProfile('+id+')"':'')+'><td style="text-align:center" onclick="event.stopPropagation()">'+selector+'</td><td>' + escapeHtml(e.fio||'') + '</td><td>' + escapeHtml(e.organization||'') + '</td><td>' + escapeHtml(e.position||'') + '</td><td>' + escapeHtml(e.phone||'') + '</td><td>' + escapeHtml(e.birth_date||'') + '</td><td>'+status+'</td><td>' + escapeHtml(e.comments||'') + '</td><td onclick="event.stopPropagation()">'+actions+'</td></tr>';
+    return '<tr class="'+(canOpenProfile?'employee-click-row':'')+'" '+(canOpenProfile?'onclick="openEmployeeProfile('+id+')"':'')+'><td style="text-align:center" onclick="event.stopPropagation()">'+selector+'</td><td>' + escapeHtml(e.fio||'') + '</td><td>' + escapeHtml(e.organization||'') + '</td><td>' + escapeHtml(e.position||'') + '</td><td>' + escapeHtml(formatPhoneValue(e.phone||'')) + '</td><td>' + escapeHtml(e.birth_date||'') + '</td><td>'+status+'</td><td>' + escapeHtml(e.comments||'') + '</td><td onclick="event.stopPropagation()">'+actions+'</td></tr>';
   }).join('');
   updateEmployeeSelectionUi();
 }
@@ -3321,7 +3322,7 @@ function addHrRelative(value){
   const row=document.createElement('div');row.className='hr-relative-row';
   row.innerHTML='<div class="form-group"><label>Кем приходится</label><input class="hr-rel-type" value="'+escapeHtml(value.relationship||'')+'" placeholder="Супруг, мать…"></div>'+
     '<div class="form-group"><label>ФИО</label><input class="hr-rel-name" value="'+escapeHtml(value.name||'')+'"></div>'+
-    '<div class="form-group"><label>Телефон</label><input class="hr-rel-phone" value="'+escapeHtml(value.phone||'')+'"></div>'+
+    '<div class="form-group"><label>Телефон</label><input type="tel" class="hr-rel-phone phone-input" placeholder="+7 (900) 900-90-90" inputmode="numeric" autocomplete="tel" maxlength="18" oninput="formatPhoneInput(this)" value="'+escapeHtml(formatPhoneValue(value.phone||''))+'"></div>'+
     '<div class="form-group"><label>Примечание</label><input class="hr-rel-note" value="'+escapeHtml(value.note||'')+'"></div>'+
     '<button class="btn btn-red btn-sm hr-rel-remove" type="button" onclick="this.closest(\'.hr-relative-row\').remove()">Удалить</button>';
   document.getElementById('hrRelatives').appendChild(row);
@@ -3352,9 +3353,9 @@ async function openEmployeeProfile(id){
     document.getElementById('hrBaseFio').value=data.fio||'';
     document.getElementById('hrBaseOrg').value=data.organization||'';
     document.getElementById('hrBasePosition').value=data.position||'';
-    document.getElementById('hrBasePhone').value=data.phone||'';
+    document.getElementById('hrBasePhone').value=formatPhoneValue(data.phone||'');
     document.getElementById('hrBirthDate').value=data.birth_date?isoToRuDate(String(data.birth_date).slice(0,10)):'';
-    Object.keys(HR_FIELD_IDS).forEach(function(key){const el=document.getElementById(HR_FIELD_IDS[key]);if(el)el.value=p[key]||'';});
+    Object.keys(HR_FIELD_IDS).forEach(function(key){const el=document.getElementById(HR_FIELD_IDS[key]);if(el)el.value=key==='additional_phone'?formatPhoneValue(p[key]||''):(p[key]||'');});
     setHrPhoto(data.photo_data||'');
     const rel=document.getElementById('hrRelatives');rel.innerHTML='';
     const relatives=Array.isArray(p.relatives)?p.relatives:[];
@@ -3368,7 +3369,15 @@ async function openEmployeeProfile(id){
 function collectEmployeeProfile(){
   const p={};
   Object.keys(HR_FIELD_IDS).forEach(function(key){const el=document.getElementById(HR_FIELD_IDS[key]);p[key]=el?el.value.trim():'';});
+  if(p.additional_phone){
+    if(!isValidPhone(p.additional_phone))throw new Error('Введите дополнительный телефон полностью: +7 (900) 900-90-90');
+    p.additional_phone=formatPhoneValue(p.additional_phone);
+  }
   p.relatives=collectHrRelatives();
+  p.relatives.forEach(function(row){
+    if(row.phone&&!isValidPhone(row.phone))throw new Error('Введите телефон родственника / контакта полностью: +7 (900) 900-90-90');
+    if(row.phone)row.phone=formatPhoneValue(row.phone);
+  });
   return p;
 }
 async function saveEmployeeProfile(){
@@ -3455,7 +3464,7 @@ function editEmp(id) {
 
 async function saveEmp() {
   const empPhone=document.getElementById('empPhone').value.trim();
-  if(empPhone && !isValidPhone(empPhone)){alert('Введите телефон полностью в формате 7 (900) 900-90-90');return;}
+  if(empPhone && !isValidPhone(empPhone)){alert('Введите телефон полностью в формате +7 (900) 900-90-90');return;}
   const data = {
     fio: document.getElementById('empFio').value,
     organization: document.getElementById('empOrg').value,
@@ -3505,7 +3514,7 @@ async function exportEmployeesExcel() {
   if(!(await ensureSensitiveReauth()))return;
   const ws = XLSX.utils.json_to_sheet(employees.map(e => ({
     'ФИО': safeSpreadsheetText(e.fio||''), 'Организация': safeSpreadsheetText(e.organization||''), 'Должность': safeSpreadsheetText(e.position||''),
-    'Телефон': safeSpreadsheetText(e.phone||''), 'Дата рождения': safeSpreadsheetText(e.birth_date||''), 'Статус': e.employment_status==='dismissed'?'Уволен':'Работает', 'Комментарии': safeSpreadsheetText(e.comments||'')
+    'Телефон': safeSpreadsheetText(formatPhoneValue(e.phone||'')), 'Дата рождения': safeSpreadsheetText(e.birth_date||''), 'Статус': e.employment_status==='dismissed'?'Уволен':'Работает', 'Комментарии': safeSpreadsheetText(e.comments||'')
   })));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Сотрудники');
@@ -3694,7 +3703,7 @@ function setOrganizationForm(data){
   const source=data||{};
   Object.keys(organizationFieldMap).forEach(function(key){
     const el=document.getElementById(organizationFieldMap[key]);
-    if(el)el.value=source[key]||'';
+    if(el)el.value=key==='phone'?formatPhoneValue(source[key]||''):(source[key]||'');
   });
 }
 function getOrganizationForm(){
@@ -3709,7 +3718,7 @@ function getOrganizationForm(){
 function organizationContactHtml(o){
   const rows=[];
   if(o.director_fio)rows.push('<div><b>Руководитель:</b> '+escapeHtml(o.director_fio)+'</div>');
-  if(o.phone)rows.push('<div>'+escapeHtml(o.phone)+'</div>');
+  if(o.phone)rows.push('<div>'+escapeHtml(formatPhoneValue(o.phone))+'</div>');
   if(o.email)rows.push('<div>'+escapeHtml(o.email)+'</div>');
   if(o.website)rows.push('<div>'+escapeHtml(o.website)+'</div>');
   if(o.contacts)rows.push('<div style="color:#667085">'+escapeHtml(o.contacts)+'</div>');
@@ -3757,6 +3766,8 @@ async function saveOrg() {
   if(data.inn&&!/^(?:\d{10}|\d{12})$/.test(data.inn)){toast('ИНН должен содержать 10 или 12 цифр','error');return;}
   if(data.kpp&&!/^\d{9}$/.test(data.kpp)){toast('КПП должен содержать 9 цифр','error');return;}
   if(data.ogrn&&!/^(?:\d{13}|\d{15})$/.test(data.ogrn)){toast('ОГРН/ОГРНИП должен содержать 13 или 15 цифр','error');return;}
+  if(data.phone&&!isValidPhone(data.phone)){toast('Введите телефон организации полностью: +7 (900) 900-90-90','error');return;}
+  if(data.phone)data.phone=formatPhoneValue(data.phone);
   if(data.bik&&!/^\d{9}$/.test(data.bik)){toast('БИК должен содержать 9 цифр','error');return;}
   if(data.settlement_account&&!/^\d{20}$/.test(data.settlement_account)){toast('Расчётный счёт должен содержать 20 цифр','error');return;}
   if(data.correspondent_account&&!/^\d{20}$/.test(data.correspondent_account)){toast('Корреспондентский счёт должен содержать 20 цифр','error');return;}
@@ -3840,7 +3851,7 @@ function renderUsers() {
     if(!isAdmin&&can('users.customize'))actions.push('<button class="btn btn-gray btn-sm" onclick="showAccessModal('+Number(u.id)+')">Изменить доступ</button>');
     if(!isAdmin&&currentUser.role==='Руководитель сайта')actions.push('<button class="btn btn-gray btn-sm" onclick="showUserOrganizationModal('+Number(u.id)+')">Организация</button>');
     if(!isAdmin&&currentUser.role==='Руководитель сайта'&&Number(u.id)!==Number(currentUser.id))actions.push('<button class="btn btn-red btn-sm" onclick="deleteUserAccount('+Number(u.id)+')">Удалить</button>');
-    return '<tr><td>' + escapeHtml(u.fio||'') + '</td><td>' + escapeHtml(u.login||'') + '</td><td>'+emailHtml+'</td><td>' + escapeHtml(u.phone||'') + '</td><td>' + roleBadge + '</td><td>' + orgHtml + '</td><td>'+formatLastLogin(u)+'</td><td><div style="display:flex;gap:5px;flex-wrap:wrap">'+(actions.join('')||'—')+'</div></td></tr>';
+    return '<tr><td>' + escapeHtml(u.fio||'') + '</td><td>' + escapeHtml(u.login||'') + '</td><td>'+emailHtml+'</td><td>' + escapeHtml(formatPhoneValue(u.phone||'')) + '</td><td>' + roleBadge + '</td><td>' + orgHtml + '</td><td>'+formatLastLogin(u)+'</td><td><div style="display:flex;gap:5px;flex-wrap:wrap">'+(actions.join('')||'—')+'</div></td></tr>';
   }).join('');
 }
 function fillRoleOptions(selected){
@@ -4008,7 +4019,7 @@ function renderCounterparties(){
     return '<tr><td><span class="counterparty-type">'+escapeHtml(counterpartyTypeLabel(x.counterparty_type))+'</span></td><td><b>'+escapeHtml(x.name||'')+'</b><div style="font-size:11px;color:#667085">'+escapeHtml(x.full_name||'')+'</div></td>'+
       '<td>'+escapeHtml(x.inn||'')+(x.kpp?'<div style="font-size:11px;color:#667085">КПП '+escapeHtml(x.kpp)+'</div>':'')+'</td>'+
       '<td>'+escapeHtml(x.director_fio||'')+(x.contact_person?'<div style="font-size:11px;color:#667085">'+escapeHtml(x.contact_person)+'</div>':'')+'</td>'+
-      '<td>'+escapeHtml(x.phone||'')+(x.email?'<div style="font-size:11px;color:#667085">'+escapeHtml(x.email)+'</div>':'')+'</td>'+
+      '<td>'+escapeHtml(formatPhoneValue(x.phone||''))+(x.email?'<div style="font-size:11px;color:#667085">'+escapeHtml(x.email)+'</div>':'')+'</td>'+
       '<td>'+escapeHtml(x.bank_name||'')+(x.settlement_account?'<div style="font-size:11px;color:#667085">'+escapeHtml(x.settlement_account)+'</div>':'')+'</td><td>'+actions+'</td></tr>';
   }).join('');
 }
@@ -4026,7 +4037,7 @@ function openCounterpartyModal(id){
   const values={
     counterpartyType:x&&x.counterparty_type||'both',counterpartyName:x&&x.name||'',counterpartyFullName:x&&x.full_name||'',counterpartyInn:x&&x.inn||'',
     counterpartyKpp:x&&x.kpp||'',counterpartyOgrn:x&&x.ogrn||'',counterpartyDirector:x&&x.director_fio||'',counterpartyLegalAddress:x&&x.legal_address||'',
-    counterpartyPostalAddress:x&&x.postal_address||'',counterpartyContact:x&&x.contact_person||'',counterpartyPhone:x&&x.phone||'',counterpartyEmail:x&&x.email||'',
+    counterpartyPostalAddress:x&&x.postal_address||'',counterpartyContact:x&&x.contact_person||'',counterpartyPhone:formatPhoneValue(x&&x.phone||''),counterpartyEmail:x&&x.email||'',
     counterpartyWebsite:x&&x.website||'',counterpartyBank:x&&x.bank_name||'',counterpartyBik:x&&x.bik||'',counterpartySettlement:x&&x.settlement_account||'',
     counterpartyCorrespondent:x&&x.correspondent_account||'',counterpartyComments:x&&x.comments||''
   };
@@ -4048,7 +4059,7 @@ function counterpartyFormPayload(){
 async function saveCounterparty(){
   if(!can('counterparties.manage'))return;
   try{
-    const payload=counterpartyFormPayload();if(!payload.organization)throw new Error('Выберите организацию');if(!payload.name)throw new Error('Укажите наименование');
+    const payload=counterpartyFormPayload();if(!payload.organization)throw new Error('Выберите организацию');if(!payload.name)throw new Error('Укажите наименование');if(payload.phone&&!isValidPhone(payload.phone))throw new Error('Введите телефон контрагента полностью: +7 (900) 900-90-90');if(payload.phone)payload.phone=formatPhoneValue(payload.phone);
     if(editingCounterpartyId)await api('/api/counterparties/'+editingCounterpartyId,'PUT',payload);else await api('/api/counterparties','POST',payload);
     counterparties=await api('/api/counterparties');closeModal('counterpartyModal');editingCounterpartyId=null;renderCounterparties();toast('Контрагент сохранён');
   }catch(e){toast(e.message,'error');}
