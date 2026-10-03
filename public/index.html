@@ -4152,7 +4152,7 @@ function exportDealsExcel(){
   });
   const ws=XLSX.utils.aoa_to_sheet(rows);
   ws['!merges']=[
-    XLSX.utils.decode_range('C1:AD1'),XLSX.utils.decode_range('A2:A3'),XLSX.utils.decode_range('B2:B3'),XLSX.utils.decode_range('C2:C3'),XLSX.utils.decode_range('D2:D3'),
+    XLSX.utils.decode_range('C1:G1'),XLSX.utils.decode_range('A2:A3'),XLSX.utils.decode_range('B2:B3'),XLSX.utils.decode_range('C2:C3'),XLSX.utils.decode_range('D2:D3'),
     XLSX.utils.decode_range('E2:G2'),XLSX.utils.decode_range('H2:J2'),XLSX.utils.decode_range('K2:K3'),XLSX.utils.decode_range('L2:L3'),XLSX.utils.decode_range('M2:M3'),
     XLSX.utils.decode_range('N2:P2'),XLSX.utils.decode_range('Q2:S2'),XLSX.utils.decode_range('T2:W2'),XLSX.utils.decode_range('X2:X3'),XLSX.utils.decode_range('Y2:AA2'),
     XLSX.utils.decode_range('AB2:AB3'),XLSX.utils.decode_range('AC2:AC3'),XLSX.utils.decode_range('AD2:AD3')
@@ -4188,8 +4188,8 @@ function dealStatusFromSheet(ws,row,explicit){
 function parseDealsWorkbook(book){
   const ws=book.Sheets[book.SheetNames[0]],rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''}),starts=[];
   for(let i=0;i<rows.length;i++){
-    const n=dealSheetNumber(rows[i]&&rows[i][0]);
-    if(n>0&&String(rows[i]&&rows[i][1]||'').trim())starts.push(i);
+    const no=String(rows[i]&&rows[i][0]||'').trim(),customer=String(rows[i]&&rows[i][1]||'').trim();
+    if(no&&customer&&no.toLocaleLowerCase('ru-RU')!=='№ п/п')starts.push(i);
   }
   const out=[];
   starts.forEach(function(start,pos){
