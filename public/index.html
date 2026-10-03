@@ -1225,6 +1225,12 @@ button,input,select,textarea{max-width:100%}
     <div class="form-group"><label>БИК</label><input id="counterpartyBik" maxlength="20"></div>
     <div class="form-group"><label>Расчётный счёт</label><input id="counterpartySettlement" maxlength="40"></div>
     <div class="form-group" style="grid-column:1/-1"><label>Корреспондентский счёт</label><input id="counterpartyCorrespondent" maxlength="40"></div>
+    <div class="form-group" id="counterpartyAttachmentsSection" style="grid-column:1/-1">
+      <label>Файлы и документы контрагента</label>
+      <div class="loan-file-help">Можно прикрепить договоры, карточки предприятия, уставные документы, доверенности, коммерческие предложения, акты и другие файлы. Допустимые форматы: PDF, JPG, PNG, WEBP, DOC, DOCX, XLS, XLSX, TXT, CSV. До 5 МБ на файл.</div>
+      <input type="file" id="counterpartyAttachmentFile" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv" onchange="handleCounterpartyAttachmentFiles(event)">
+      <div id="counterpartyAttachmentList" class="loan-attachments"></div>
+    </div>
     <div class="form-group" style="grid-column:1/-1"><label>Комментарий</label><textarea id="counterpartyComments" rows="3" maxlength="8000"></textarea></div>
   </div>
   <div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn btn-gray" type="button" onclick="closeModal('counterpartyModal')">Отмена</button><button class="btn btn-green" type="button" onclick="saveCounterparty()">Сохранить</button></div>
@@ -1289,6 +1295,8 @@ let dealPendingFiles = [];
 let quickDealEdit = null;
 let counterparties = [];
 let editingCounterpartyId = null;
+let counterpartyAttachments = [];
+let counterpartyPendingFiles = [];
 let counterpartyCreationContext = null;
 let objectCustomers = [];
 let loans = [];
@@ -4231,12 +4239,59 @@ function fillCounterpartyOrganizationSelect(selected){
   select.innerHTML=organizations.map(function(o){return '<option value="'+escapeHtml(o.name)+'">'+escapeHtml(o.name)+'</option>';}).join('');
   if(selected)select.value=selected;
 }
+function renderCounterpartyAttachments(){
+  const box=document.getElementById('counterpartyAttachmentList');if(!box)return;
+  const existing=counterpartyAttachments.map(function(a){
+    const del=can('counterparties.manage')?'<button class="btn btn-red btn-sm" type="button" onclick="deleteCounterpartyAttachment('+Number(a.id)+')">Удалить</button>':'';
+    return '<div class="loan-attachment-item"><div class="loan-attachment-main"><span>📎</span><div><div class="loan-attachment-name">'+escapeHtml(a.file_name||'Файл')+'</div><div class="loan-attachment-meta">'+loanFileSize(a.file_size)+(a.uploaded_by?' · '+escapeHtml(a.uploaded_by):'')+(a.created_at?' · '+escapeHtml(loanAttachmentDate(a.created_at)):'')+'</div></div></div><div class="loan-attachment-actions"><button class="btn btn-blue btn-sm" type="button" onclick="downloadCounterpartyAttachment('+Number(a.id)+')">Скачать</button>'+del+'</div></div>';
+  }).join('');
+  const pending=counterpartyPendingFiles.map(function(file,index){
+    return '<div class="loan-attachment-item loan-attachment-pending"><div class="loan-attachment-main"><span>⏳</span><div><div class="loan-attachment-name">'+escapeHtml(file.name)+'</div><div class="loan-attachment-meta">'+loanFileSize(file.size)+' · будет загружен после сохранения контрагента</div></div></div><div class="loan-attachment-actions"><button class="btn btn-gray btn-sm" type="button" onclick="removePendingCounterpartyAttachment('+index+')">Убрать</button></div></div>';
+  }).join('');
+  box.innerHTML=existing+pending||'<div style="font-size:12px;color:#777;padding:4px 0">Файлы пока не прикреплены.</div>';
+}
+async function loadCounterpartyAttachments(id){
+  counterpartyAttachments=[];renderCounterpartyAttachments();if(!id)return;
+  try{
+    const items=await api('/api/counterparties/'+Number(id)+'/attachments');
+    if(Number(editingCounterpartyId)===Number(id)){counterpartyAttachments=Array.isArray(items)?items:[];renderCounterpartyAttachments();}
+  }catch(e){toast('Не удалось загрузить документы контрагента: '+e.message,'error');}
+}
+function handleCounterpartyAttachmentFiles(event){
+  if(!can('counterparties.manage'))return;
+  const files=Array.from(event.target.files||[]),allowed=/\.(pdf|jpe?g|png|webp|docx?|xlsx?|txt|csv)$/i;
+  files.forEach(function(file){
+    if(!allowed.test(file.name)){toast('Формат файла не поддерживается: '+file.name,'error');return;}
+    if(file.size>5*1024*1024){toast('Файл больше 5 МБ: '+file.name,'error');return;}
+    if(file.size<=0){toast('Файл пустой: '+file.name,'error');return;}
+    const duplicate=counterpartyPendingFiles.some(function(x){return x.name===file.name&&x.size===file.size&&x.lastModified===file.lastModified;});
+    if(!duplicate)counterpartyPendingFiles.push(file);
+  });
+  event.target.value='';renderCounterpartyAttachments();
+}
+function removePendingCounterpartyAttachment(index){counterpartyPendingFiles.splice(Number(index),1);renderCounterpartyAttachments();}
+async function uploadCounterpartyAttachment(counterpartyId,file){
+  const data=await readLoanFileBase64(file);
+  return api('/api/counterparties/'+Number(counterpartyId)+'/attachments','POST',{file_name:file.name,mime_type:file.type||'',data_base64:data});
+}
+function downloadCounterpartyAttachment(id){
+  if(!editingCounterpartyId)return;
+  const a=document.createElement('a');a.href='/api/counterparties/'+Number(editingCounterpartyId)+'/attachments/'+Number(id)+'/download';a.style.display='none';document.body.appendChild(a);a.click();a.remove();
+}
+async function deleteCounterpartyAttachment(id){
+  if(!editingCounterpartyId||!can('counterparties.manage')||!confirm('Удалить прикреплённый файл контрагента?'))return;
+  try{await api('/api/counterparties/'+Number(editingCounterpartyId)+'/attachments/'+Number(id),'DELETE');await loadCounterpartyAttachments(editingCounterpartyId);toast('Файл удалён');}
+  catch(e){toast(e.message,'error');}
+}
 function openCounterpartyModal(id,context){
   const objectMode=context==='object';
   if(objectMode&&!can('objects.manage'))return;
   if(!objectMode&&!can('counterparties.manage'))return;
   counterpartyCreationContext=objectMode?'object':null;
   const x=id?counterparties.find(function(r){return Number(r.id)===Number(id);}):null;editingCounterpartyId=x?Number(x.id):null;
+  counterpartyAttachments=[];counterpartyPendingFiles=[];const cpFileInput=document.getElementById('counterpartyAttachmentFile');if(cpFileInput)cpFileInput.value='';
+  const cpAttachmentsSection=document.getElementById('counterpartyAttachmentsSection');if(cpAttachmentsSection)cpAttachmentsSection.style.display=objectMode?'none':'';
+  renderCounterpartyAttachments();
   document.getElementById('counterpartyModalTitle').textContent=objectMode?'Новый заказчик':(x?'Карточка контрагента':'Новый контрагент');
   const siteWide=dealIsSiteWide(),org=objectMode?document.getElementById('objOrg').value:(x&&x.organization||'');
   document.getElementById('counterpartyOrganizationRow').style.display=siteWide?'':'none';if(siteWide)fillCounterpartyOrganizationSelect(org);
@@ -4246,6 +4301,7 @@ function openCounterpartyModal(id,context){
   const contacts=document.getElementById('counterpartyContacts');contacts.innerHTML='';
   const list=x?counterpartyContacts(x):[];(list.length?list:[{}]).forEach(addCounterpartyContact);
   document.getElementById('counterpartyModal').classList.add('show');
+  if(x&&!objectMode)loadCounterpartyAttachments(x.id);
 }
 function counterpartyFormPayload(){
   return {organization:dealIsSiteWide()?document.getElementById('counterpartyOrganization').value:(currentUser.organization||''),counterparty_type:document.getElementById('counterpartyType').value,
@@ -4264,10 +4320,22 @@ async function saveCounterparty(){
     if(objectMode)saved=await api('/api/object-customers','POST',payload);
     else if(editingCounterpartyId)saved=await api('/api/counterparties/'+editingCounterpartyId,'PUT',payload);
     else saved=await api('/api/counterparties','POST',payload);
+
+    if(objectMode){
+      if(can('accounting.view'))counterparties=await api('/api/counterparties');
+      closeModal('counterpartyModal');editingCounterpartyId=null;counterpartyCreationContext=null;document.getElementById('counterpartyType').disabled=false;
+      await loadObjectCustomers(saved.name||payload.name);document.getElementById('objModal').classList.add('show');toast('Заказчик создан и выбран');return;
+    }
+
+    editingCounterpartyId=Number(saved&&saved.id||editingCounterpartyId);document.getElementById('counterpartyModalTitle').textContent='Карточка контрагента';
+    const pending=counterpartyPendingFiles.slice(),failed=[];
+    for(const file of pending){try{await uploadCounterpartyAttachment(editingCounterpartyId,file);}catch(e){failed.push(file);toast('Не загружен '+file.name+': '+e.message,'error');}}
+    counterpartyPendingFiles=failed;
     if(can('accounting.view'))counterparties=await api('/api/counterparties');
-    closeModal('counterpartyModal');editingCounterpartyId=null;counterpartyCreationContext=null;document.getElementById('counterpartyType').disabled=false;
-    if(objectMode){await loadObjectCustomers(saved.name||payload.name);document.getElementById('objModal').classList.add('show');toast('Заказчик создан и выбран');}
-    else{renderCounterparties();toast('Контрагент сохранён');}
+    renderCounterparties();await loadCounterpartyAttachments(editingCounterpartyId);
+    if(failed.length){toast('Контрагент сохранён. Часть файлов не загрузилась — повторите сохранение.','error');return;}
+    closeModal('counterpartyModal');editingCounterpartyId=null;counterpartyCreationContext=null;counterpartyAttachments=[];counterpartyPendingFiles=[];document.getElementById('counterpartyType').disabled=false;
+    toast(pending.length?'Контрагент и файлы сохранены':'Контрагент сохранён');
   }catch(e){toast(e.message,'error');}
 }
 async function deleteCounterparty(id){
