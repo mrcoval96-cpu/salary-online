@@ -3704,24 +3704,52 @@ function fillObjectOrganizationOptions(selected){
   if(wanted)select.value=wanted;
   select.disabled=!siteManager;
 }
-function showObjModal(){
+async function loadObjectCustomers(selected){
+  const org=String(document.getElementById('objOrg')&&document.getElementById('objOrg').value||'').trim();
+  objectCustomers=[];
+  if(org&&can('objects.view')){
+    try{objectCustomers=await api('/api/object-customers?organization='+encodeURIComponent(org));}catch(e){toast(e.message,'error');}
+  }
+  fillObjectCustomerOptions(selected||'');
+}
+function fillObjectCustomerOptions(selected){
+  const select=document.getElementById('objCust'),hint=document.getElementById('objCustomerHint');if(!select)return;
+  const names=new Set(objectCustomers.map(function(x){return String(x.name||'').trim().toLocaleLowerCase('ru-RU');}));
+  let html='<option value="">— Выберите контрагента —</option>'+objectCustomers.map(function(x){return '<option value="'+escapeHtml(x.name||'')+'">'+escapeHtml(x.name||'')+(x.inn?' · ИНН '+escapeHtml(x.inn):'')+'</option>';}).join('');
+  const legacy=String(selected||'').trim()&&!names.has(String(selected||'').trim().toLocaleLowerCase('ru-RU'));
+  if(legacy)html+='<option value="'+escapeHtml(selected)+'">⚠ Переходное значение: '+escapeHtml(selected)+'</option>';
+  select.innerHTML=html;if(selected)select.value=selected;
+  if(hint)hint.textContent=legacy?'Этот заказчик пока не связан со справочником контрагентов. Его можно оставить без изменений или заменить позже.':'Заказчики загружаются из «Бухгалтерия → Контрагенты».';
+}
+async function onObjectOrganizationChange(){
+  renderResponsiblePicker([]);
+  await loadObjectCustomers('');
+}
+async function showObjModal(){
   editingObjId=null;
-  ['objName','objAddr','objCust','objRespSearch'].forEach(function(id){document.getElementById(id).value='';});
+  ['objName','objAddr','objRespSearch'].forEach(function(id){document.getElementById(id).value='';});
   fillObjectOrganizationOptions('');
   renderResponsiblePicker([]);
+  await loadObjectCustomers('');
   document.getElementById('objModal').classList.add('show');
 }
-function editObj(id){
-  const o=objects.find(function(x){return x.id===id;}); if(!o)return;
-  editingObjId=id;
+async function editObj(id){
+  const o=objects.find(function(x){return Number(x.id)===Number(id);}); if(!o)return;
+  editingObjId=Number(id);
   document.getElementById('objName').value=o.name||'';
   document.getElementById('objAddr').value=o.address||'';
-  document.getElementById('objCust').value=o.customer||'';
   fillObjectOrganizationOptions(o.organization||'');
+  await loadObjectCustomers(o.customer||'');
   document.getElementById('objRespSearch').value='';
   const ids=Array.isArray(o.responsibles)?o.responsibles.map(function(r){return Number(r.id);}).filter(function(id){return Number.isInteger(id);}):[];
   renderResponsiblePicker(ids);
   document.getElementById('objModal').classList.add('show');
+}
+function openObjectCustomerCreate(){
+  if(!can('objects.manage'))return;
+  const org=String(document.getElementById('objOrg').value||'').trim();
+  if(!org){toast('Сначала выберите организацию объекта','error');return;}
+  openCounterpartyModal(null,'object');
 }
 async function saveObj(){
   const data={name:document.getElementById('objName').value,address:document.getElementById('objAddr').value,customer:document.getElementById('objCust').value,organization:document.getElementById('objOrg').value,responsible_ids:selectedResponsibleIds()};
@@ -4053,65 +4081,132 @@ async function showSecurityLog(){
 // === COUNTERPARTIES ===
 const COUNTERPARTY_TYPE_LABELS={customer:'Заказчик',supplier:'Поставщик / подрядчик',both:'Заказчик и поставщик',other:'Прочее'};
 function counterpartyTypeLabel(value){return COUNTERPARTY_TYPE_LABELS[value]||COUNTERPARTY_TYPE_LABELS.other;}
+function counterpartyContacts(value){
+  const rows=parseJsonArray(value&&value.contact_people);
+  if(rows.length)return rows;
+  if(value&&(value.contact_person||value.phone||value.email))return [{name:value.contact_person||'',position:'',phone:value.phone||'',email:value.email||''}];
+  return [];
+}
+function counterpartyContactSummary(x){
+  const rows=counterpartyContacts(x);
+  if(!rows.length)return '—';
+  return rows.slice(0,2).map(function(r){return '<div><b>'+escapeHtml(r.name||'Контакт')+'</b>'+(r.position?' · '+escapeHtml(r.position):'')+(r.phone?'<div style="font-size:11px">'+escapeHtml(formatPhoneValue(r.phone))+'</div>':'')+(r.email?'<div style="font-size:11px;color:#667085">'+escapeHtml(r.email)+'</div>':'')+'</div>';}).join('')+(rows.length>2?'<div style="font-size:11px;color:#667085">Ещё: '+(rows.length-2)+'</div>':'');
+}
 function renderCounterparties(){
   const body=document.getElementById('counterpartiesBody');if(!body)return;
   const q=String(document.getElementById('counterpartySearch')&&document.getElementById('counterpartySearch').value||'').trim().toLocaleLowerCase('ru-RU');
-  const rows=counterparties.filter(function(x){return !q||[x.name,x.full_name,x.inn,x.kpp,x.director_fio,x.contact_person,x.phone,x.email].join(' ').toLocaleLowerCase('ru-RU').includes(q);});
+  const rows=counterparties.filter(function(x){
+    const contacts=counterpartyContacts(x).map(function(r){return [r.name,r.position,r.phone,r.email].join(' ');}).join(' ');
+    return !q||[x.name,x.full_name,x.inn,x.kpp,x.director_fio,contacts].join(' ').toLocaleLowerCase('ru-RU').includes(q);
+  });
   if(!rows.length){body.innerHTML='<tr><td colspan="7" style="text-align:center;color:#777;padding:24px">Контрагентов пока нет.</td></tr>';return;}
   body.innerHTML=rows.map(function(x){
     const actions=can('counterparties.manage')?'<button class="btn btn-blue btn-sm" onclick="openCounterpartyModal('+Number(x.id)+')">Изменить</button> <button class="btn btn-red btn-sm" onclick="deleteCounterparty('+Number(x.id)+')">Удалить</button>':'';
     return '<tr><td><span class="counterparty-type">'+escapeHtml(counterpartyTypeLabel(x.counterparty_type))+'</span></td><td><b>'+escapeHtml(x.name||'')+'</b><div style="font-size:11px;color:#667085">'+escapeHtml(x.full_name||'')+'</div></td>'+
       '<td>'+escapeHtml(x.inn||'')+(x.kpp?'<div style="font-size:11px;color:#667085">КПП '+escapeHtml(x.kpp)+'</div>':'')+'</td>'+
-      '<td>'+escapeHtml(x.director_fio||'')+(x.contact_person?'<div style="font-size:11px;color:#667085">'+escapeHtml(x.contact_person)+'</div>':'')+'</td>'+
-      '<td>'+escapeHtml(formatPhoneValue(x.phone||''))+(x.email?'<div style="font-size:11px;color:#667085">'+escapeHtml(x.email)+'</div>':'')+'</td>'+
+      '<td>'+escapeHtml(x.director_fio||'')+'</td><td>'+counterpartyContactSummary(x)+'</td>'+
       '<td>'+escapeHtml(x.bank_name||'')+(x.settlement_account?'<div style="font-size:11px;color:#667085">'+escapeHtml(x.settlement_account)+'</div>':'')+'</td><td>'+actions+'</td></tr>';
   }).join('');
+}
+function addCounterpartyContact(value){
+  value=value||{};const box=document.getElementById('counterpartyContacts');if(!box)return;
+  const row=document.createElement('div');row.className='counterparty-contact-row';
+  row.innerHTML='<div class="form-group"><label>ФИО</label><input class="cp-contact-name" maxlength="500" value="'+escapeHtml(value.name||'')+'"></div>'+
+    '<div class="form-group"><label>Должность</label><input class="cp-contact-position" maxlength="500" value="'+escapeHtml(value.position||'')+'"></div>'+
+    '<div class="form-group"><label>Телефон</label><input type="tel" class="cp-contact-phone phone-input" maxlength="18" placeholder="+7 (900) 900-90-90" oninput="formatPhoneInput(this)" value="'+escapeHtml(formatPhoneValue(value.phone||''))+'"></div>'+
+    '<div class="form-group"><label>Email</label><input type="email" class="cp-contact-email" maxlength="500" value="'+escapeHtml(value.email||'')+'"></div>'+
+    '<button class="btn btn-red btn-sm" type="button" onclick="this.closest(\'.counterparty-contact-row\').remove()">×</button>';
+  box.appendChild(row);
+}
+function readCounterpartyContacts(){
+  return Array.from(document.querySelectorAll('#counterpartyContacts .counterparty-contact-row')).map(function(row){
+    const phone=row.querySelector('.cp-contact-phone').value.trim(),email=row.querySelector('.cp-contact-email').value.trim();
+    if(phone&&!isValidPhone(phone))throw new Error('Введите телефон контактного лица полностью: +7 (900) 900-90-90');
+    return {name:row.querySelector('.cp-contact-name').value.trim(),position:row.querySelector('.cp-contact-position').value.trim(),phone:phone?formatPhoneValue(phone):'',email};
+  }).filter(function(x){return x.name||x.position||x.phone||x.email;});
 }
 function fillCounterpartyOrganizationSelect(selected){
   const select=document.getElementById('counterpartyOrganization');if(!select)return;
   select.innerHTML=organizations.map(function(o){return '<option value="'+escapeHtml(o.name)+'">'+escapeHtml(o.name)+'</option>';}).join('');
   if(selected)select.value=selected;
 }
-function openCounterpartyModal(id){
-  if(!can('counterparties.manage'))return;
+function openCounterpartyModal(id,context){
+  const objectMode=context==='object';
+  if(objectMode&&!can('objects.manage'))return;
+  if(!objectMode&&!can('counterparties.manage'))return;
+  counterpartyCreationContext=objectMode?'object':null;
   const x=id?counterparties.find(function(r){return Number(r.id)===Number(id);}):null;editingCounterpartyId=x?Number(x.id):null;
-  document.getElementById('counterpartyModalTitle').textContent=x?'Карточка контрагента':'Новый контрагент';
-  const siteWide=dealIsSiteWide();document.getElementById('counterpartyOrganizationRow').style.display=siteWide?'':'none';
-  if(siteWide)fillCounterpartyOrganizationSelect(x&&x.organization||'');
-  const values={
-    counterpartyType:x&&x.counterparty_type||'both',counterpartyName:x&&x.name||'',counterpartyFullName:x&&x.full_name||'',counterpartyInn:x&&x.inn||'',
-    counterpartyKpp:x&&x.kpp||'',counterpartyOgrn:x&&x.ogrn||'',counterpartyDirector:x&&x.director_fio||'',counterpartyLegalAddress:x&&x.legal_address||'',
-    counterpartyPostalAddress:x&&x.postal_address||'',counterpartyContact:x&&x.contact_person||'',counterpartyPhone:formatPhoneValue(x&&x.phone||''),counterpartyEmail:x&&x.email||'',
-    counterpartyWebsite:x&&x.website||'',counterpartyBank:x&&x.bank_name||'',counterpartyBik:x&&x.bik||'',counterpartySettlement:x&&x.settlement_account||'',
-    counterpartyCorrespondent:x&&x.correspondent_account||'',counterpartyComments:x&&x.comments||''
-  };
+  document.getElementById('counterpartyModalTitle').textContent=objectMode?'Новый заказчик':(x?'Карточка контрагента':'Новый контрагент');
+  const siteWide=dealIsSiteWide(),org=objectMode?document.getElementById('objOrg').value:(x&&x.organization||'');
+  document.getElementById('counterpartyOrganizationRow').style.display=siteWide?'':'none';if(siteWide)fillCounterpartyOrganizationSelect(org);
+  const values={counterpartyType:objectMode?'customer':(x&&x.counterparty_type||'both'),counterpartyName:x&&x.name||'',counterpartyFullName:x&&x.full_name||'',counterpartyInn:x&&x.inn||'',counterpartyKpp:x&&x.kpp||'',counterpartyOgrn:x&&x.ogrn||'',counterpartyDirector:x&&x.director_fio||'',counterpartyLegalAddress:x&&x.legal_address||'',counterpartyPostalAddress:x&&x.postal_address||'',counterpartyWebsite:x&&x.website||'',counterpartyBank:x&&x.bank_name||'',counterpartyBik:x&&x.bik||'',counterpartySettlement:x&&x.settlement_account||'',counterpartyCorrespondent:x&&x.correspondent_account||'',counterpartyComments:x&&x.comments||''};
   Object.keys(values).forEach(function(id){const el=document.getElementById(id);if(el)el.value=values[id];});
+  document.getElementById('counterpartyType').disabled=objectMode;
+  const contacts=document.getElementById('counterpartyContacts');contacts.innerHTML='';
+  const list=x?counterpartyContacts(x):[];(list.length?list:[{}]).forEach(addCounterpartyContact);
   document.getElementById('counterpartyModal').classList.add('show');
 }
 function counterpartyFormPayload(){
-  return {
-    organization:dealIsSiteWide()?document.getElementById('counterpartyOrganization').value:(currentUser.organization||''),
-    counterparty_type:document.getElementById('counterpartyType').value,name:document.getElementById('counterpartyName').value.trim(),
-    full_name:document.getElementById('counterpartyFullName').value.trim(),inn:document.getElementById('counterpartyInn').value.trim(),kpp:document.getElementById('counterpartyKpp').value.trim(),
-    ogrn:document.getElementById('counterpartyOgrn').value.trim(),legal_address:document.getElementById('counterpartyLegalAddress').value.trim(),postal_address:document.getElementById('counterpartyPostalAddress').value.trim(),
-    director_fio:document.getElementById('counterpartyDirector').value.trim(),contact_person:document.getElementById('counterpartyContact').value.trim(),phone:document.getElementById('counterpartyPhone').value.trim(),
-    email:document.getElementById('counterpartyEmail').value.trim(),website:document.getElementById('counterpartyWebsite').value.trim(),bank_name:document.getElementById('counterpartyBank').value.trim(),
-    bik:document.getElementById('counterpartyBik').value.trim(),settlement_account:document.getElementById('counterpartySettlement').value.trim(),correspondent_account:document.getElementById('counterpartyCorrespondent').value.trim(),
-    comments:document.getElementById('counterpartyComments').value.trim()
-  };
+  return {organization:dealIsSiteWide()?document.getElementById('counterpartyOrganization').value:(currentUser.organization||''),counterparty_type:document.getElementById('counterpartyType').value,
+    name:document.getElementById('counterpartyName').value.trim(),full_name:document.getElementById('counterpartyFullName').value.trim(),inn:document.getElementById('counterpartyInn').value.trim(),kpp:document.getElementById('counterpartyKpp').value.trim(),ogrn:document.getElementById('counterpartyOgrn').value.trim(),
+    legal_address:document.getElementById('counterpartyLegalAddress').value.trim(),postal_address:document.getElementById('counterpartyPostalAddress').value.trim(),director_fio:document.getElementById('counterpartyDirector').value.trim(),contact_people:readCounterpartyContacts(),
+    website:document.getElementById('counterpartyWebsite').value.trim(),bank_name:document.getElementById('counterpartyBank').value.trim(),bik:document.getElementById('counterpartyBik').value.trim(),settlement_account:document.getElementById('counterpartySettlement').value.trim(),correspondent_account:document.getElementById('counterpartyCorrespondent').value.trim(),comments:document.getElementById('counterpartyComments').value.trim()};
 }
 async function saveCounterparty(){
-  if(!can('counterparties.manage'))return;
+  const objectMode=counterpartyCreationContext==='object';
+  if(objectMode&&!can('objects.manage'))return;if(!objectMode&&!can('counterparties.manage'))return;
   try{
-    const payload=counterpartyFormPayload();if(!payload.organization)throw new Error('Выберите организацию');if(!payload.name)throw new Error('Укажите наименование');if(payload.phone&&!isValidPhone(payload.phone))throw new Error('Введите телефон контрагента полностью: +7 (900) 900-90-90');if(payload.phone)payload.phone=formatPhoneValue(payload.phone);
-    if(editingCounterpartyId)await api('/api/counterparties/'+editingCounterpartyId,'PUT',payload);else await api('/api/counterparties','POST',payload);
-    counterparties=await api('/api/counterparties');closeModal('counterpartyModal');editingCounterpartyId=null;renderCounterparties();toast('Контрагент сохранён');
+    const payload=counterpartyFormPayload();
+    if(objectMode){payload.organization=document.getElementById('objOrg').value;payload.counterparty_type='customer';}
+    if(!payload.organization)throw new Error('Выберите организацию');if(!payload.name)throw new Error('Укажите наименование');
+    let saved;
+    if(objectMode)saved=await api('/api/object-customers','POST',payload);
+    else if(editingCounterpartyId)saved=await api('/api/counterparties/'+editingCounterpartyId,'PUT',payload);
+    else saved=await api('/api/counterparties','POST',payload);
+    if(can('accounting.view'))counterparties=await api('/api/counterparties');
+    closeModal('counterpartyModal');editingCounterpartyId=null;counterpartyCreationContext=null;document.getElementById('counterpartyType').disabled=false;
+    if(objectMode){await loadObjectCustomers(saved.name||payload.name);document.getElementById('objModal').classList.add('show');toast('Заказчик создан и выбран');}
+    else{renderCounterparties();toast('Контрагент сохранён');}
   }catch(e){toast(e.message,'error');}
 }
 async function deleteCounterparty(id){
   if(!can('counterparties.manage')||!confirm('Удалить контрагента?'))return;
   try{await api('/api/counterparties/'+Number(id),'DELETE');counterparties=await api('/api/counterparties');renderCounterparties();toast('Контрагент удалён');}catch(e){toast(e.message,'error');}
 }
+
+// === LOANS ===
+const LOAN_STATUS_LABELS={active:'Действует',overdue:'Просрочен',closed:'Погашен'};
+function loanRepayments(value){return parseJsonArray(value);}
+function loanMetrics(x){const repaid=loanRepayments(x.repayments).reduce(function(s,p){return s+Number(p.amount||0);},0),principal=Number(x.principal||0);return {repaid,outstanding:Math.max(0,principal-repaid)};}
+function renderLoans(){
+  const body=document.getElementById('loansBody');if(!body)return;
+  const q=String(document.getElementById('loanSearch')&&document.getElementById('loanSearch').value||'').trim().toLocaleLowerCase('ru-RU');
+  const rows=loans.filter(function(x){return !q||[x.lender_name,x.lender_inn,x.contract_no].join(' ').toLocaleLowerCase('ru-RU').includes(q);});
+  let principal=0,repaid=0,outstanding=0;rows.forEach(function(x){const m=loanMetrics(x);principal+=Number(x.principal||0);repaid+=m.repaid;outstanding+=m.outstanding;});
+  document.getElementById('loanSummaryPrincipal').textContent=formatMoney(principal)+' ₽';document.getElementById('loanSummaryRepaid').textContent=formatMoney(repaid)+' ₽';document.getElementById('loanSummaryOutstanding').textContent=formatMoney(outstanding)+' ₽';
+  if(!rows.length){body.innerHTML='<tr><td colspan="9" style="text-align:center;color:#777;padding:24px">Займов и кредитов пока нет.</td></tr>';return;}
+  body.innerHTML=rows.map(function(x){const m=loanMetrics(x),type=x.lender_type==='legal'?'Юр. лицо':'Физ. лицо',actions=can('loans.manage')?'<button class="btn btn-blue btn-sm" onclick="openLoanModal('+Number(x.id)+')">Изменить</button> <button class="btn btn-red btn-sm" onclick="deleteLoan('+Number(x.id)+')">Удалить</button>':'';
+    return '<tr><td><b>'+escapeHtml(x.lender_name||'')+'</b><div style="font-size:11px;color:#667085">'+type+(x.lender_inn?' · ИНН '+escapeHtml(x.lender_inn):'')+'</div></td><td>'+escapeHtml(x.contract_no||'—')+(x.contract_date?'<div style="font-size:11px">'+formatDateRu(x.contract_date)+'</div>':'')+'</td><td>'+formatMoney(x.principal)+' ₽</td><td>'+formatMoney(x.interest_rate)+' %</td><td>'+formatDateRu(x.due_date)+'</td><td>'+formatMoney(m.repaid)+' ₽</td><td><b>'+formatMoney(m.outstanding)+' ₽</b></td><td>'+escapeHtml(LOAN_STATUS_LABELS[x.status]||x.status||'')+'</td><td>'+actions+'</td></tr>';
+  }).join('');
+}
+function addLoanRepayment(value){
+  value=value||{};const box=document.getElementById('loanRepayments'),row=document.createElement('div');row.className='loan-repayment-row';
+  row.innerHTML='<div class="form-group"><label>Дата</label><input type="date" class="loan-repay-date" value="'+escapeHtml(String(value.date||'').slice(0,10))+'"></div><div class="form-group"><label>Сумма</label><input type="number" min="0" step="0.01" class="loan-repay-amount" value="'+escapeHtml(value.amount==null?'':value.amount)+'"></div><div class="form-group"><label>Комментарий</label><input class="loan-repay-comment" maxlength="1000" value="'+escapeHtml(value.comment||'')+'"></div><button class="btn btn-red btn-sm" type="button" onclick="this.closest(\'.loan-repayment-row\').remove()">×</button>';
+  box.appendChild(row);
+}
+function readLoanRepayments(){return Array.from(document.querySelectorAll('#loanRepayments .loan-repayment-row')).map(function(row){return {date:row.querySelector('.loan-repay-date').value,amount:Number(row.querySelector('.loan-repay-amount').value||0),comment:row.querySelector('.loan-repay-comment').value.trim()};}).filter(function(x){return x.date||x.amount||x.comment;});}
+function fillLoanOrganization(selected){const el=document.getElementById('loanOrganization');el.innerHTML=organizations.map(function(o){return '<option value="'+escapeHtml(o.name)+'">'+escapeHtml(o.name)+'</option>';}).join('');if(selected)el.value=selected;}
+function openLoanModal(id){
+  if(!can('loans.manage'))return;const x=id?loans.find(function(r){return Number(r.id)===Number(id);}):null;editingLoanId=x?Number(x.id):null;
+  document.getElementById('loanModalTitle').textContent=x?'Изменить займ / кредит':'Новый займ / кредит';const siteWide=dealIsSiteWide();document.getElementById('loanOrganizationRow').style.display=siteWide?'':'none';if(siteWide)fillLoanOrganization(x&&x.organization||'');
+  document.getElementById('loanLenderName').value=x&&x.lender_name||'';document.getElementById('loanLenderType').value=x&&x.lender_type||'individual';document.getElementById('loanLenderInn').value=x&&x.lender_inn||'';
+  document.getElementById('loanContractNo').value=x&&x.contract_no||'';document.getElementById('loanContractDate').value=x&&String(x.contract_date||'').slice(0,10)||'';document.getElementById('loanReceivedDate').value=x&&String(x.received_date||'').slice(0,10)||'';
+  document.getElementById('loanPrincipal').value=x?Number(x.principal||0):'';document.getElementById('loanInterestRate').value=x?Number(x.interest_rate||0):'';document.getElementById('loanDueDate').value=x&&String(x.due_date||'').slice(0,10)||'';document.getElementById('loanStatus').value=x&&x.status||'active';document.getElementById('loanComments').value=x&&x.comments||'';
+  const box=document.getElementById('loanRepayments');box.innerHTML='';const reps=x?loanRepayments(x.repayments):[];(reps.length?reps:[{}]).forEach(addLoanRepayment);document.getElementById('loanModal').classList.add('show');
+}
+function loanFormPayload(){return {organization:dealIsSiteWide()?document.getElementById('loanOrganization').value:(currentUser.organization||''),lender_type:document.getElementById('loanLenderType').value,lender_name:document.getElementById('loanLenderName').value.trim(),lender_inn:document.getElementById('loanLenderInn').value.trim(),contract_no:document.getElementById('loanContractNo').value.trim(),contract_date:document.getElementById('loanContractDate').value||null,received_date:document.getElementById('loanReceivedDate').value||null,principal:Number(document.getElementById('loanPrincipal').value||0),interest_rate:Number(document.getElementById('loanInterestRate').value||0),due_date:document.getElementById('loanDueDate').value||null,repayments:readLoanRepayments(),status:document.getElementById('loanStatus').value,comments:document.getElementById('loanComments').value.trim()};}
+async function saveLoan(){if(!can('loans.manage'))return;try{const data=loanFormPayload();if(!data.organization)throw new Error('Выберите организацию');if(!data.lender_name)throw new Error('Укажите займодавца');if(data.principal<=0)throw new Error('Сумма займа должна быть больше нуля');if(editingLoanId)await api('/api/loans/'+editingLoanId,'PUT',data);else await api('/api/loans','POST',data);loans=await api('/api/loans');closeModal('loanModal');editingLoanId=null;renderLoans();toast('Займ сохранён');}catch(e){toast(e.message,'error');}}
+async function deleteLoan(id){if(!can('loans.manage')||!confirm('Удалить займ / кредит?'))return;try{await api('/api/loans/'+Number(id),'DELETE');loans=await api('/api/loans');renderLoans();toast('Займ удалён');}catch(e){toast(e.message,'error');}}
 
 // === DEALS ===
 const DEAL_STATUS_LABELS={quiet:'Тишина',current:'Текущая работа',attention:'Обратить внимание',urgent:'Срочно разобраться',completed:'Завершено'};
