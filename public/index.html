@@ -505,9 +505,30 @@ button,input,select,textarea{max-width:100%}
 .compliance-list{display:grid;gap:8px;margin-top:10px}
 .compliance-item{border:1px solid #e4e7ec;border-radius:8px;padding:10px;background:#fff;font-size:12px}
 .compliance-item .meta{color:#667085;font-size:11px;margin-top:4px}
-.compliance-status-ok{color:#067647;font-weight:600}.compliance-status-warn{color:#b54708;font-weight:600}
-.compliance-table-wrap{overflow:auto;max-height:420px}
-@media(max-width:760px){.compliance-grid{grid-template-columns:1fr}}
+.compliance-status-ok{color:#067647;font-weight:600}.compliance-status-warn{color:#b54708;font-weight:600}.compliance-status-danger{color:#b42318;font-weight:700}
+.compliance-table-wrap{overflow:auto;max-height:520px}
+.pd-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:18px 20px;background:linear-gradient(135deg,#f8fbff,#eef6ff);border:1px solid #d9e8f7}
+.pd-hero h2{font-size:20px;margin:0 0 5px;color:#16213e}.pd-hero p{font-size:12px;color:#667085;max-width:780px;line-height:1.5;margin:0}
+.pd-overview{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0}
+.pd-kpi{border:1px solid #e4e7ec;border-radius:10px;background:#fff;padding:12px;text-align:left;cursor:pointer;transition:.16s;min-width:0}
+.pd-kpi:hover{border-color:#b8c8da;box-shadow:0 3px 10px rgba(15,52,96,.08)}.pd-kpi label{display:block;font-size:11px;color:#667085;margin-bottom:4px}.pd-kpi b{font-size:22px;color:#16213e}.pd-kpi small{display:block;font-size:10px;color:#667085;margin-top:3px;line-height:1.35}
+.pd-kpi.warn{background:#fffaeb;border-color:#fedf89}.pd-kpi.danger{background:#fff5f4;border-color:#fecdca}.pd-kpi.ok{background:#f0fdf4;border-color:#bbf7d0}
+.pd-attention{border:1px solid #e4e7ec;border-radius:10px;background:#fff;margin:0 0 12px;overflow:hidden}
+.pd-attention-head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 13px;background:#f8fafc;border-bottom:1px solid #e4e7ec}.pd-attention-head b{font-size:13px}.pd-attention-count{font-size:11px;color:#667085}
+.pd-attention-empty{padding:13px;color:#067647;font-size:12px;background:#f0fdf4}
+.pd-attention-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:10px 13px;border-bottom:1px solid #f0f1f3;font-size:12px}.pd-attention-row:last-child{border-bottom:0}.pd-attention-row button{flex:0 0 auto}.pd-attention-main b{display:block;color:#344054;margin-bottom:2px}.pd-attention-main span{color:#667085;font-size:11px}
+.pd-nav{display:flex;gap:7px;flex-wrap:wrap;margin:0 0 12px;position:sticky;top:0;z-index:5;background:#f5f6fa;padding:7px 0}
+.pd-nav button{border:1px solid #d0d5dd;background:#fff;color:#344054;border-radius:999px;padding:7px 11px;font-size:11px;cursor:pointer}.pd-nav button:hover{border-color:#0f3460;color:#0f3460}
+.pd-section-card{scroll-margin-top:70px}.pd-section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px}.pd-section-head h2{margin:0;font-size:17px}.pd-section-head p{font-size:11px;color:#667085;margin:4px 0 0;max-width:760px;line-height:1.45}
+.pd-toolbar{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin:8px 0 10px}.pd-toolbar input,.pd-toolbar select{width:auto;min-width:170px;font-size:12px}.pd-toolbar .grow{flex:1 1 240px}
+.pd-badge{display:inline-flex;align-items:center;padding:3px 7px;border-radius:999px;font-size:10px;font-weight:700;white-space:nowrap}.pd-badge.gray{background:#f2f4f7;color:#475467}.pd-badge.blue{background:#eaf2fb;color:#0f3460}.pd-badge.green{background:#dcfce7;color:#166534}.pd-badge.orange{background:#fffaeb;color:#b54708}.pd-badge.red{background:#fee4e2;color:#b42318}
+.pd-deadline{font-size:10px;font-weight:600}.pd-deadline.ok{color:#067647}.pd-deadline.warn{color:#b54708}.pd-deadline.danger{color:#b42318}
+.pd-status-summary{display:grid;grid-template-columns:minmax(180px,.7fr) minmax(0,2fr);gap:14px;align-items:start}.pd-readiness-score{border:1px solid #e4e7ec;border-radius:10px;padding:14px;background:#f8fafc}.pd-readiness-score b{font-size:30px;color:#16213e}.pd-progress{height:8px;border-radius:999px;background:#e4e7ec;overflow:hidden;margin-top:8px}.pd-progress>span{display:block;height:100%;background:#16a34a;border-radius:999px}.pd-checks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.pd-check{border:1px solid #e4e7ec;border-radius:8px;padding:9px;font-size:11px;background:#fff}.pd-check.ok{border-color:#bbf7d0;background:#f0fdf4}.pd-check.warn{border-color:#fedf89;background:#fffaeb}
+.pd-form-panel{padding:12px;border:1px dashed #cbd5e1;border-radius:9px;background:#f8fafc;margin:8px 0 12px}
+.pd-personal{border:1px solid #e4e7ec;border-radius:10px;background:#fff;margin:12px 0;overflow:hidden}.pd-personal>summary{cursor:pointer;list-style:none;padding:13px 15px;font-weight:700;color:#16213e;background:#f8fafc}.pd-personal>summary::-webkit-details-marker{display:none}.pd-personal-body{padding:14px}
+.pd-legal-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.pd-legal-card{display:block;border:1px solid #e4e7ec;border-radius:8px;padding:10px;text-decoration:none!important;color:#344054!important;background:#fff}.pd-legal-card:hover{border-color:#98a2b3}.pd-legal-card b{display:block;font-size:12px}.pd-legal-card span{display:block;font-size:10px;color:#667085;margin-top:4px}
+@media(max-width:980px){.pd-overview{grid-template-columns:repeat(2,minmax(0,1fr))}.pd-status-summary{grid-template-columns:1fr}.pd-legal-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.compliance-grid{grid-template-columns:1fr}.pd-overview,.pd-checks,.pd-legal-grid{grid-template-columns:1fr}.pd-hero{flex-direction:column}.pd-nav{position:static}.pd-toolbar input,.pd-toolbar select{width:100%;min-width:0}.pd-attention-row{flex-direction:column}}
 </style>
 </head>
 <!-- deploy-refresh: registry-retry-2026-10-01-0013 -->
@@ -986,112 +1007,168 @@ button,input,select,textarea{max-width:100%}
 
   <!-- TAB: COMPLIANCE -->
   <div id="tab-compliance" class="tab-content">
-    <div class="compliance-grid">
-      <div class="card">
-        <h2 style="margin-bottom:10px">Мои согласия</h2>
-        <p style="font-size:12px;color:#667085">Сервис хранит версию и SHA-256 текста, дату и техническое доказательство каждого юридического действия.</p>
-        <div id="myConsentsList" class="compliance-list"></div>
+    <div class="card pd-hero">
+      <div>
+        <h2>Центр персональных данных</h2>
+        <p>Рабочая панель по ПД: запросы субъектов, инциденты, уничтожение, сроки хранения, подрядчики, юридические документы и технические доказательства. Сверху показывается только то, что требует внимания.</p>
       </div>
-      <div class="card">
-        <h2 style="margin-bottom:10px">Запрос по персональным данным</h2>
-        <div class="form-group"><label>Тип запроса</label><select id="dsarType">
-          <option value="access">Доступ / сведения</option><option value="correction">Уточнение</option><option value="blocking">Блокирование</option><option value="deletion">Уничтожение</option><option value="consent_withdrawal">Отзыв согласия</option>
-        </select></div>
-        <div class="form-group"><label>Описание</label><textarea id="dsarDetails" rows="4" placeholder="Опишите запрос без избыточных персональных данных"></textarea></div>
-        <button class="btn btn-blue" onclick="submitDsar()">Отправить запрос</button>
-        <div id="myDsarList" class="compliance-list"></div>
-      </div>
+      <button class="btn btn-blue btn-sm" type="button" onclick="loadCompliance()">Обновить данные</button>
     </div>
-    <div class="card">
-      <h2 style="margin-bottom:10px">Активные сессии</h2>
-      <p style="font-size:12px;color:#667085">Можно принудительно завершить другие серверные сессии аккаунта.</p>
-      <div id="activeSessionsList" class="compliance-list"></div>
-      <h3 style="margin:16px 0 8px">Сменить пароль</h3>
-      <div class="form-row">
-        <div class="form-group"><label>Текущий пароль</label><input type="password" id="accountCurrentPassword" autocomplete="current-password"></div>
-        <div class="form-group"><label>Новый пароль</label><input type="password" id="accountNewPassword" autocomplete="new-password" placeholder="Не менее 12 символов"></div>
-        <div class="form-group"><label>Повторите новый пароль</label><input type="password" id="accountNewPasswordConfirm" autocomplete="new-password"></div>
-      </div>
-      <button class="btn btn-blue" onclick="changeAccountPassword()">Сменить пароль</button>
+
+    <div id="complianceOverview" class="pd-overview"></div>
+    <div id="complianceAttention" class="pd-attention"></div>
+    <div class="pd-nav" id="complianceQuickNav">
+      <button class="pd-admin-nav" type="button" onclick="scrollToComplianceSection('pdStatusSection')">Готовность</button>
+      <button class="pd-admin-nav" type="button" onclick="scrollToComplianceSection('pdDsarSection')">Запросы субъектов</button>
+      <button class="pd-admin-nav" type="button" onclick="scrollToComplianceSection('incidentAdminCard')">Инциденты</button>
+      <button class="pd-admin-nav" type="button" onclick="scrollToComplianceSection('pdDeletionSection')">Уничтожение</button>
+      <button class="pd-admin-nav" type="button" onclick="scrollToComplianceSection('pdRetentionSection')">Сроки хранения</button>
+      <button class="pd-admin-nav" type="button" onclick="scrollToComplianceSection('pdIntegrationsSection')">Подрядчики</button>
+      <button type="button" onclick="scrollToComplianceSection('pdPersonalSection')">Мои данные</button>
+      <button type="button" onclick="scrollToComplianceSection('pdLegalSection')">Документы</button>
     </div>
+
     <div id="complianceAdminSection" style="display:none">
-      <div class="card">
-        <h2 style="margin-bottom:10px">Состояние 152-ФЗ baseline</h2>
+      <div class="card pd-section-card" id="pdStatusSection">
+        <div class="pd-section-head">
+          <div><h2>Готовность и настройки ПД</h2><p>Сводка показывает состояние технических и организационных контрольных точек. Отметка «готово» означает только наличие подтверждения в конфигурации, а не юридическое заключение.</p></div>
+        </div>
         <div id="complianceStatus"></div>
       </div>
-      <div class="card">
-        <h2 style="margin-bottom:10px">Запросы субъектов (DSAR)</h2>
-        <div class="compliance-table-wrap"><table><thead><tr><th>ID</th><th>Тип</th><th>Субъект</th><th>Получен</th><th>Срок</th><th>Статус</th><th>Действия</th></tr></thead><tbody id="adminDsarBody"></tbody></table></div>
-      </div>
-      <div class="card" id="incidentAdminCard" style="display:none">
-        <h2 style="margin-bottom:10px">Инциденты и таймеры 24/72</h2>
-        <div class="form-row">
-          <div class="form-group"><label>Критичность</label><select id="incidentSeverity"><option value="low">Низкая</option><option value="medium">Средняя</option><option value="high">Высокая</option><option value="critical">Критическая</option></select></div>
-          <div class="form-group"><label>Подтверждён</label><input type="datetime-local" id="incidentConfirmedAt"></div>
+
+      <div class="card pd-section-card" id="pdDsarSection">
+        <div class="pd-section-head">
+          <div><h2>Запросы субъектов ПД</h2><p>Очередь запросов на доступ, исправление, блокирование, уничтожение и отзыв согласия. Просроченные сроки выделяются автоматически.</p></div>
         </div>
-        <div class="form-group"><label>Описание</label><textarea id="incidentDescription" rows="3"></textarea></div>
-        <button class="btn btn-red" onclick="createIncident()">Зарегистрировать инцидент</button>
+        <div class="pd-toolbar">
+          <input class="grow" id="complianceDsarSearch" type="search" placeholder="Поиск по субъекту, описанию, ID..." oninput="renderAdminDsar()">
+          <select id="complianceDsarStatusFilter" onchange="renderAdminDsar()">
+            <option value="">Все статусы</option><option value="open">Только открытые</option><option value="overdue">Просроченные</option>
+            <option value="received">Получен</option><option value="identity_check">Проверка личности</option><option value="in_review">В работе</option><option value="action_required">Нужно действие</option><option value="completed">Завершён</option><option value="rejected">Отклонён</option>
+          </select>
+        </div>
+        <div class="compliance-table-wrap"><table><thead><tr><th>ID</th><th>Тип / запрос</th><th>Субъект</th><th>Получен</th><th>Срок</th><th>Статус</th><th>Действия</th></tr></thead><tbody id="adminDsarBody"></tbody></table></div>
+      </div>
+
+      <div class="card pd-section-card" id="incidentAdminCard" style="display:none">
+        <div class="pd-section-head">
+          <div><h2>Инциденты ПД</h2><p>Фиксируйте обнаружение и подтверждение инцидента. После подтверждения система показывает контрольные таймеры 24/72 часа.</p></div>
+        </div>
+        <div class="pd-form-panel">
+          <div class="form-row">
+            <div class="form-group"><label>Критичность</label><select id="incidentSeverity"><option value="low">Низкая</option><option value="medium">Средняя</option><option value="high">Высокая</option><option value="critical">Критическая</option></select></div>
+            <div class="form-group"><label>Подтверждён</label><input type="datetime-local" id="incidentConfirmedAt"></div>
+            <div class="form-group"><label>Оценка субъектов</label><input type="number" min="0" step="1" id="incidentSubjectCount" placeholder="Количество"></div>
+          </div>
+          <div class="form-group"><label>Категории данных</label><input id="incidentCategories" placeholder="например: ФИО, email, кадровые данные"></div>
+          <div class="form-group"><label>Что произошло *</label><textarea id="incidentDescription" rows="3" placeholder="Кратко опишите факт, источник обнаружения и затронутые данные"></textarea></div>
+          <button class="btn btn-red" onclick="createIncident()">Зарегистрировать инцидент</button>
+        </div>
+        <div class="pd-toolbar"><select id="incidentStatusFilter" onchange="renderIncidents()"><option value="">Все инциденты</option><option value="active">Только активные</option><option value="open">Открыт</option><option value="investigating">Расследование</option><option value="contained">Локализован</option><option value="closed">Закрыт</option></select></div>
         <div id="incidentsList" class="compliance-list"></div>
       </div>
-      <div class="card">
-        <h2 style="margin-bottom:10px">Сроки хранения и retention rules</h2>
-        <p style="font-size:12px;color:#667085">Правила задаются по категории данных и цели обработки. Исключения/legal hold фиксируются отдельно.</p>
-        <div id="retentionCreateForm" style="display:none;margin:10px 0">
-          <div class="form-row">
-            <div class="form-group"><label>Категория данных</label><input id="retentionCategory" placeholder="например: hr_profile"></div>
-            <div class="form-group"><label>Purpose ID</label><input id="retentionPurpose" placeholder="например: employment_records"></div>
-            <div class="form-group"><label>Версия</label><input id="retentionVersion" placeholder="v1"></div>
-          </div>
-          <div class="form-row">
-            <div class="form-group"><label>Срок / правило</label><input id="retentionDuration" placeholder="например: 5 лет после увольнения"></div>
-            <div class="form-group"><label>Триггер</label><input id="retentionTrigger" placeholder="dismissal_date"></div>
-            <div class="form-group"><label>Действие</label><select id="retentionAction"><option value="review_delete">Проверка и уничтожение</option><option value="anonymize">Обезличивание</option><option value="archive">Архив</option><option value="hold">Legal hold</option></select></div>
-          </div>
-          <div class="form-group"><label>Исключение / legal hold</label><input id="retentionHold" placeholder="Если есть иное обязательное основание хранения"></div>
-          <button class="btn btn-blue btn-sm" onclick="createRetentionRule()">Добавить правило</button>
-        </div>
-        <div class="compliance-table-wrap"><table><thead><tr><th>ID</th><th>Категория</th><th>Цель</th><th>Срок</th><th>Триггер</th><th>Действие</th><th>Версия</th><th>Статус</th></tr></thead><tbody id="retentionRulesBody"></tbody></table></div>
-      </div>
-      <div class="card">
-        <h2 style="margin-bottom:10px">Задачи на уничтожение данных</h2>
-        <p style="font-size:12px;color:#667085">Завершение задачи требует результата и evidence. Само создание задачи не удаляет данные автоматически.</p>
+
+      <div class="card pd-section-card" id="pdDeletionSection">
+        <div class="pd-section-head"><div><h2>Уничтожение и обезличивание</h2><p>Задача считается завершённой только после фиксации результата и evidence. Автоматическое удаление аккаунта не затрагивает кадровые/расчётные записи без отдельного решения.</p></div></div>
+        <div class="pd-toolbar"><select id="deletionStatusFilter" onchange="renderDeletionJobs()"><option value="">Все задачи</option><option value="open">Незавершённые</option><option value="queued">В очереди</option><option value="in_progress">В работе</option><option value="blocked">Заблокированы</option><option value="completed">Завершены</option><option value="failed">Ошибка</option></select></div>
         <div class="compliance-table-wrap"><table><thead><tr><th>ID</th><th>Субъект</th><th>Основание</th><th>Хранилища</th><th>Статус</th><th>Создана</th><th>Evidence</th><th>Действия</th></tr></thead><tbody id="deletionJobsBody"></tbody></table></div>
       </div>
-      <div class="card">
-        <h2 style="margin-bottom:10px">Подрядчики и внешние интеграции</h2>
-        <p style="font-size:12px;color:#667085">Для каждого внешнего получателя фиксируются страна, категории данных, цель, DPA и статус передачи.</p>
-        <div id="integrationCreateForm" style="display:none;margin:10px 0">
+
+      <div class="card pd-section-card" id="pdRetentionSection">
+        <div class="pd-section-head">
+          <div><h2>Сроки хранения</h2><p>Реестр правил: какие категории данных хранятся, до какого события/срока и что с ними делать после окончания основания.</p></div>
+          <button class="btn btn-blue btn-sm" id="retentionCreateToggle" style="display:none" type="button" onclick="toggleComplianceForm('retentionCreateForm',this,'Добавить правило','Скрыть форму')">+ Добавить правило</button>
+        </div>
+        <div id="retentionCreateForm" class="pd-form-panel" style="display:none">
           <div class="form-row">
-            <div class="form-group"><label>Поставщик</label><input id="integrationVendor"></div>
-            <div class="form-group"><label>Страна</label><input id="integrationCountry" placeholder="RU"></div>
-            <div class="form-group"><label>Владелец процесса</label><input id="integrationOwner"></div>
+            <div class="form-group"><label>Категория данных *</label><input id="retentionCategory" placeholder="Кадровая анкета / зарплата / аккаунт"></div>
+            <div class="form-group"><label>Цель обработки *</label><input id="retentionPurpose" placeholder="Кадровый учёт / расчёты / доступ к сервису"></div>
+            <div class="form-group"><label>Версия правила *</label><input id="retentionVersion" placeholder="v1"></div>
           </div>
           <div class="form-row">
-            <div class="form-group"><label>Цель</label><input id="integrationPurpose"></div>
-            <div class="form-group"><label>Endpoint</label><input id="integrationEndpoint"></div>
+            <div class="form-group"><label>Срок хранения *</label><input id="retentionDuration" placeholder="Например: 5 лет после увольнения"></div>
+            <div class="form-group"><label>Событие начала отсчёта *</label><input id="retentionTrigger" placeholder="Например: дата увольнения"></div>
+            <div class="form-group"><label>Действие после срока</label><select id="retentionAction"><option value="review_delete">Проверка и уничтожение</option><option value="anonymize">Обезличивание</option><option value="archive">Архив</option><option value="hold">Удержание по основанию</option></select></div>
+          </div>
+          <div class="form-group"><label>Исключение / основание для более долгого хранения</label><input id="retentionHold" placeholder="Если применимо"></div>
+          <button class="btn btn-blue btn-sm" onclick="createRetentionRule()">Сохранить правило</button>
+        </div>
+        <div class="compliance-table-wrap"><table><thead><tr><th>ID</th><th>Категория</th><th>Цель</th><th>Срок</th><th>Событие</th><th>Действие</th><th>Версия</th><th>Статус</th></tr></thead><tbody id="retentionRulesBody"></tbody></table></div>
+      </div>
+
+      <div class="card pd-section-card" id="pdIntegrationsSection">
+        <div class="pd-section-head">
+          <div><h2>Подрядчики и внешние интеграции</h2><p>Реестр сервисов, которым потенциально передаются ПД: страна, категории данных, цель, договорное основание и статус передачи.</p></div>
+          <button class="btn btn-blue btn-sm" id="integrationCreateToggle" style="display:none" type="button" onclick="toggleComplianceForm('integrationCreateForm',this,'Добавить интеграцию','Скрыть форму')">+ Добавить интеграцию</button>
+        </div>
+        <div id="integrationCreateForm" class="pd-form-panel" style="display:none">
+          <div class="form-row">
+            <div class="form-group"><label>Поставщик *</label><input id="integrationVendor"></div>
+            <div class="form-group"><label>Страна *</label><input id="integrationCountry" placeholder="RU"></div>
+            <div class="form-group"><label>Ответственный</label><input id="integrationOwner"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Цель *</label><input id="integrationPurpose"></div>
+            <div class="form-group"><label>Endpoint / сервис</label><input id="integrationEndpoint"></div>
             <div class="form-group"><label>Категории данных</label><input id="integrationCategories" placeholder="email, phone, logs"></div>
           </div>
           <div class="form-row">
-            <div class="form-group"><label>DPA</label><input id="integrationDpaStatus" placeholder="signed / not_required / pending"></div>
-            <div class="form-group"><label>Статус передачи</label><input id="integrationTransferStatus" placeholder="RU-only / reviewed"></div>
+            <div class="form-group"><label>Поручение / DPA</label><select id="integrationDpaStatus"><option value="">— Не указан —</option><option value="signed">Подписано</option><option value="not_required">Не требуется</option><option value="pending">На согласовании</option></select></div>
+            <div class="form-group"><label>Статус передачи</label><select id="integrationTransferStatus"><option value="">— Не указан —</option><option value="RU-only">Только РФ</option><option value="reviewed">Проверено</option><option value="blocked">Запрещено</option><option value="pending">Требует проверки</option></select></div>
           </div>
-          <button class="btn btn-blue btn-sm" onclick="createIntegration()">Добавить интеграцию</button>
+          <button class="btn btn-blue btn-sm" onclick="createIntegration()">Сохранить интеграцию</button>
         </div>
-        <div class="compliance-table-wrap"><table><thead><tr><th>Поставщик</th><th>Страна</th><th>Категории</th><th>Цель</th><th>DPA</th><th>Передача</th><th>Владелец</th></tr></thead><tbody id="integrationsBody"></tbody></table></div>
+        <div class="compliance-table-wrap"><table><thead><tr><th>Поставщик</th><th>Страна</th><th>Категории</th><th>Цель</th><th>DPA</th><th>Передача</th><th>Ответственный</th></tr></thead><tbody id="integrationsBody"></tbody></table></div>
       </div>
-      <div class="card">
-        <h2 style="margin-bottom:10px">Append-only audit</h2>
+
+      <div class="card pd-section-card" id="pdAuditSection">
+        <div class="pd-section-head"><div><h2>Неизменяемый журнал действий</h2><p>Технический audit trail для подтверждения значимых действий с ПД.</p></div></div>
+        <div class="pd-toolbar"><input class="grow" id="complianceAuditSearch" type="search" placeholder="Поиск по действию, объекту, результату..." oninput="renderComplianceAudit()"></div>
         <div class="compliance-table-wrap"><table><thead><tr><th>Время</th><th>Действие</th><th>Объект</th><th>Результат</th><th>Correlation ID</th></tr></thead><tbody id="complianceAuditBody"></tbody></table></div>
       </div>
     </div>
-    <div class="card">
-      <h2 style="margin-bottom:10px">Юридические документы</h2>
-      <p style="font-size:12px;color:#667085">Актуальные тексты доступны постоянно. Публикация новой версии не изменяет историю уже данных согласий.</p>
-      <div class="legal-footer" style="text-align:left;border:0;padding:0;margin-top:8px">
-        <a href="/legal/privacy_policy" target="_blank" rel="noopener">Политика обработки ПД</a>
-        <a href="/legal/pd_consent" target="_blank" rel="noopener">Согласие на ПД</a>
-        <a href="/legal/terms" target="_blank" rel="noopener">Пользовательское соглашение</a>
-        <a href="/legal/marketing_consent" target="_blank" rel="noopener">Рекламное согласие</a>
+
+    <details class="pd-personal pd-section-card" id="pdPersonalSection" open>
+      <summary>Мои данные и безопасность аккаунта</summary>
+      <div class="pd-personal-body">
+        <div class="compliance-grid">
+          <div class="card">
+            <h2 style="margin-bottom:10px">Мои согласия</h2>
+            <p style="font-size:12px;color:#667085">Здесь хранится версия текста, дата и техническое доказательство каждого согласия.</p>
+            <div id="myConsentsList" class="compliance-list"></div>
+          </div>
+          <div class="card">
+            <h2 style="margin-bottom:10px">Мой запрос по ПД</h2>
+            <div class="form-group"><label>Что требуется</label><select id="dsarType">
+              <option value="access">Получить сведения</option><option value="correction">Исправить данные</option><option value="blocking">Заблокировать обработку</option><option value="deletion">Уничтожить данные</option><option value="consent_withdrawal">Отозвать согласие</option>
+            </select></div>
+            <div class="form-group"><label>Описание</label><textarea id="dsarDetails" rows="4" placeholder="Опишите, какие данные или действия вас интересуют"></textarea></div>
+            <button class="btn btn-blue" onclick="submitDsar()">Зарегистрировать запрос</button>
+            <div id="myDsarList" class="compliance-list"></div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:14px">
+          <h2 style="margin-bottom:10px">Безопасность аккаунта</h2>
+          <p style="font-size:12px;color:#667085">Проверьте активные сессии и при необходимости завершите неизвестные. Здесь же можно сменить пароль.</p>
+          <div id="activeSessionsList" class="compliance-list"></div>
+          <h3 style="margin:16px 0 8px">Сменить пароль</h3>
+          <div class="form-row">
+            <div class="form-group"><label>Текущий пароль</label><input type="password" id="accountCurrentPassword" autocomplete="current-password"></div>
+            <div class="form-group"><label>Новый пароль</label><input type="password" id="accountNewPassword" autocomplete="new-password" placeholder="Не менее 12 символов"></div>
+            <div class="form-group"><label>Повторите новый пароль</label><input type="password" id="accountNewPasswordConfirm" autocomplete="new-password"></div>
+          </div>
+          <button class="btn btn-blue" onclick="changeAccountPassword()">Сменить пароль</button>
+        </div>
+      </div>
+    </details>
+
+    <div class="card pd-section-card" id="pdLegalSection">
+      <div class="pd-section-head"><div><h2>Юридические документы</h2><p>Актуальные публичные тексты. История ранее данных согласий привязана к конкретной версии и хэшу документа.</p></div></div>
+      <div id="complianceLegalSummary" class="pd-legal-grid">
+        <a class="pd-legal-card" href="/legal/privacy_policy" target="_blank" rel="noopener"><b>Политика обработки ПД</b><span>Открыть актуальную версию</span></a>
+        <a class="pd-legal-card" href="/legal/pd_consent" target="_blank" rel="noopener"><b>Согласие на ПД</b><span>Открыть актуальную версию</span></a>
+        <a class="pd-legal-card" href="/legal/terms" target="_blank" rel="noopener"><b>Пользовательское соглашение</b><span>Открыть актуальную версию</span></a>
+        <a class="pd-legal-card" href="/legal/marketing_consent" target="_blank" rel="noopener"><b>Рекламное согласие</b><span>Открыть актуальную версию</span></a>
       </div>
     </div>
   </div>
@@ -1350,6 +1427,16 @@ let editingBalanceId = null;
 let editingUserId = null;
 let legalMetadata = null;
 let complianceLoaded = false;
+let complianceStatusData = null;
+let complianceMyConsentsRows = [];
+let complianceMyDsarRows = [];
+let complianceSessionRows = [];
+let complianceDsarRows = [];
+let complianceIncidentRows = [];
+let complianceRetentionRows = [];
+let complianceDeletionRows = [];
+let complianceIntegrationRows = [];
+let complianceAuditRows = [];
 
 
 function escapeHtml(value){
