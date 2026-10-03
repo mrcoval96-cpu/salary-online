@@ -173,7 +173,15 @@ header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #counterpartiesTable{min-width:1050px;margin:0}
 .counterparty-type{display:inline-block;padding:3px 8px;border-radius:999px;background:#eef4ff;color:#3538cd;font-size:11px;font-weight:700}
 .counterparty-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-@media(max-width:700px){.counterparty-card-grid{grid-template-columns:1fr}}
+.counterparty-contact-row{display:grid;grid-template-columns:1.2fr 1fr 1fr 1.2fr auto;gap:7px;align-items:end;margin:7px 0;padding:9px;border:1px solid #eaecf0;border-radius:8px;background:#fafbfc}
+.counterparty-contact-row .form-group{margin:0}
+.object-customer-line{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;align-items:center}
+.loan-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}
+.loan-summary-item{padding:12px;border:1px solid #e4e7eb;border-radius:9px;background:#fafbfc}
+.loan-summary-item label{display:block;font-size:11px;color:#667085;margin-bottom:4px}.loan-summary-item b{font-size:18px}
+.loan-table-wrap{overflow:auto;border:1px solid #e4e7eb;border-radius:10px}#loansTable{min-width:1150px;margin:0}
+.loan-repayment-row{display:grid;grid-template-columns:160px 180px minmax(220px,1fr) auto;gap:7px;align-items:end;margin:7px 0}
+@media(max-width:700px){.counterparty-card-grid{grid-template-columns:1fr}.counterparty-contact-row,.loan-repayment-row{grid-template-columns:1fr}.loan-summary{grid-template-columns:1fr}}
 .deal-detail-row{display:none}.deal-detail-row.show{display:table-row}
 .deal-detail-panel{padding:14px;background:#fbfcfd}
 .deal-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
@@ -607,6 +615,7 @@ button,input,select,textarea{max-width:100%}
         <div class="sidebar-submenu">
           <button class="tab-btn" data-tab="accounting" onclick="showTab('accounting')">Обзор</button>
           <button class="tab-btn" data-tab="counterparties" onclick="showTab('counterparties')">Контрагенты</button>
+          <button class="tab-btn" data-tab="loans" onclick="showTab('loans')">Займы и кредиты</button>
         </div>
       </div>
       <div class="sidebar-group" id="menuDeals" data-menu-group="deals">
@@ -865,7 +874,10 @@ button,input,select,textarea{max-width:100%}
     <div class="card">
       <h2 style="margin-bottom:8px">Бухгалтерия</h2>
       <p style="font-size:13px;color:#667085;margin-bottom:16px">Бухгалтерские справочники и документы организации.</p>
-      <button class="btn btn-blue" type="button" onclick="showTab('counterparties')">Контрагенты</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-blue" type="button" onclick="showTab('counterparties')">Контрагенты</button>
+        <button class="btn btn-blue" type="button" onclick="showTab('loans')">Займы и кредиты</button>
+      </div>
     </div>
   </div>
 
@@ -878,6 +890,23 @@ button,input,select,textarea{max-width:100%}
       </div>
       <input class="counterparty-search" id="counterpartySearch" type="search" placeholder="Поиск по названию, ИНН, контакту..." oninput="renderCounterparties()">
       <div class="counterparty-table-wrap"><table id="counterpartiesTable"><thead><tr><th>Тип</th><th>Наименование</th><th>ИНН / КПП</th><th>Руководитель / контакт</th><th>Телефон / email</th><th>Банк / счёт</th><th>Действия</th></tr></thead><tbody id="counterpartiesBody"></tbody></table></div>
+    </div>
+  </div>
+
+  <!-- TAB: LOANS -->
+  <div id="tab-loans" class="tab-content">
+    <div class="card">
+      <div class="counterparty-toolbar">
+        <div><h2>Займы и кредиты</h2><p>Учёт полученных займов и кредитов от физических и юридических лиц, сроков и погашений.</p></div>
+        <button class="btn btn-green" id="loanAddBtn" type="button" onclick="openLoanModal()">+ Займ / кредит</button>
+      </div>
+      <div class="loan-summary">
+        <div class="loan-summary-item"><label>Получено</label><b id="loanSummaryPrincipal">0,00 ₽</b></div>
+        <div class="loan-summary-item"><label>Погашено</label><b id="loanSummaryRepaid">0,00 ₽</b></div>
+        <div class="loan-summary-item"><label>Остаток основного долга</label><b id="loanSummaryOutstanding">0,00 ₽</b></div>
+      </div>
+      <div class="counterparty-search"><input id="loanSearch" type="search" placeholder="Поиск по займодавцу, договору, ИНН..." oninput="renderLoans()"></div>
+      <div class="loan-table-wrap"><table id="loansTable"><thead><tr><th>Займодавец</th><th>Договор</th><th>Получено</th><th>Ставка</th><th>Срок возврата</th><th>Погашено</th><th>Остаток</th><th>Статус</th><th>Действия</th></tr></thead><tbody id="loansBody"></tbody></table></div>
     </div>
   </div>
 
@@ -1133,7 +1162,7 @@ button,input,select,textarea{max-width:100%}
   </div>
 </div></div>
 <div id="employeeProfilePrint" class="hr-print-sheet"></div>
-<div class="modal-overlay" id="objModal"><div class="modal"><span class="modal-close" onclick="closeModal('objModal')">&times;</span><h2>Объект</h2><div class="form-group"><label>Наименование</label><input type="text" id="objName"></div><div class="form-group"><label>Адрес</label><input type="text" id="objAddr"></div><div class="form-group"><label>Заказчик</label><input type="text" id="objCust"></div><div class="form-group"><label>Организация</label><select id="objOrg" onchange="renderResponsiblePicker([])"><option value="">— Выберите организацию —</option></select></div><div class="form-group"><label>Ответственные пользователи</label><input class="responsible-search" type="text" id="objRespSearch" placeholder="Поиск зарегистрированного пользователя" oninput="filterResponsiblePicker()"><div id="objRespList" class="responsible-picker"></div><div id="objRespChips" class="responsible-chips"></div></div><button class="btn btn-green" onclick="saveObj()">Сохранить</button></div></div>
+<div class="modal-overlay" id="objModal"><div class="modal"><span class="modal-close" onclick="closeModal('objModal')">&times;</span><h2>Объект</h2><div class="form-group"><label>Наименование</label><input type="text" id="objName"></div><div class="form-group"><label>Адрес</label><input type="text" id="objAddr"></div><div class="form-group"><label>Организация</label><select id="objOrg" onchange="onObjectOrganizationChange()"><option value="">— Выберите организацию —</option></select></div><div class="form-group"><label>Заказчик</label><div class="object-customer-line"><select id="objCust"><option value="">— Выберите контрагента —</option></select><button class="btn btn-blue btn-sm" id="objCreateCustomerBtn" type="button" onclick="openObjectCustomerCreate()">+ Создать контрагента</button></div><div id="objCustomerHint" style="font-size:11px;color:#667085;margin-top:5px"></div></div><div class="form-group"><label>Ответственные пользователи</label><input class="responsible-search" type="text" id="objRespSearch" placeholder="Поиск зарегистрированного пользователя" oninput="filterResponsiblePicker()"><div id="objRespList" class="responsible-picker"></div><div id="objRespChips" class="responsible-chips"></div></div><button class="btn btn-green" onclick="saveObj()">Сохранить</button></div></div>
 <div class="modal-overlay" id="objectSalaryDebtModal"><div class="modal" style="max-width:760px"><span class="modal-close" onclick="closeModal('objectSalaryDebtModal')">&times;</span><h2 id="objectSalaryDebtTitle">Зарплата по объекту</h2><div id="objectSalaryDebtSummary" class="salary-summary" style="margin:14px 0"></div><div class="balance-help" style="margin-bottom:12px">Показываются только начисления за выбранный месяц, которые непосредственно привязаны к этому объекту. Общая задолженность сотрудника и выплаты с других объектов сюда не переносятся, поэтому суммы между объектами не дублируются.</div><div style="overflow:auto;max-height:520px"><table style="min-width:520px"><thead><tr><th>Сотрудник</th><th>Начислено за месяц</th></tr></thead><tbody id="objectSalaryDebtBody"></tbody></table></div></div></div>
 <div class="modal-overlay" id="orgModal"><div class="modal" style="max-width:920px"><span class="modal-close" onclick="closeModal('orgModal')">&times;</span><h2 id="orgModalTitle">Карточка организации</h2>
   <div class="balance-help" style="margin:10px 0 14px">Поля со звёздочкой обязательны при создании новой организации. Добавлять организации может только руководитель сайта.</div>
@@ -1162,9 +1191,7 @@ button,input,select,textarea{max-width:100%}
     <div class="form-group"><label>Руководитель</label><input id="counterpartyDirector" maxlength="500"></div>
     <div class="form-group" style="grid-column:1/-1"><label>Юридический адрес</label><input id="counterpartyLegalAddress" maxlength="2000"></div>
     <div class="form-group" style="grid-column:1/-1"><label>Почтовый адрес</label><input id="counterpartyPostalAddress" maxlength="2000"></div>
-    <div class="form-group"><label>Контактное лицо</label><input id="counterpartyContact" maxlength="500"></div>
-    <div class="form-group"><label>Телефон</label><input type="tel" id="counterpartyPhone" class="phone-input" placeholder="+7 (900) 900-90-90" inputmode="numeric" autocomplete="tel" maxlength="18" oninput="formatPhoneInput(this)"></div>
-    <div class="form-group"><label>Email</label><input id="counterpartyEmail" type="email" maxlength="500"></div>
+    <div class="form-group" style="grid-column:1/-1"><label>Контактные лица</label><div id="counterpartyContacts"></div><button class="btn btn-blue btn-sm" type="button" onclick="addCounterpartyContact()">+ Контактное лицо</button></div>
     <div class="form-group"><label>Сайт</label><input id="counterpartyWebsite" maxlength="500"></div>
     <div class="form-group" style="grid-column:1/-1"><label>Банк</label><input id="counterpartyBank" maxlength="1000"></div>
     <div class="form-group"><label>БИК</label><input id="counterpartyBik" maxlength="20"></div>
@@ -1173,6 +1200,15 @@ button,input,select,textarea{max-width:100%}
     <div class="form-group" style="grid-column:1/-1"><label>Комментарий</label><textarea id="counterpartyComments" rows="3" maxlength="8000"></textarea></div>
   </div>
   <div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn btn-gray" type="button" onclick="closeModal('counterpartyModal')">Отмена</button><button class="btn btn-green" type="button" onclick="saveCounterparty()">Сохранить</button></div>
+</div></div>
+<div class="modal-overlay" id="loanModal"><div class="modal" style="max-width:920px"><span class="modal-close" onclick="closeModal('loanModal')">&times;</span><h2 id="loanModalTitle">Займ / кредит</h2>
+  <div id="loanOrganizationRow" class="form-group" style="display:none"><label>Организация *</label><select id="loanOrganization"></select></div>
+  <div class="form-row"><div class="form-group"><label>Займодавец *</label><input id="loanLenderName" maxlength="500"></div><div class="form-group"><label>Тип займодавца</label><select id="loanLenderType"><option value="individual">Физическое лицо</option><option value="legal">Юридическое лицо</option></select></div><div class="form-group"><label>ИНН</label><input id="loanLenderInn" maxlength="20"></div></div>
+  <div class="form-row"><div class="form-group"><label>Договор №</label><input id="loanContractNo" maxlength="120"></div><div class="form-group"><label>Дата договора</label><input id="loanContractDate" type="date"></div><div class="form-group"><label>Дата получения</label><input id="loanReceivedDate" type="date"></div></div>
+  <div class="form-row"><div class="form-group"><label>Сумма займа *</label><input id="loanPrincipal" type="number" min="0" step="0.01"></div><div class="form-group"><label>Ставка, % годовых</label><input id="loanInterestRate" type="number" min="0" step="0.01"></div><div class="form-group"><label>Срок возврата</label><input id="loanDueDate" type="date"></div><div class="form-group"><label>Статус</label><select id="loanStatus"><option value="active">Действует</option><option value="overdue">Просрочен</option><option value="closed">Погашен</option></select></div></div>
+  <div class="deal-form-section"><h3>Погашения</h3><div id="loanRepayments"></div><button class="btn btn-blue btn-sm" type="button" onclick="addLoanRepayment()">+ Погашение</button></div>
+  <div class="form-group"><label>Комментарий</label><textarea id="loanComments" rows="3" maxlength="8000"></textarea></div>
+  <div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn btn-gray" type="button" onclick="closeModal('loanModal')">Отмена</button><button class="btn btn-green" type="button" onclick="saveLoan()">Сохранить</button></div>
 </div></div>
 <div class="modal-overlay" id="dealModal"><div class="modal" style="max-width:1180px;width:96%"><span class="modal-close" onclick="closeModal('dealModal')">&times;</span><h2 id="dealModalTitle">Новая сделка</h2>
   <div class="form-row" id="dealOrganizationRow" style="display:none"><div class="form-group"><label>Организация *</label><select id="dealOrganization"></select></div></div>
@@ -1211,6 +1247,10 @@ let editingDealId = null;
 let quickDealEdit = null;
 let counterparties = [];
 let editingCounterpartyId = null;
+let counterpartyCreationContext = null;
+let objectCustomers = [];
+let loans = [];
+let editingLoanId = null;
 let employeeBalances = [];
 let bankStatementPayments = [];
 let objectResponsibleUsers = [];
@@ -1269,6 +1309,7 @@ function tabAccessAllowed(tab){
     organizations:can('organizations.view'),
     accounting:can('accounting.view'),
     counterparties:can('accounting.view'),
+    loans:can('loans.view'),
     deals:can('deals.view'),
     objects:can('deals.view')&&can('objects.view'),
     warehouse:can('warehouse.view'),
@@ -1285,14 +1326,14 @@ function setSidebarGroupVisible(id,visible){
 }
 function applyPermissionsToUi(){
   if(!currentUser)return;
-  const tabs=['dashboard','input','salary','employees','organizations','accounting','counterparties','deals','objects','warehouse','users','compliance','data'];
+  const tabs=['dashboard','input','salary','employees','organizations','accounting','counterparties','loans','deals','objects','warehouse','users','compliance','data'];
   tabs.forEach(function(tab){
     const btn=document.querySelector('.tab-btn[data-tab="'+tab+'"]');
     if(btn)btn.style.display=tabAccessAllowed(tab)?'block':'none';
   });
   setSidebarGroupVisible('menuSalary',['dashboard','input','salary'].some(tabAccessAllowed));
   setSidebarGroupVisible('menuHr',['employees','organizations'].some(tabAccessAllowed));
-  setSidebarGroupVisible('menuAccounting',['accounting','counterparties'].some(tabAccessAllowed));
+  setSidebarGroupVisible('menuAccounting',['accounting','counterparties','loans'].some(tabAccessAllowed));
   setSidebarGroupVisible('menuDeals',['deals','objects'].some(tabAccessAllowed));
   setSidebarGroupVisible('menuWarehouse',tabAccessAllowed('warehouse'));
   setSidebarGroupVisible('menuCompliance',['compliance','data'].some(tabAccessAllowed));
@@ -1317,6 +1358,7 @@ function applyPermissionsToUi(){
   setVisibleById('dealImportBtn',can('deals.manage'));
   setVisibleById('dealExportBtn',can('reports.export')&&can('deals.view'));
   setVisibleById('counterpartyAddBtn',can('counterparties.manage'));
+  setVisibleById('loanAddBtn',can('loans.manage'));
   const siteWide=String(currentUser.login||'').trim().toUpperCase()==='ADMIN'||currentUser.role==='Руководитель сайта';
   const importOrg=document.getElementById('dealImportOrg');
   if(importOrg){
@@ -1325,7 +1367,7 @@ function applyPermissionsToUi(){
   }
 }
 function firstAccessibleTab(){
-  const order=['dashboard','input','salary','employees','organizations','accounting','counterparties','deals','objects','warehouse','compliance','users','data'];
+  const order=['dashboard','input','salary','employees','organizations','accounting','counterparties','loans','deals','objects','warehouse','compliance','users','data'];
   for(const tab of order)if(tabAccessAllowed(tab))return tab;
   return 'compliance';
 }
@@ -2085,6 +2127,7 @@ async function loadAll(){
     salaryRecords=can('salary.view')?await api('/api/salary'):[];
     deals=can('deals.view')?await api('/api/deals'):[];
     counterparties=can('accounting.view')?await api('/api/counterparties'):[];
+    loans=can('loans.view')?await api('/api/loans'):[];
     employeeBalances=can('salary.view')?await api('/api/employee-balances'):[];
     bankStatementPayments=can('bank.view')?await api('/api/bank-payments'):(can('salary.view')?await api('/api/financial-payments'):[]);
     closedSalaryPeriods=can('salary.view')?await api('/api/salary-periods'):[];
@@ -2113,6 +2156,7 @@ function showTab(tab) {
   if (tab === 'objects') renderObjects();
   if (tab === 'organizations') renderOrganizations();
   if (tab === 'counterparties') renderCounterparties();
+  if (tab === 'loans') renderLoans();
   if (tab === 'deals') renderDeals();
   if (tab === 'users') renderUsers();
   if (tab === 'compliance') loadCompliance();
