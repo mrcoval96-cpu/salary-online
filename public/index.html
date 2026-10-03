@@ -127,7 +127,7 @@ header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #tab-salary .salary-toolbar-actions{display:grid;grid-template-columns:minmax(190px,220px) minmax(220px,280px) minmax(320px,1fr);gap:12px;align-items:end;flex:1;max-width:900px}
 .salary-filter-field{display:grid;gap:5px;min-width:0}
 .salary-filter-field label{font-size:12px;font-weight:600;color:#475467}
-#tab-salary .salary-filter-field select,#tab-salary .salary-filter-field input{min-height:46px;padding:9px 12px;font-size:15px;border-radius:8px}
+#tab-salary .salary-filter-field select,#tab-salary .salary-filter-field input{height:46px;min-height:46px;padding:9px 12px;font-size:15px;line-height:1.2;border-radius:8px;box-sizing:border-box}
 #salarySearch{width:100%;min-width:320px}
 .salary-payment-actions{display:flex;gap:5px;align-items:center}
 .salary-payment-row .btn{padding:3px 7px}
@@ -884,6 +884,7 @@ button,input,select,textarea{max-width:100%}
 <div class="modal-overlay" id="salaryEditModal"><div class="modal"><span class="modal-close" onclick="closeModal('salaryEditModal')">&times;</span><h2>Редактирование записи</h2><div class="form-row"><div class="form-group" style="position:relative"><label>Сотрудник</label><input type="text" id="editFio" oninput="autocompleteFio(this)" onblur="setTimeout(()=>hideAutocomplete('fioAc2'),200)"><div class="autocomplete-list" id="fioAc2"></div></div><div class="form-group" style="position:relative"><label>Объект</label><input type="text" id="editObject" oninput="autocompleteObj(this)" onblur="setTimeout(()=>hideAutocomplete('objAc2'),200)"><div class="autocomplete-list" id="objAc2"></div></div></div><div class="form-row"><div class="form-group"><label>Месяц</label><select id="editMonth"><option value="">—</option><option>Январь</option><option>Февраль</option><option>Март</option><option>Апрель</option><option>Май</option><option>Июнь</option><option>Июль</option><option>Август</option><option>Сентябрь</option><option>Октябрь</option><option>Ноябрь</option><option>Декабрь</option></select></div><div class="form-group"><label>Год</label><input type="text" id="editYear"></div><div class="form-group"><label>Дата начисления</label><input type="text" id="editChargeDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div></div><div class="form-row"><div class="form-group"><label>Ставка за час</label><input type="number" id="editHourRate"></div><div class="form-group"><label>Часы</label><input type="number" id="editHours"></div><div class="form-group"><label>Дни суточных</label><input type="number" id="editPerDiemDays"></div><div class="form-group"><label>Ставка суточных</label><input type="number" id="editPerDiemRate"></div></div><div class="form-group"><label>Дополнительные начисления</label><div id="editExtraContainer"></div><button class="btn btn-blue btn-sm" type="button" onclick="addEditExtraCharge()">+ Начисление</button></div><div class="form-group"><label>Выплаты</label><div id="editPaymentsContainer"></div><button class="btn btn-blue btn-sm" type="button" onclick="addEditPayment()">+ Выплата</button></div><div class="form-row"><div class="form-group"><label>Итого</label><input type="number" id="editTotal" readonly></div><div class="form-group"><label>Выплачено</label><input type="number" id="editPaid"></div></div><button class="btn btn-green" onclick="saveEditSalary()">Сохранить изменения</button></div></div>
 <div class="modal-overlay" id="salaryArchiveModal"><div class="modal"><span class="modal-close" onclick="closeModal('salaryArchiveModal')">&times;</span><h2>Архив удалённых начислений</h2><div id="salaryArchiveList"></div></div></div>
 <div class="modal-overlay" id="quickPaymentModal"><div class="modal"><span class="modal-close" onclick="closeModal('quickPaymentModal')">&times;</span><h2 id="quickPaymentTitle">Добавить выплату</h2><div class="form-group"><label>Запись начисления</label><select id="quickPaymentRecord"></select></div><div class="form-row"><div class="form-group"><label>Дата</label><input type="text" id="quickPaymentDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div><div class="form-group"><label>Сумма</label><input type="number" id="quickPaymentAmount" min="0" step="0.01" placeholder="0,00"></div></div><button class="btn btn-green" id="quickPaymentSave" onclick="saveQuickPayment()">Сохранить выплату</button></div></div>
+<div class="modal-overlay" id="manualAllocationModal"><div class="modal" style="max-width:700px"><span class="modal-close" onclick="closeModal('manualAllocationModal')">&times;</span><h2 id="manualAllocationTitle">Распределение ручной выплаты</h2><div id="manualAllocationInfo" class="balance-help" style="margin-bottom:12px"></div><div class="form-group"><label>Запись зарплаты</label><select id="manualAllocationPeriod"></select></div><div class="form-row"><div class="form-group"><label>Кто передал</label><input type="text" id="manualAllocationHandedBy" maxlength="255" placeholder="ФИО или ответственное лицо"></div><div class="form-group"><label>Когда передал</label><input type="text" id="manualAllocationDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div></div><div class="form-group"><label>Сколько передал</label><input type="number" id="manualAllocationAmount" min="0" step="0.01" placeholder="0,00" oninput="updateManualAllocationRemaining()"></div><div id="manualAllocationRemaining" style="font-size:13px;font-weight:600;margin:8px 0 14px"></div><div style="display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap"><button class="btn btn-red" id="manualAllocationDeleteBtn" type="button" style="display:none" onclick="deleteManualAllocation()">Отменить распределение</button><div style="display:flex;gap:8px;margin-left:auto"><button class="btn btn-gray" type="button" onclick="closeModal('manualAllocationModal')">Отмена</button><button class="btn btn-green" type="button" onclick="saveManualAllocation()">Распределить</button></div></div></div></div>
 <div class="modal-overlay" id="bankAllocationModal"><div class="modal" style="max-width:760px"><span class="modal-close" onclick="closeModal('bankAllocationModal')">&times;</span><h2>Распределение банковской выплаты</h2><div id="bankAllocationInfo" class="balance-help" style="margin-bottom:12px"></div><div id="bankAllocationRows"></div><button class="btn btn-blue btn-sm" type="button" onclick="addBankAllocationRow()">+ Добавить запись</button><div id="bankAllocationRemaining" style="font-size:13px;font-weight:600;margin:12px 0"></div><div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-gray" type="button" onclick="closeModal('bankAllocationModal')">Отмена</button><button class="btn btn-green" type="button" onclick="saveBankAllocations()">Распределить</button></div></div></div>
 <div class="modal-overlay" id="balanceModal"><div class="modal"><span class="modal-close" onclick="closeModal('balanceModal')">&times;</span><h2 id="balanceModalTitle">Ввод остатка</h2><div class="balance-help">Остаток фиксирует взаиморасчёт с сотрудником на указанную дату. Если галочка не отмечена — компания должна сотруднику. Если отмечена — сотрудник должен компании. Дальнейшие начисления и выплаты считаются от этого сальдо.</div><div class="form-group"><label>Сотрудник</label><select id="balanceEmployee" onchange="renderBalanceHistory()"></select></div><div class="form-row"><div class="form-group"><label>Дата остатка</label><input type="text" id="balanceDate" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off"></div><div class="form-group"><label>Сумма остатка</label><input type="number" id="balanceAmount" min="0" step="0.01" placeholder="0,00"></div></div><div class="form-group"><label>Кто кому должен</label><label style="display:flex;align-items:center;gap:8px;padding:9px 10px;border:1px solid #ddd;border-radius:6px;cursor:pointer"><input type="checkbox" id="balanceEmployeeOwes" style="width:18px;height:18px;min-height:0" onchange="updateBalanceDirectionHint()"> <span>Сотрудник должен компании</span></label><div id="balanceDirectionHint" style="font-size:12px;color:#667085;margin-top:5px">Компания должна сотруднику</div></div><div class="form-group"><label>Комментарий</label><textarea id="balanceComment" rows="2" placeholder="Например: остаток на начало ведения учёта"></textarea></div><button class="btn btn-green" id="balanceSaveBtn" onclick="saveEmployeeBalance()">Сохранить остаток</button><h3 style="font-size:15px;margin:20px 0 8px">История остатков</h3><div id="balanceHistory"></div></div></div>
 <div class="modal-overlay" id="logModal"><div class="modal"><span class="modal-close" onclick="closeModal('logModal')">&times;</span><h2>Журнал действий</h2><table><thead><tr><th>Дата</th><th>Пользователь</th><th>Действие</th></tr></thead><tbody id="logBody"></tbody></table></div></div>
@@ -2069,9 +2070,10 @@ function getEditableList(containerId){
   }).filter(function(x){return x.description || x.amount;});
 }
 function addEditExtraCharge(item){editListRow('editExtraContainer',item||{});}
-function addEditPayment(item){
+function addEditPayment(item,originalIndex){
   const container=document.getElementById('editPaymentsContainer'), row=document.createElement('div');
   row.style.cssText='display:grid;grid-template-columns:minmax(140px,1fr) minmax(100px,1fr) auto;gap:6px;margin:6px 0;align-items:center';
+  if(Number.isInteger(originalIndex))row.dataset.originalIndex=String(originalIndex);
   const date=item && (item.date || item.payment_date) ? String(item.date || item.payment_date).slice(0,10) : '';
   const amount=parseFloat(item && (item.amount != null ? item.amount : item.sum)) || 0;
   row.innerHTML='<input type="text" class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ" autocomplete="off" aria-label="Дата выплаты" value="'+escapeHtml(isoToRuDate(date))+'"><input type="number" aria-label="Сумма выплаты" placeholder="Сумма" value="'+amount+'"><button class="btn btn-red btn-sm" type="button">×</button>';
@@ -2080,25 +2082,39 @@ function addEditPayment(item){
   initDateInputs(row);
 }
 function getEditablePayments(){
+  const source=salaryRecords.find(function(r){return Number(r.id)===Number(editingSalaryId);});
+  const original=source?parseJsonArray(source.payments):[];
   return Array.from(document.querySelectorAll('#editPaymentsContainer > div')).map(function(row){
-    const inputs=row.querySelectorAll('input');
-    return {date:ruDateToIso(inputs[0].value),amount:parseFloat(inputs[1].value)||0};
+    const inputs=row.querySelectorAll('input'),idx=Number(row.dataset.originalIndex);
+    const previous=Number.isInteger(idx)&&original[idx]?original[idx]:null;
+    const payment={date:ruDateToIso(inputs[0].value),amount:parseFloat(inputs[1].value)||0};
+    if(previous&&Array.isArray(previous.allocations))payment.allocations=previous.allocations;
+    return payment;
   }).filter(function(x){return x.date || x.amount;});
 }
 function populateEditLists(r){
   document.getElementById('editExtraContainer').innerHTML='';
   document.getElementById('editPaymentsContainer').innerHTML='';
   normalizeExtraItems(r.extra_charges).forEach(addEditExtraCharge);
-  parseJsonArray(r.payments).forEach(addEditPayment);
+  parseJsonArray(r.payments).forEach(function(p,index){addEditPayment(p,index);});
+}
+function normalizedManualAllocations(payment){
+  return parseJsonArray(payment&&payment.allocations).map(function(a){
+    return {month:String(a.month||''),year:String(a.year||''),amount:Number(a.amount||0),handed_by:String(a.handed_by||'').trim(),handed_at:String(a.handed_at||'').slice(0,10)};
+  }).filter(function(a){return a.month&&a.year&&a.amount>0&&a.handed_by&&a.handed_at;});
+}
+function manualAllocatedTotal(payment){
+  return normalizedManualAllocations(payment).reduce(function(sum,a){return sum+Number(a.amount||0);},0);
 }
 function paymentItemsForRecords(recs){
   const items=[];
   recs.forEach(function(r){
     const recordDate=recordExportDate(r);
     parseJsonArray(r.payments).forEach(function(p,index){
-      const amount=parseFloat(p && (p.amount != null ? p.amount : p.sum)) || 0;
+      const originalAmount=parseFloat(p && (p.amount != null ? p.amount : p.sum)) || 0;
+      const allocated=manualAllocatedTotal(p),amount=Math.max(0,originalAmount-allocated);
       const date=p && (p.date || p.payment_date) ? String(p.date || p.payment_date).slice(0,10) : '';
-      if(amount || date) items.push({date:date,recordDate:recordDate,amount:amount,recordId:r.id,index:index,source:'manual'});
+      if(amount>0.005) items.push({date:date,recordDate:recordDate,amount:amount,original_amount:originalAmount,allocated_total:allocated,recordId:r.id,index:index,source:'manual'});
     });
   });
   return items.sort(function(a,b){return String(a.date||a.recordDate||'9999-99-99').localeCompare(String(b.date||b.recordDate||'9999-99-99'));});
@@ -2131,6 +2147,25 @@ function manualPaidAfterOpeningForRecords(fio,recs,cutoff){
     }
   });
   return total;
+}
+function allocatedManualItemsForEmployee(fio,objectFilter){
+  const key=String(fio||'').toLowerCase(),items=[];
+  salaryRecords.filter(function(r){
+    return String(r.employee_fio||'').toLowerCase()===key && (!objectFilter||r.object_name===objectFilter);
+  }).forEach(function(r){
+    parseJsonArray(r.payments).forEach(function(p,paymentIndex){
+      normalizedManualAllocations(p).forEach(function(a,allocationIndex){
+        items.push({date:a.handed_at,amount:a.amount,source:'manual_allocated',recordId:r.id,paymentIndex:paymentIndex,allocationIndex:allocationIndex,handed_by:a.handed_by,handed_at:a.handed_at,allocation_month:a.month,allocation_year:a.year,original_payment_date:String(p.date||p.payment_date||'').slice(0,10)});
+      });
+    });
+  });
+  return items;
+}
+function manualPaidForEmployeePeriod(fio,month,year,objectFilter){
+  if(!month)return salaryRecords.filter(function(r){return String(r.employee_fio||'').toLowerCase()===String(fio||'').toLowerCase()&&(!objectFilter||r.object_name===objectFilter);}).reduce(function(sum,r){
+    return sum+parseJsonArray(r.payments).reduce(function(s,p){return s+(Number(p.amount!=null?p.amount:p.sum)||0);},0);
+  },0);
+  return allocatedManualItemsForEmployee(fio,objectFilter).filter(function(p){return p.allocation_month===month&&String(p.allocation_year)===String(year);}).reduce(function(sum,p){return sum+Number(p.amount||0);},0);
 }
 function normalizedBankAllocations(payment){
   return parseJsonArray(payment&&payment.allocations).map(function(a){
@@ -2210,7 +2245,7 @@ function groupSalaryRecordsByMonth(recs,fio,includeBankAllocations){
     const key=String(year||'')+'|'+String(month||'Без месяца');
     if(!groups[key])groups[key]={
       key:key,month:String(month||'Без месяца'),year:String(year||''),records:[],objects:new Set(),hours:0,hourlyAmount:0,
-      perDiemDays:0,perDiemAmount:0,extraTotal:0,total:0,paid:0,bankPaid:0,bankPayments:[],extras:Object.create(null)
+      perDiemDays:0,perDiemAmount:0,extraTotal:0,total:0,paid:0,manualPayments:[],bankPaid:0,bankPayments:[],extras:Object.create(null)
     };
     return groups[key];
   }
@@ -2230,9 +2265,13 @@ function groupSalaryRecordsByMonth(recs,fio,includeBankAllocations){
       g.extras[name]=(g.extras[name]||0)+amount;
     });
     g.total+=Number(r.total||0);
-    g.paid+=Number(r.paid||0);
   });
   if(includeBankAllocations!==false&&fio){
+    allocatedManualItemsForEmployee(fio).forEach(function(p){
+      const g=ensureGroup(p.allocation_month,p.allocation_year);
+      g.paid+=Number(p.amount||0);
+      g.manualPayments.push(p);
+    });
     allocatedBankItemsForEmployee(fio).forEach(function(p){
       const g=ensureGroup(p.allocation_month,p.allocation_year);
       g.bankPaid+=Number(p.amount||0);
@@ -2271,6 +2310,13 @@ function salarySourceRecordHtml(r){
     (rowActions?'<div class="salary-entry-actions">'+rowActions+'</div>':'')+
   '</div>';
 }
+function salaryMonthManualPaymentsHtml(group){
+  if(!group.manualPayments||!group.manualPayments.length)return '';
+  return '<div class="salary-month-payments"><div class="salary-month-payments-title">Распределённые ручные выплаты</div>'+group.manualPayments.map(function(p){
+    const actions=can('salary.edit')?'<button class="btn btn-blue btn-sm" type="button" onclick="event.stopPropagation();openManualAllocation('+p.recordId+','+p.paymentIndex+','+p.allocationIndex+')">Изменить распределение</button>':'';
+    return '<div class="salary-month-payment-row"><span>'+formatDateRu(p.handed_at)+' — <b>'+formatMoney(p.amount)+' ₽</b><div style="font-size:11px;color:#667085;margin-top:2px">Передал: <b>'+escapeHtml(p.handed_by)+'</b></div></span><span class="salary-payment-actions">'+actions+'</span></div>';
+  }).join('')+'</div>';
+}
 function salaryMonthBankPaymentsHtml(group){
   if(!group.bankPayments||!group.bankPayments.length)return '';
   return '<div class="salary-month-payments"><div class="salary-month-payments-title">Распределённые выплаты</div>'+group.bankPayments.map(function(p){
@@ -2294,6 +2340,7 @@ function salaryMonthGroupHtml(group){
       '<div class="salary-entry-field"><label>Доп. начисления</label><div>'+salaryMonthExtrasHtml(group)+'</div></div>'+
     '</div>'+
     '<div class="salary-entry-totals"><span>Начислено за месяц: <b>'+formatMoney(group.total)+' ₽</b></span><span>Выплачено за месяц: <b>'+formatMoney(monthPaid)+' ₽</b></span><span>Долг за месяц: <b>'+formatMoney(debt)+' ₽</b></span></div>'+
+    salaryMonthManualPaymentsHtml(group)+
     salaryMonthBankPaymentsHtml(group)+
     (group.records.length?'<details class="salary-month-source"><summary>Исходные записи месяца ('+group.records.length+')</summary><div class="salary-source-list">'+sourceRows+'</div></details>':'')+
   '</div>';
@@ -2345,7 +2392,7 @@ function renderSalary(){
   const visibleRecords=[];
   employeeNames.forEach(function(fio){(byEmp[fio]||[]).forEach(function(r){visibleRecords.push(r);});});
   const summaryTotal=visibleRecords.reduce(function(sum,r){return sum+parseFloat(r.total||0);},0);
-  const summaryManualPaid=employeeNames.reduce(function(sum,fio){return sum+manualPaidAfterOpeningForRecords(fio,byEmp[fio]||[],cutoff);},0);
+  const summaryManualPaid=employeeNames.reduce(function(sum,fio){return sum+(filter?manualPaidForEmployeePeriod(fio,filter,periodYear,objectFilter):manualPaidAfterOpeningForRecords(fio,byEmp[fio]||[],cutoff));},0);
   const summaryBankPaid=employeeNames.reduce(function(sum,fio){return sum+bankPaymentItemsForEmployee(fio,periodStart,filter?cutoff:'').reduce(function(s,p){return s+p.amount;},0);},0);
   const summaryPaid=summaryManualPaid+summaryBankPaid;
   const summaryBalance=employeeNames.reduce(function(sum,fio){return sum+employeePositionAt(fio,cutoff).balance;},0);
@@ -2363,7 +2410,7 @@ function renderSalary(){
     let monthGroups=groupSalaryRecordsByMonth(recs,fio,!objectFilter);
     if(filter)monthGroups=monthGroups.filter(function(g){return g.month===filter&&String(g.year)===String(periodYear);});
     const total=recs.reduce(function(sum,r){return sum+parseFloat(r.total||0);},0);
-    const manualPaid=manualPaidAfterOpeningForRecords(fio,recs,cutoff);
+    const manualPaid=filter?manualPaidForEmployeePeriod(fio,filter,periodYear,objectFilter):manualPaidAfterOpeningForRecords(fio,recs,cutoff);
     const bankItems=bankPaymentItemsForEmployee(fio,periodStart,filter?cutoff:'');
     const paid=manualPaid+bankItems.reduce(function(sum,p){return sum+p.amount;},0);
     const historyBankItems=bankUnallocatedHistoryItemsForEmployee(fio,periodStart,filter?cutoff:'');
@@ -2389,8 +2436,8 @@ function renderSalary(){
         if(can('bank.delete'))bankActions+='<button class="btn btn-red btn-sm" type="button" onclick="event.stopPropagation();deleteBankPayment('+p.id+')">Удалить</button>';
         return '<div class="salary-payment-row"><span>'+(p.date?formatDateRu(p.date):'Дата не указана')+' — <b>'+formatMoney(p.amount)+' ₽</b>'+(p.allocated_total>0?'<div style="font-size:11px;color:#667085;margin-top:3px">Уже распределено: '+formatMoney(p.allocated_total)+' ₽ из '+formatMoney(p.original_amount)+' ₽</div>':'')+'<div style="font-size:11px;color:#667085;margin-top:3px"><b>Из выписки · '+escapeHtml(p.bank||'Банк')+'</b>'+(p.purpose?' — '+escapeHtml(p.purpose):'')+'</div></span><span class="salary-payment-actions">'+bankActions+'</span></div>';
       }
-      const manualActions=can('salary.edit')?'<button class="btn btn-blue btn-sm" type="button" onclick="editPayment('+p.recordId+','+p.index+')">Изменить</button><button class="btn btn-red btn-sm" type="button" onclick="deletePayment('+p.recordId+','+p.index+')">Удалить</button>':'';
-      return '<div class="salary-payment-row"><span>'+(p.date?formatDateRu(p.date):'Дата не указана')+' — <b>'+formatMoney(p.amount)+' ₽</b><div style="font-size:11px;color:#667085;margin-top:3px">Внесено вручную</div></span><span class="salary-payment-actions">'+manualActions+'</span></div>';
+      const manualActions=can('salary.edit')?'<button class="btn btn-green btn-sm" type="button" onclick="event.stopPropagation();openManualAllocation('+p.recordId+','+p.index+')">Распределить</button><button class="btn btn-blue btn-sm" type="button" onclick="editPayment('+p.recordId+','+p.index+')">Изменить</button><button class="btn btn-red btn-sm" type="button" onclick="deletePayment('+p.recordId+','+p.index+')">Удалить</button>':'';
+      return '<div class="salary-payment-row"><span>'+(p.date?formatDateRu(p.date):'Дата не указана')+' — <b>'+formatMoney(p.amount)+' ₽</b>'+(p.allocated_total>0?'<div style="font-size:11px;color:#667085;margin-top:3px">Уже распределено: '+formatMoney(p.allocated_total)+' ₽ из '+formatMoney(p.original_amount)+' ₽</div>':'')+'<div style="font-size:11px;color:#667085;margin-top:3px">Внесено вручную</div></span><span class="salary-payment-actions">'+manualActions+'</span></div>';
     }).join(''):'<div class="salary-payment-empty">Выплаты не указаны.</div>');
     const paidLink=head.querySelector('.salary-paid-link');
     function togglePayments(event){if(event){event.preventDefault();event.stopPropagation();}paymentDetail.classList.toggle('show');}
@@ -2403,6 +2450,7 @@ function renderSalary(){
   });
 }
 let quickPaymentEdit=null;
+let manualAllocationEdit=null;
 function recordLabel(r){return (r.charge_date?formatDateRu(r.charge_date):((r.month||'')+' '+(r.year||'')))+' · '+(r.object_name||'Без объекта')+' · долг '+formatMoney(parseFloat(r.total||0)-parseFloat(r.paid||0))+' ₽';}
 function openQuickPayment(recordId){if(!can('salary.edit'))return;
   const r=salaryRecords.find(function(x){return x.id===recordId;});if(!r)return;
@@ -2440,11 +2488,19 @@ async function saveQuickPayment(){
     const recordId=Number(document.getElementById('quickPaymentRecord').value),r=salaryRecords.find(function(x){return x.id===recordId;});if(!r)throw new Error('Запись начисления не найдена');
     const date=validateDateField(document.getElementById('quickPaymentDate').value,'Дата выплаты',true);
     const amount=Number(document.getElementById('quickPaymentAmount').value);if(!(amount>0))throw new Error('Сумма выплаты должна быть больше нуля');
-    const payments=parseJsonArray(r.payments).map(function(p){return {date:p.date||p.payment_date||'',amount:parseFloat(p.amount!=null?p.amount:p.sum)||0};});
+    const payments=parseJsonArray(r.payments).map(function(p){
+      const item={date:p.date||p.payment_date||'',amount:parseFloat(p.amount!=null?p.amount:p.sum)||0};
+      if(Array.isArray(p.allocations))item.allocations=p.allocations;
+      return item;
+    });
     const oldAmount=quickPaymentEdit&&quickPaymentEdit.recordId===recordId&&payments[quickPaymentEdit.index]?payments[quickPaymentEdit.index].amount:0;
     const currentPaid=payments.reduce(function(s,p){return s+p.amount;},0)-oldAmount,newPaid=currentPaid+amount,total=parseFloat(r.total||0);
     if(newPaid>total+0.005&&!confirm('После этой выплаты получится переплата '+formatMoney(newPaid-total)+' ₽. Всё равно сохранить?'))return;
-    if(quickPaymentEdit&&quickPaymentEdit.recordId===recordId)payments[quickPaymentEdit.index]={date:date,amount:amount};else payments.push({date:date,amount:amount});
+    if(quickPaymentEdit&&quickPaymentEdit.recordId===recordId){
+      const existing=payments[quickPaymentEdit.index]||{};
+      if(manualAllocatedTotal(existing)>amount+0.005)throw new Error('Новая сумма меньше уже распределённой. Сначала измените распределение выплаты.');
+      payments[quickPaymentEdit.index]={date:date,amount:amount,allocations:Array.isArray(existing.allocations)?existing.allocations:[]};
+    }else payments.push({date:date,amount:amount});
     validatePaymentItems(payments);await saveRecordPayments(r,payments);
     salaryRecords=await api('/api/salary');closeModal('quickPaymentModal');renderSalary();toast(quickPaymentEdit?'Выплата изменена':'Выплата добавлена');quickPaymentEdit=null;
   }catch(e){toast(e.message,'error');}
@@ -2452,6 +2508,89 @@ async function saveQuickPayment(){
 async function deletePayment(recordId,index){
   const r=salaryRecords.find(function(x){return x.id===recordId;});if(!r||!confirm('Удалить эту выплату?'))return;
   try{const payments=parseJsonArray(r.payments);payments.splice(index,1);await saveRecordPayments(r,payments);salaryRecords=await api('/api/salary');renderSalary();toast('Выплата удалена');}catch(e){toast(e.message,'error');}
+}
+function manualAllocationPeriodOptions(fio,selectedMonth,selectedYear){
+  const selectedKey=String(selectedYear||'')+'|'+String(selectedMonth||'');
+  const periods=salaryPeriodsForEmployee(fio);
+  return periods.map(function(x){
+    const key=String(x.year)+'|'+x.month;
+    return '<option value="'+escapeHtml(key)+'" '+(key===selectedKey?'selected':'')+'>'+escapeHtml(x.month+' '+x.year)+'</option>';
+  }).join('');
+}
+function openManualAllocation(recordId,paymentIndex,allocationIndex){
+  if(!can('salary.edit'))return;
+  const r=salaryRecords.find(function(x){return Number(x.id)===Number(recordId);});
+  if(!r)return;
+  const payments=parseJsonArray(r.payments),p=payments[paymentIndex];if(!p)return;
+  const allocations=normalizedManualAllocations(p),existing=Number.isInteger(allocationIndex)?allocations[allocationIndex]:null;
+  const periods=salaryPeriodsForEmployee(r.employee_fio);
+  if(!periods.length){toast('Для сотрудника нет записей зарплаты для распределения','error');return;}
+  manualAllocationEdit={recordId:Number(recordId),paymentIndex:Number(paymentIndex),allocationIndex:Number.isInteger(allocationIndex)?Number(allocationIndex):null};
+  const preferred=existing||periods[0];
+  const select=document.getElementById('manualAllocationPeriod');
+  select.innerHTML=manualAllocationPeriodOptions(r.employee_fio,preferred.month,preferred.year);
+  document.getElementById('manualAllocationHandedBy').value=existing?existing.handed_by:'';
+  document.getElementById('manualAllocationDate').value=existing?isoToRuDate(existing.handed_at):'';
+  const allocatedElsewhere=allocations.reduce(function(s,a,index){return s+(index===manualAllocationEdit.allocationIndex?0:Number(a.amount||0));},0);
+  const available=Math.max(0,Number(p.amount||0)-allocatedElsewhere);
+  document.getElementById('manualAllocationAmount').value=existing?existing.amount:available;
+  document.getElementById('manualAllocationInfo').innerHTML='<b>'+escapeHtml(r.employee_fio||'')+'</b> · ручная выплата '+formatMoney(Number(p.amount||0))+' ₽'+((p.date||p.payment_date)?' от '+formatDateRu(p.date||p.payment_date):'');
+  document.getElementById('manualAllocationDeleteBtn').style.display=existing?'inline-block':'none';
+  updateManualAllocationRemaining();
+  document.getElementById('manualAllocationModal').classList.add('show');
+  initDateInputs(document.getElementById('manualAllocationModal'));
+}
+function updateManualAllocationRemaining(){
+  if(!manualAllocationEdit)return;
+  const r=salaryRecords.find(function(x){return Number(x.id)===Number(manualAllocationEdit.recordId);});if(!r)return;
+  const p=parseJsonArray(r.payments)[manualAllocationEdit.paymentIndex];if(!p)return;
+  const allocations=normalizedManualAllocations(p);
+  const allocatedElsewhere=allocations.reduce(function(s,a,index){return s+(index===manualAllocationEdit.allocationIndex?0:Number(a.amount||0));},0);
+  const current=Math.max(0,Number(document.getElementById('manualAllocationAmount').value||0));
+  const remaining=Number(p.amount||0)-allocatedElsewhere-current;
+  const el=document.getElementById('manualAllocationRemaining');
+  el.textContent='Доступно к распределению: '+formatMoney(Math.max(0,Number(p.amount||0)-allocatedElsewhere))+' ₽ · После операции останется: '+formatMoney(Math.max(0,remaining))+' ₽';
+  el.style.color=remaining<-0.005?'#b42318':'#344054';
+}
+async function saveManualAllocation(){
+  if(!manualAllocationEdit)return;
+  try{
+    const r=salaryRecords.find(function(x){return Number(x.id)===Number(manualAllocationEdit.recordId);});if(!r)throw new Error('Запись зарплаты не найдена');
+    const payments=parseJsonArray(r.payments),p=payments[manualAllocationEdit.paymentIndex];if(!p)throw new Error('Ручная выплата не найдена');
+    const period=String(document.getElementById('manualAllocationPeriod').value||'').split('|'),year=String(period[0]||''),month=String(period.slice(1).join('|')||'');
+    if(!month||!year)throw new Error('Выберите запись зарплаты');
+    if(isPeriodClosed(month,year))throw new Error('Период '+month+' '+year+' закрыт. Сначала откройте период.');
+    const handedBy=document.getElementById('manualAllocationHandedBy').value.trim();
+    if(!handedBy)throw new Error('Укажите, кто передавал деньги');
+    const handedAt=validateDateField(document.getElementById('manualAllocationDate').value,'Когда передавал',true);
+    const amount=Number(document.getElementById('manualAllocationAmount').value);
+    if(!(amount>0))throw new Error('Укажите сумму, которую передавали');
+    const allocations=normalizedManualAllocations(p);
+    const allocatedElsewhere=allocations.reduce(function(s,a,index){return s+(index===manualAllocationEdit.allocationIndex?0:Number(a.amount||0));},0);
+    if(allocatedElsewhere+amount>Number(p.amount||0)+0.005)throw new Error('Распределение превышает сумму ручной выплаты');
+    const next={month:month,year:year,amount:Math.round(amount*100)/100,handed_by:handedBy,handed_at:handedAt};
+    if(Number.isInteger(manualAllocationEdit.allocationIndex))allocations[manualAllocationEdit.allocationIndex]=next;else allocations.push(next);
+    payments[manualAllocationEdit.paymentIndex]={...p,allocations:allocations};
+    await saveRecordPayments(r,payments);
+    salaryRecords=await api('/api/salary');
+    closeModal('manualAllocationModal');manualAllocationEdit=null;renderSalary();renderDashboard();
+    toast('Ручная выплата распределена');
+  }catch(e){toast(e.message,'error');}
+}
+async function deleteManualAllocation(){
+  if(!manualAllocationEdit||!Number.isInteger(manualAllocationEdit.allocationIndex))return;
+  if(!confirm('Отменить это распределение? Сумма вернётся в общую историю выплат.'))return;
+  try{
+    const r=salaryRecords.find(function(x){return Number(x.id)===Number(manualAllocationEdit.recordId);});if(!r)throw new Error('Запись зарплаты не найдена');
+    const payments=parseJsonArray(r.payments),p=payments[manualAllocationEdit.paymentIndex];if(!p)throw new Error('Ручная выплата не найдена');
+    const allocations=normalizedManualAllocations(p);
+    allocations.splice(manualAllocationEdit.allocationIndex,1);
+    payments[manualAllocationEdit.paymentIndex]={...p,allocations:allocations};
+    await saveRecordPayments(r,payments);
+    salaryRecords=await api('/api/salary');
+    closeModal('manualAllocationModal');manualAllocationEdit=null;renderSalary();renderDashboard();
+    toast('Распределение отменено');
+  }catch(e){toast(e.message,'error');}
 }
 function salaryPeriodsForEmployee(fio){
   const map={};
@@ -2576,6 +2715,7 @@ async function saveEditSalary(){
     const paid=payments.reduce(function(s,e){return s+e.amount;},0);
     validateDateField(document.getElementById('editChargeDate').value,'Дата начисления',false);
     requireNonNegative(hourRate,'Ставка за час');requireNonNegative(hours,'Часы');requireNonNegative(perDiemDays,'Дни суточных');requireNonNegative(perDiemRate,'Ставка суточных');extra.forEach(function(x){requireNonNegative(x.amount,'Дополнительное начисление');});validatePaymentItems(payments);
+    payments.forEach(function(p){if(manualAllocatedTotal(p)>Number(p.amount||0)+0.005)throw new Error('Сумма ручной выплаты не может быть меньше уже распределённой суммы');});
     if(paid>total+0.005&&!confirm('Выплаты превышают начисление. Переплата '+formatMoney(paid-total)+' ₽. Всё равно сохранить?'))return;
     document.getElementById('editTotal').value=total.toFixed(2);
     document.getElementById('editPaid').value=paid.toFixed(2);
