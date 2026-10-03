@@ -218,6 +218,20 @@ async function ensureDatabaseSchema(){
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`);
   await pool.query("CREATE INDEX IF NOT EXISTS idx_loans_organization ON loans(lower(trim(organization)),id)");
+  await pool.query(`CREATE TABLE IF NOT EXISTS loan_attachments(
+    id BIGSERIAL PRIMARY KEY,
+    loan_id BIGINT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+    tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+    organization TEXT NOT NULL DEFAULT '',
+    file_name TEXT NOT NULL,
+    mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+    file_size INTEGER NOT NULL DEFAULT 0,
+    file_data BYTEA NOT NULL,
+    uploaded_by TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_loan_attachments_loan ON loan_attachments(loan_id,id DESC)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_loan_attachments_organization ON loan_attachments(lower(trim(organization)),loan_id)");
   await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS full_name TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS inn TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS kpp TEXT NOT NULL DEFAULT ''");
@@ -2241,6 +2255,14 @@ app.post('/api/object-customers',requirePermission('objects.manage'),async(req,r
 
 // === LOANS ===
 const LOAN_LENDER_TYPES=new Set(['individual','legal']),LOAN_STATUSES=new Set(['active','closed','overdue']);
+const LOAN_ATTACHMENT_MAX_BYTES=5*1024*1024;
+const LOAN_ATTACHMENT_TYPES={
+  '.pdf':'application/pdf',
+  '.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.webp':'image/webp',
+  '.doc':'application/msword','.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls':'application/vnd.ms-excel','.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.txt':'text/plain','.csv':'text/csv'
+};
 function cleanLoanRepayments(value){
   return (Array.isArray(value)?value:[]).slice(0,1000).map(function(x){return {date:dealText(x&&x.date,10),amount:dealNumber(x&&x.amount),comment:dealText(x&&x.comment,1000)};}).filter(function(x){return x.date||x.amount||x.comment;});
 }
@@ -2252,6 +2274,25 @@ function loanPayload(body){
     status:LOAN_STATUSES.has(status)?status:'active',comments:dealText(x.comments,8000)};
 }
 async function loanScope(user,requestedOrganization){return counterpartyScope(user,requestedOrganization);}
+async function requireLoanAccess(id,user){
+  const r=await pool.query('SELECT id,tenant_id,organization,lender_name,contract_no FROM loans WHERE id=$1',[id]);
+  if(!r.rows.length){const err=new Error('Займ не найден');err.status=404;throw err;}
+  const loan=r.rows[0];
+  if(!isSiteWideUser(user)&&!sameAccessValue(loan.organization,accessOrganization(user))){const err=new Error('Нет доступа к займу');err.status=403;throw err;}
+  return loan;
+}
+function cleanLoanAttachment(body){
+  const rawName=String(body&&body.file_name||'').replace(/[\u0000-\u001f\u007f]/g,'').trim();
+  const fileName=path.basename(rawName).slice(0,255);
+  const ext=path.extname(fileName).toLowerCase();
+  if(!fileName||!LOAN_ATTACHMENT_TYPES[ext]){const err=new Error('Допустимы PDF, JPG, PNG, WEBP, DOC, DOCX, XLS, XLSX, TXT и CSV');err.status=400;throw err;}
+  const base64=String(body&&body.data_base64||'').replace(/^data:[^,]*,/,'').trim();
+  if(!base64||base64.length>Math.ceil(LOAN_ATTACHMENT_MAX_BYTES*4/3)+16||!/^[A-Za-z0-9+/]*={0,2}$/.test(base64)){const err=new Error('Некорректный файл');err.status=400;throw err;}
+  const fileData=Buffer.from(base64,'base64');
+  if(!fileData.length){const err=new Error('Файл пустой');err.status=400;throw err;}
+  if(fileData.length>LOAN_ATTACHMENT_MAX_BYTES){const err=new Error('Размер одного файла не должен превышать 5 МБ');err.status=413;throw err;}
+  return {file_name:fileName,mime_type:LOAN_ATTACHMENT_TYPES[ext],file_size:fileData.length,file_data:fileData};
+}
 app.get('/api/loans',requirePermission('loans.view'),async(req,res)=>{
   try{const user=req.accessUser||await refreshAccessUser(req);const r=isSiteWideUser(user)?await pool.query('SELECT * FROM loans ORDER BY id DESC'):await pool.query('SELECT * FROM loans WHERE lower(trim(organization))=lower(trim($1)) ORDER BY id DESC',[accessOrganization(user)]);res.json(r.rows);}
   catch(err){res.status(err.status||500).json({error:err.message});}
@@ -2266,6 +2307,44 @@ app.put('/api/loans/:id',requirePermission('loans.manage'),async(req,res)=>{
   try{const id=Number(req.params.id),user=req.accessUser||await refreshAccessUser(req),before=await pool.query('SELECT * FROM loans WHERE id=$1',[id]);if(!before.rows.length)return res.status(404).json({error:'Займ не найден'});if(!isSiteWideUser(user)&&!sameAccessValue(before.rows[0].organization,accessOrganization(user)))return res.status(403).json({error:'Нет доступа к займу'});
     const d=loanPayload(req.body),scope=await loanScope(user,req.body&&req.body.organization);const r=await pool.query(`UPDATE loans SET tenant_id=$1,organization=$2,lender_type=$3,lender_name=$4,lender_inn=$5,contract_no=$6,contract_date=$7,received_date=$8,principal=$9,interest_rate=$10,due_date=$11,repayments=$12::jsonb,status=$13,comments=$14,updated_at=CURRENT_TIMESTAMP WHERE id=$15 RETURNING *`,[scope.tenant_id,scope.organization,d.lender_type,d.lender_name,d.lender_inn,d.contract_no,d.contract_date,d.received_date,d.principal,d.interest_rate,d.due_date,JSON.stringify(d.repayments),d.status,d.comments,id]);await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Изменён займ / кредит: '+d.lender_name]);res.json(r.rows[0]);}
   catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.get('/api/loans/:id/attachments',requirePermission('loans.view'),async(req,res)=>{
+  try{
+    const id=Number(req.params.id),user=req.accessUser||await refreshAccessUser(req);await requireLoanAccess(id,user);
+    const r=await pool.query('SELECT id,loan_id,file_name,mime_type,file_size,uploaded_by,created_at FROM loan_attachments WHERE loan_id=$1 ORDER BY id DESC',[id]);
+    res.json(r.rows);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.post('/api/loans/:id/attachments',requirePermission('loans.manage'),async(req,res)=>{
+  try{
+    const id=Number(req.params.id),user=req.accessUser||await refreshAccessUser(req),loan=await requireLoanAccess(id,user),file=cleanLoanAttachment(req.body);
+    const r=await pool.query('INSERT INTO loan_attachments(loan_id,tenant_id,organization,file_name,mime_type,file_size,file_data,uploaded_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,loan_id,file_name,mime_type,file_size,uploaded_by,created_at',[id,loan.tenant_id,loan.organization,file.file_name,file.mime_type,file.file_size,file.file_data,req.session.user.login]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Добавлен файл к займу / кредиту: '+loan.lender_name+' — '+file.file_name]);
+    res.json(r.rows[0]);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.get('/api/loans/:loanId/attachments/:attachmentId/download',requirePermission('loans.view'),async(req,res)=>{
+  try{
+    const loanId=Number(req.params.loanId),attachmentId=Number(req.params.attachmentId),user=req.accessUser||await refreshAccessUser(req);await requireLoanAccess(loanId,user);
+    const r=await pool.query('SELECT file_name,mime_type,file_size,file_data FROM loan_attachments WHERE id=$1 AND loan_id=$2',[attachmentId,loanId]);
+    if(!r.rows.length)return res.status(404).json({error:'Файл не найден'});
+    const a=r.rows[0];
+    res.setHeader('Content-Type',a.mime_type||'application/octet-stream');
+    res.setHeader('Content-Length',String(a.file_size||a.file_data.length||0));
+    res.setHeader('Content-Disposition',"attachment; filename*=UTF-8''"+encodeURIComponent(a.file_name||'document'));
+    res.setHeader('Cache-Control','private, no-store');
+    res.send(a.file_data);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.delete('/api/loans/:loanId/attachments/:attachmentId',requirePermission('loans.manage'),async(req,res)=>{
+  try{
+    const loanId=Number(req.params.loanId),attachmentId=Number(req.params.attachmentId),user=req.accessUser||await refreshAccessUser(req),loan=await requireLoanAccess(loanId,user);
+    const before=await pool.query('SELECT file_name FROM loan_attachments WHERE id=$1 AND loan_id=$2',[attachmentId,loanId]);
+    if(!before.rows.length)return res.status(404).json({error:'Файл не найден'});
+    await pool.query('DELETE FROM loan_attachments WHERE id=$1 AND loan_id=$2',[attachmentId,loanId]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Удалён файл из займа / кредита: '+loan.lender_name+' — '+before.rows[0].file_name]);
+    res.json({ok:true});
+  }catch(err){res.status(err.status||500).json({error:err.message});}
 });
 app.delete('/api/loans/:id',requirePermission('loans.manage'),async(req,res)=>{
   try{const id=Number(req.params.id),user=req.accessUser||await refreshAccessUser(req),before=await pool.query('SELECT * FROM loans WHERE id=$1',[id]);if(!before.rows.length)return res.status(404).json({error:'Займ не найден'});if(!isSiteWideUser(user)&&!sameAccessValue(before.rows[0].organization,accessOrganization(user)))return res.status(403).json({error:'Нет доступа к займу'});await pool.query('DELETE FROM loans WHERE id=$1',[id]);await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Удалён займ / кредит: '+before.rows[0].lender_name]);res.json({ok:true});}
