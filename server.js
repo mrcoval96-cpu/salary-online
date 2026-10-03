@@ -167,6 +167,34 @@ async function ensureDatabaseSchema(){
   )`);
   await pool.query("CREATE INDEX IF NOT EXISTS idx_deals_organization ON deals(lower(trim(organization)),id)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_deals_tenant ON deals(tenant_id,id)");
+  await pool.query(`CREATE TABLE IF NOT EXISTS counterparties(
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+    organization TEXT NOT NULL DEFAULT '',
+    counterparty_type TEXT NOT NULL DEFAULT 'both',
+    name TEXT NOT NULL DEFAULT '',
+    full_name TEXT NOT NULL DEFAULT '',
+    inn TEXT NOT NULL DEFAULT '',
+    kpp TEXT NOT NULL DEFAULT '',
+    ogrn TEXT NOT NULL DEFAULT '',
+    legal_address TEXT NOT NULL DEFAULT '',
+    postal_address TEXT NOT NULL DEFAULT '',
+    director_fio TEXT NOT NULL DEFAULT '',
+    contact_person TEXT NOT NULL DEFAULT '',
+    phone TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    website TEXT NOT NULL DEFAULT '',
+    bank_name TEXT NOT NULL DEFAULT '',
+    bik TEXT NOT NULL DEFAULT '',
+    settlement_account TEXT NOT NULL DEFAULT '',
+    correspondent_account TEXT NOT NULL DEFAULT '',
+    comments TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_counterparties_organization ON counterparties(lower(trim(organization)),id)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_counterparties_inn ON counterparties(inn) WHERE trim(inn)<>''");
   await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS full_name TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS inn TEXT NOT NULL DEFAULT ''");
   await pool.query("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS kpp TEXT NOT NULL DEFAULT ''");
@@ -225,7 +253,7 @@ async function repairOrganizationReferences(){
     }
   }catch(e){console.warn('Organization alias discovery:',e.message);}
 
-  for(const table of ['users','employees','objects','salary_records','deals']){
+  for(const table of ['users','employees','objects','salary_records','deals','counterparties']){
     await pool.query("UPDATE "+table+" t SET organization=o.name FROM organizations o WHERE trim(COALESCE(t.organization,''))<>'' AND lower(trim(t.organization))=lower(trim(o.name)) AND t.organization<>o.name");
     await pool.query("UPDATE "+table+" t SET organization=o.name FROM organization_aliases a JOIN organizations o ON o.id=a.organization_id WHERE lower(trim(COALESCE(t.organization,'')))=lower(trim(a.alias)) AND t.organization<>o.name");
   }
@@ -502,6 +530,7 @@ const PERMISSION_DEFINITIONS=[
   {key:'organizations.view',group:'Организации',label:'Просмотр организации'},
   {key:'organizations.manage',group:'Организации',label:'Создание, изменение и удаление организаций',siteOnly:true},
   {key:'accounting.view',group:'Разделы сайта',label:'Доступ к разделу «Бухгалтерия»'},
+  {key:'counterparties.manage',group:'Бухгалтерия',label:'Создание, изменение и удаление контрагентов'},
   {key:'deals.view',group:'Разделы сайта',label:'Доступ к разделу «Сделки»'},
   {key:'deals.manage',group:'Разделы сайта',label:'Создание, изменение, удаление и импорт сделок'},
   {key:'warehouse.view',group:'Разделы сайта',label:'Доступ к разделу «Склад»'},
@@ -534,7 +563,7 @@ const ROLE_PERMISSION_DEFAULTS={
   'Руководитель сайта':Object.fromEntries(PERMISSION_DEFINITIONS.map(x=>[x.key,true])),
   'Руководитель организации':{
     'employees.view':true,'employees.manage':true,'objects.view':true,'objects.manage':true,
-    'organizations.view':true,'organizations.manage':false,'accounting.view':true,'deals.view':true,'deals.manage':true,'warehouse.view':true,
+    'organizations.view':true,'organizations.manage':false,'accounting.view':true,'counterparties.manage':true,'deals.view':true,'deals.manage':true,'warehouse.view':true,
     'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':true,
     'balances.manage':true,'bank.view':true,'bank.import':true,'bank.allocate':true,'bank.delete':true,
     'periods.close':true,'periods.reopen':true,'reports.export':true,
@@ -543,7 +572,7 @@ const ROLE_PERMISSION_DEFAULTS={
   },
   'Бухгалтер':{
     'employees.view':true,'employees.manage':false,'objects.view':true,'objects.manage':false,
-    'organizations.view':true,'organizations.manage':false,'accounting.view':true,'deals.view':true,'deals.manage':true,'warehouse.view':false,
+    'organizations.view':true,'organizations.manage':false,'accounting.view':true,'counterparties.manage':true,'deals.view':true,'deals.manage':true,'warehouse.view':false,
     'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':true,
     'balances.manage':true,'bank.view':true,'bank.import':true,'bank.allocate':true,'bank.delete':true,
     'periods.close':true,'periods.reopen':false,'reports.export':true,
@@ -551,7 +580,7 @@ const ROLE_PERMISSION_DEFAULTS={
   },
   'Руководитель':{
     'employees.view':true,'employees.manage':true,'objects.view':true,'objects.manage':false,
-    'organizations.view':true,'organizations.manage':false,'accounting.view':false,'deals.view':true,'deals.manage':true,'warehouse.view':true,
+    'organizations.view':true,'organizations.manage':false,'accounting.view':false,'counterparties.manage':false,'deals.view':true,'deals.manage':true,'warehouse.view':true,
     'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':false,
     'balances.manage':false,'bank.view':false,'bank.import':false,'bank.allocate':false,'bank.delete':false,
     'periods.close':false,'periods.reopen':false,'reports.export':true,
@@ -559,7 +588,7 @@ const ROLE_PERMISSION_DEFAULTS={
   },
   'Руководитель проекта':{
     'employees.view':true,'employees.manage':false,'objects.view':true,'objects.manage':false,
-    'organizations.view':false,'organizations.manage':false,'accounting.view':false,'deals.view':true,'deals.manage':false,'warehouse.view':true,
+    'organizations.view':false,'organizations.manage':false,'accounting.view':false,'counterparties.manage':false,'deals.view':true,'deals.manage':false,'warehouse.view':true,
     'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':false,
     'balances.manage':false,'bank.view':false,'bank.import':false,'bank.allocate':false,'bank.delete':false,
     'periods.close':false,'periods.reopen':false,'reports.export':true,
@@ -1821,7 +1850,7 @@ app.put('/api/organizations/:id', requireSiteManager, async (req, res) => {
     if(oldName&&oldName!==data.name){
       await client.query('INSERT INTO organization_aliases(alias,organization_id) VALUES($1,$2) ON CONFLICT(alias) DO UPDATE SET organization_id=EXCLUDED.organization_id',[normAccess(oldName),req.params.id]);
     }
-    for(const table of ['users','employees','objects','salary_records','deals']){
+    for(const table of ['users','employees','objects','salary_records','deals','counterparties']){
       await client.query("UPDATE "+table+" SET organization=$1 WHERE lower(trim(COALESCE(organization,'')))=lower(trim($2))",[data.name,oldName]);
     }
     if(oldName!==data.name){
@@ -1986,13 +2015,14 @@ async function prepareBankStatementTransactions(transactions,user){
   });
 }
 async function createAutomaticBackup(){
-  const [users,employees,objects,orgs,salary,deals,responsibles,userResponsibles,periods,balances,bankPayments,aliases,log,securityLog,complianceData]=await Promise.all([
+  const [users,employees,objects,orgs,salary,deals,counterparties,responsibles,userResponsibles,periods,balances,bankPayments,aliases,log,securityLog,complianceData]=await Promise.all([
     pool.query('SELECT * FROM users ORDER BY id'),
     pool.query('SELECT * FROM employees ORDER BY id'),
     pool.query('SELECT * FROM objects ORDER BY id'),
     pool.query('SELECT * FROM organizations ORDER BY id'),
     pool.query('SELECT * FROM salary_records ORDER BY id'),
     pool.query('SELECT * FROM deals ORDER BY id'),
+    pool.query('SELECT * FROM counterparties ORDER BY id'),
     pool.query('SELECT object_id,employee_id,created_at FROM object_responsibles ORDER BY object_id,employee_id'),
     pool.query('SELECT object_id,user_id,created_at FROM object_user_responsibles ORDER BY object_id,user_id'),
     pool.query('SELECT * FROM closed_salary_periods ORDER BY year,month'),
@@ -2013,6 +2043,7 @@ async function createAutomaticBackup(){
     organizations:orgs.rows,
     salary:salary.rows,
     deals:deals.rows,
+    counterparties:counterparties.rows,
     employee_balances:balances.rows,
     bank_statement_payments:bankPayments.rows,
     object_responsibles:responsibles.rows,
@@ -2032,6 +2063,83 @@ function startAutomaticBackups(){
   setTimeout(()=>createAutomaticBackup().catch(e=>console.error('Automatic backup error:',e.message)),15000);
   backupTimer=setInterval(()=>createAutomaticBackup().catch(e=>console.error('Automatic backup error:',e.message)),24*60*60*1000);
 }
+
+// === COUNTERPARTIES ===
+const COUNTERPARTY_TYPES=new Set(['customer','supplier','both','other']);
+function counterpartyPayload(body){
+  const x=body||{},type=dealText(x.counterparty_type,30);
+  return {
+    counterparty_type:COUNTERPARTY_TYPES.has(type)?type:'both',
+    name:dealText(x.name,500),full_name:dealText(x.full_name,1000),inn:dealText(x.inn,20),kpp:dealText(x.kpp,20),ogrn:dealText(x.ogrn,20),
+    legal_address:dealText(x.legal_address,2000),postal_address:dealText(x.postal_address,2000),director_fio:dealText(x.director_fio,500),
+    contact_person:dealText(x.contact_person,500),phone:dealText(x.phone,100),email:dealText(x.email,500),website:dealText(x.website,500),
+    bank_name:dealText(x.bank_name,1000),bik:dealText(x.bik,20),settlement_account:dealText(x.settlement_account,40),
+    correspondent_account:dealText(x.correspondent_account,40),comments:dealText(x.comments,8000)
+  };
+}
+async function counterpartyScope(user,requestedOrganization){
+  const organization=isSiteWideUser(user)?dealText(requestedOrganization,500):accessOrganization(user);
+  if(!organization){const err=new Error('Для контрагента необходимо выбрать организацию');err.status=400;throw err;}
+  const org=await pool.query('SELECT id,name FROM organizations WHERE lower(trim(name))=lower(trim($1)) LIMIT 1',[organization]);
+  if(!org.rows.length){const err=new Error('Организация не найдена');err.status=400;throw err;}
+  return {organization:org.rows[0].name,tenant_id:org.rows[0].id};
+}
+app.get('/api/counterparties',requirePermission('accounting.view'),async(req,res)=>{
+  try{
+    const user=req.accessUser||await refreshAccessUser(req);
+    const r=isSiteWideUser(user)
+      ?await pool.query('SELECT * FROM counterparties ORDER BY name,id')
+      :await pool.query('SELECT * FROM counterparties WHERE lower(trim(organization))=lower(trim($1)) ORDER BY name,id',[accessOrganization(user)]);
+    res.json(r.rows);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.post('/api/counterparties',requirePermission('counterparties.manage'),async(req,res)=>{
+  try{
+    const user=req.accessUser||await refreshAccessUser(req),data=counterpartyPayload(req.body),scope=await counterpartyScope(user,req.body&&req.body.organization);
+    if(!data.name)return res.status(400).json({error:'Укажите наименование контрагента'});
+    if(data.inn){
+      const dup=await pool.query('SELECT id FROM counterparties WHERE tenant_id=$1 AND inn=$2 LIMIT 1',[scope.tenant_id,data.inn]);
+      if(dup.rows.length)return res.status(409).json({error:'Контрагент с таким ИНН уже существует'});
+    }
+    const r=await pool.query(`INSERT INTO counterparties
+      (tenant_id,organization,counterparty_type,name,full_name,inn,kpp,ogrn,legal_address,postal_address,director_fio,contact_person,phone,email,website,bank_name,bik,settlement_account,correspondent_account,comments,created_by)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING *`,
+      [scope.tenant_id,scope.organization,data.counterparty_type,data.name,data.full_name,data.inn,data.kpp,data.ogrn,data.legal_address,data.postal_address,data.director_fio,data.contact_person,data.phone,data.email,data.website,data.bank_name,data.bik,data.settlement_account,data.correspondent_account,data.comments,req.session.user.login]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Создан контрагент '+data.name]);
+    res.json(r.rows[0]);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.put('/api/counterparties/:id',requirePermission('counterparties.manage'),async(req,res)=>{
+  try{
+    const id=Number(req.params.id);if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректный ID контрагента'});
+    const user=req.accessUser||await refreshAccessUser(req),before=await pool.query('SELECT * FROM counterparties WHERE id=$1',[id]);
+    if(!before.rows.length)return res.status(404).json({error:'Контрагент не найден'});
+    if(!isSiteWideUser(user)&&!sameAccessValue(before.rows[0].organization,accessOrganization(user)))return res.status(403).json({error:'Нет доступа к этому контрагенту'});
+    const data=counterpartyPayload(req.body),scope=await counterpartyScope(user,req.body&&req.body.organization);
+    if(!data.name)return res.status(400).json({error:'Укажите наименование контрагента'});
+    if(data.inn){
+      const dup=await pool.query('SELECT id FROM counterparties WHERE tenant_id=$1 AND inn=$2 AND id<>$3 LIMIT 1',[scope.tenant_id,data.inn,id]);
+      if(dup.rows.length)return res.status(409).json({error:'Контрагент с таким ИНН уже существует'});
+    }
+    const r=await pool.query(`UPDATE counterparties SET tenant_id=$1,organization=$2,counterparty_type=$3,name=$4,full_name=$5,inn=$6,kpp=$7,ogrn=$8,
+      legal_address=$9,postal_address=$10,director_fio=$11,contact_person=$12,phone=$13,email=$14,website=$15,bank_name=$16,bik=$17,
+      settlement_account=$18,correspondent_account=$19,comments=$20,updated_at=CURRENT_TIMESTAMP WHERE id=$21 RETURNING *`,
+      [scope.tenant_id,scope.organization,data.counterparty_type,data.name,data.full_name,data.inn,data.kpp,data.ogrn,data.legal_address,data.postal_address,data.director_fio,data.contact_person,data.phone,data.email,data.website,data.bank_name,data.bik,data.settlement_account,data.correspondent_account,data.comments,id]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Изменён контрагент '+data.name]);
+    res.json(r.rows[0]);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.delete('/api/counterparties/:id',requirePermission('counterparties.manage'),async(req,res)=>{
+  try{
+    const id=Number(req.params.id);if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректный ID контрагента'});
+    const user=req.accessUser||await refreshAccessUser(req),before=await pool.query('SELECT * FROM counterparties WHERE id=$1',[id]);
+    if(!before.rows.length)return res.status(404).json({error:'Контрагент не найден'});
+    if(!isSiteWideUser(user)&&!sameAccessValue(before.rows[0].organization,accessOrganization(user)))return res.status(403).json({error:'Нет доступа к этому контрагенту'});
+    await pool.query('DELETE FROM counterparties WHERE id=$1',[id]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Удалён контрагент '+before.rows[0].name]);
+    res.json({ok:true});
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
 
 // === DEALS ===
 const DEAL_STATUSES=new Set(['quiet','current','attention','urgent','completed']);
@@ -2575,13 +2683,14 @@ app.post('/api/import', requirePermission('backups.manage'), requireRecentReauth
 // === FULL BACKUP / RESTORE ===
 app.get('/api/backup', requirePermission('backups.manage'), requireRecentReauth, async (req, res) => {
   try {
-    const [users,employees,objects,orgs,salary,deals,balances,bankPayments,objectResponsibles,objectUserResponsibles,closedPeriods,aliases,log,securityLog,complianceData] = await Promise.all([
+    const [users,employees,objects,orgs,salary,deals,counterparties,balances,bankPayments,objectResponsibles,objectUserResponsibles,closedPeriods,aliases,log,securityLog,complianceData] = await Promise.all([
       pool.query('SELECT * FROM users ORDER BY id'),
       pool.query('SELECT * FROM employees ORDER BY id'),
       pool.query('SELECT * FROM objects ORDER BY id'),
       pool.query('SELECT * FROM organizations ORDER BY id'),
       pool.query('SELECT * FROM salary_records ORDER BY id'),
       pool.query('SELECT * FROM deals ORDER BY id'),
+      pool.query('SELECT * FROM counterparties ORDER BY id'),
       pool.query('SELECT * FROM employee_balances ORDER BY id'),
       pool.query('SELECT * FROM bank_statement_payments ORDER BY id'),
       pool.query('SELECT object_id, employee_id, created_at FROM object_responsibles ORDER BY object_id, employee_id'),
@@ -2603,6 +2712,7 @@ app.get('/api/backup', requirePermission('backups.manage'), requireRecentReauth,
       organizations:orgs.rows,
       salary:salary.rows,
       deals:deals.rows,
+      counterparties:counterparties.rows,
       employee_balances:balances.rows,
       bank_statement_payments:bankPayments.rows,
       object_responsibles:objectResponsibles.rows,
@@ -2629,6 +2739,7 @@ app.post('/api/restore', requirePermission('backups.manage'), requireRecentReaut
 
     await client.query('DELETE FROM salary_records');
     await client.query('DELETE FROM deals');
+    await client.query('DELETE FROM counterparties');
     await client.query('DELETE FROM employee_balances');
     await client.query('DELETE FROM bank_statement_payments');
     await client.query('DELETE FROM object_user_responsibles');
@@ -2677,6 +2788,13 @@ app.post('/api/restore', requirePermission('backups.manage'), requireRecentReaut
          JSON.stringify(Array.isArray(d.supplier_entries)?d.supplier_entries:[]),JSON.stringify(Array.isArray(d.additional_expenses)?d.additional_expenses:[]),
          d.comments||'',d.obligation_salary||0,d.obligation_returns||0,d.obligation_transit||0,DEAL_STATUSES.has(d.status)?d.status:'quiet',
          d.created_by||'',d.created_at||new Date(),d.updated_at||d.created_at||new Date()]);
+    }
+
+    for(const cp of (data.counterparties||[])){
+      await client.query(`INSERT INTO counterparties
+        (id,tenant_id,organization,counterparty_type,name,full_name,inn,kpp,ogrn,legal_address,postal_address,director_fio,contact_person,phone,email,website,bank_name,bik,settlement_account,correspondent_account,comments,created_by,created_at,updated_at)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
+        [cp.id,cp.tenant_id||null,cp.organization||'',COUNTERPARTY_TYPES.has(cp.counterparty_type)?cp.counterparty_type:'both',cp.name||'',cp.full_name||'',cp.inn||'',cp.kpp||'',cp.ogrn||'',cp.legal_address||'',cp.postal_address||'',cp.director_fio||'',cp.contact_person||'',cp.phone||'',cp.email||'',cp.website||'',cp.bank_name||'',cp.bik||'',cp.settlement_account||'',cp.correspondent_account||'',cp.comments||'',cp.created_by||'',cp.created_at||new Date(),cp.updated_at||cp.created_at||new Date()]);
     }
 
     for(const a of (data.organization_aliases||[])){
@@ -2731,7 +2849,7 @@ app.post('/api/restore', requirePermission('backups.manage'), requireRecentReaut
     if(hasCompliance)await compliance.restoreComplianceBackup(client,data.compliance);
     await enforcePrivacyTombstones(client);
 
-    for(const table of ['users','employees','objects','organizations','salary_records','deals','employee_balances','bank_statement_payments','action_log','security_log']){
+    for(const table of ['users','employees','objects','organizations','salary_records','deals','counterparties','employee_balances','bank_statement_payments','action_log','security_log']){
       await client.query("SELECT setval(pg_get_serial_sequence('"+table+"','id'), COALESCE((SELECT MAX(id) FROM "+table+"),1), (SELECT COUNT(*)>0 FROM "+table+"))");
     }
     await client.query('COMMIT');
@@ -2748,6 +2866,7 @@ app.post('/api/clear', requirePermission('backups.manage'), requireRecentReauth,
   try {
     await pool.query('DELETE FROM salary_records');
     await pool.query('DELETE FROM deals');
+    await pool.query('DELETE FROM counterparties');
     await pool.query('DELETE FROM employee_balances');
     await pool.query('DELETE FROM bank_statement_payments');
     await pool.query('DELETE FROM object_user_responsibles');

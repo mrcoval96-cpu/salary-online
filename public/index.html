@@ -153,13 +153,27 @@ header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #dealsTable{min-width:1650px;margin:0}
 #dealsTable th{position:sticky;top:0;z-index:2;background:#f8fafc;white-space:nowrap}
 #dealsTable td{vertical-align:top}
-.deal-main-row.status-quiet td:first-child{border-left:5px solid #d0d5dd}
-.deal-main-row.status-current td:first-child{border-left:5px solid #06b6d4}
-.deal-main-row.status-attention td:first-child{border-left:5px solid #facc15}
-.deal-main-row.status-urgent td:first-child{border-left:5px solid #ef4444}
-.deal-main-row.status-completed td:first-child{border-left:5px solid #16a34a}
+.deal-main-row.status-quiet td{background:#f8fafc}.deal-main-row.status-quiet td:first-child{border-left:5px solid #98a2b3}
+.deal-main-row.status-current td{background:#ecfeff}.deal-main-row.status-current td:first-child{border-left:5px solid #06b6d4}
+.deal-main-row.status-attention td{background:#fffbea}.deal-main-row.status-attention td:first-child{border-left:5px solid #facc15}
+.deal-main-row.status-urgent td{background:#fff1f1}.deal-main-row.status-urgent td:first-child{border-left:5px solid #ef4444}
+.deal-main-row.status-completed td{background:#eefcf2}.deal-main-row.status-completed td:first-child{border-left:5px solid #16a34a}
+.deal-main-row:hover td{filter:brightness(.985)}
 .deal-status{display:inline-flex;align-items:center;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:700;white-space:nowrap}
 .deal-status.quiet{background:#f2f4f7;color:#475467}.deal-status.current{background:#cffafe;color:#155e75}.deal-status.attention{background:#fef9c3;color:#854d0e}.deal-status.urgent{background:#fee2e2;color:#991b1b}.deal-status.completed{background:#dcfce7;color:#166534}
+.deal-inline-status{min-width:150px;padding:6px 8px;border:1px solid rgba(71,84,103,.28);border-radius:6px;background:rgba(255,255,255,.78);font-size:12px}
+.deal-inline-number{width:128px;padding:6px 7px;border:1px solid rgba(71,84,103,.28);border-radius:6px;background:rgba(255,255,255,.82);font-size:12px}
+.deal-cell-stack{display:grid;gap:5px;min-width:125px}
+.deal-cell-meta{font-size:11px;color:#475467}
+.deal-cell-add{justify-self:start;padding:3px 7px!important;font-size:11px!important}
+.counterparty-toolbar{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.counterparty-toolbar h2{margin:0 0 4px}.counterparty-toolbar p{font-size:12px;color:#667085}
+.counterparty-search{width:min(520px,100%);margin:0 0 12px}
+.counterparty-table-wrap{overflow:auto;border:1px solid #e4e7eb;border-radius:10px}
+#counterpartiesTable{min-width:1050px;margin:0}
+.counterparty-type{display:inline-block;padding:3px 8px;border-radius:999px;background:#eef4ff;color:#3538cd;font-size:11px;font-weight:700}
+.counterparty-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+@media(max-width:700px){.counterparty-card-grid{grid-template-columns:1fr}}
 .deal-detail-row{display:none}.deal-detail-row.show{display:table-row}
 .deal-detail-panel{padding:14px;background:#fbfcfd}
 .deal-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
@@ -592,6 +606,7 @@ button,input,select,textarea{max-width:100%}
         <button class="sidebar-group-toggle" type="button" onclick="toggleSidebarGroup(this)"><span>Бухгалтерия</span><span class="arrow">›</span></button>
         <div class="sidebar-submenu">
           <button class="tab-btn" data-tab="accounting" onclick="showTab('accounting')">Обзор</button>
+          <button class="tab-btn" data-tab="counterparties" onclick="showTab('counterparties')">Контрагенты</button>
         </div>
       </div>
       <div class="sidebar-group" id="menuDeals" data-menu-group="deals">
@@ -847,7 +862,23 @@ button,input,select,textarea{max-width:100%}
 
   <!-- TAB: ACCOUNTING -->
   <div id="tab-accounting" class="tab-content">
-    <div class="card module-placeholder"><div class="module-placeholder-inner"><h2>Бухгалтерия</h2><p>Раздел создан и подключён к системе ролей. Здесь можно последовательно развивать бухгалтерские документы, платежи, акты, счета и отчётность.</p></div></div>
+    <div class="card">
+      <h2 style="margin-bottom:8px">Бухгалтерия</h2>
+      <p style="font-size:13px;color:#667085;margin-bottom:16px">Бухгалтерские справочники и документы организации.</p>
+      <button class="btn btn-blue" type="button" onclick="showTab('counterparties')">Контрагенты</button>
+    </div>
+  </div>
+
+  <!-- TAB: COUNTERPARTIES -->
+  <div id="tab-counterparties" class="tab-content">
+    <div class="card">
+      <div class="counterparty-toolbar">
+        <div><h2>Контрагенты</h2><p>Карточки заказчиков, поставщиков, подрядчиков и других контрагентов организации.</p></div>
+        <button class="btn btn-green" id="counterpartyAddBtn" type="button" onclick="openCounterpartyModal()">+ Контрагент</button>
+      </div>
+      <input class="counterparty-search" id="counterpartySearch" type="search" placeholder="Поиск по названию, ИНН, контакту..." oninput="renderCounterparties()">
+      <div class="counterparty-table-wrap"><table id="counterpartiesTable"><thead><tr><th>Тип</th><th>Наименование</th><th>ИНН / КПП</th><th>Руководитель / контакт</th><th>Телефон / email</th><th>Банк / счёт</th><th>Действия</th></tr></thead><tbody id="counterpartiesBody"></tbody></table></div>
+    </div>
   </div>
 
   <!-- TAB: DEALS -->
@@ -1118,6 +1149,31 @@ button,input,select,textarea{max-width:100%}
   <div class="form-group"><label>Дополнительные контакты / примечание</label><textarea id="orgContacts" maxlength="1000"></textarea></div>
   <button class="btn btn-green" onclick="saveOrg()">Сохранить</button>
 </div></div>
+<div class="modal-overlay" id="dealQuickModal"><div class="modal" style="max-width:880px"><span class="modal-close" onclick="closeModal('dealQuickModal')">&times;</span><h2 id="dealQuickTitle">Быстрое добавление</h2><div id="dealQuickBody"></div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn btn-gray" type="button" onclick="closeModal('dealQuickModal')">Отмена</button><button class="btn btn-green" type="button" onclick="saveDealQuickEntry()">Добавить</button></div></div></div>
+<div class="modal-overlay" id="counterpartyModal"><div class="modal" style="max-width:920px"><span class="modal-close" onclick="closeModal('counterpartyModal')">&times;</span><h2 id="counterpartyModalTitle">Контрагент</h2>
+  <div id="counterpartyOrganizationRow" class="form-group" style="display:none"><label>Организация *</label><select id="counterpartyOrganization"></select></div>
+  <div class="counterparty-card-grid">
+    <div class="form-group"><label>Тип</label><select id="counterpartyType"><option value="customer">Заказчик</option><option value="supplier">Поставщик / подрядчик</option><option value="both">Заказчик и поставщик</option><option value="other">Прочее</option></select></div>
+    <div class="form-group"><label>Краткое наименование *</label><input id="counterpartyName" maxlength="500"></div>
+    <div class="form-group" style="grid-column:1/-1"><label>Полное наименование</label><input id="counterpartyFullName" maxlength="1000"></div>
+    <div class="form-group"><label>ИНН</label><input id="counterpartyInn" maxlength="20"></div>
+    <div class="form-group"><label>КПП</label><input id="counterpartyKpp" maxlength="20"></div>
+    <div class="form-group"><label>ОГРН / ОГРНИП</label><input id="counterpartyOgrn" maxlength="20"></div>
+    <div class="form-group"><label>Руководитель</label><input id="counterpartyDirector" maxlength="500"></div>
+    <div class="form-group" style="grid-column:1/-1"><label>Юридический адрес</label><input id="counterpartyLegalAddress" maxlength="2000"></div>
+    <div class="form-group" style="grid-column:1/-1"><label>Почтовый адрес</label><input id="counterpartyPostalAddress" maxlength="2000"></div>
+    <div class="form-group"><label>Контактное лицо</label><input id="counterpartyContact" maxlength="500"></div>
+    <div class="form-group"><label>Телефон</label><input id="counterpartyPhone" maxlength="100"></div>
+    <div class="form-group"><label>Email</label><input id="counterpartyEmail" type="email" maxlength="500"></div>
+    <div class="form-group"><label>Сайт</label><input id="counterpartyWebsite" maxlength="500"></div>
+    <div class="form-group" style="grid-column:1/-1"><label>Банк</label><input id="counterpartyBank" maxlength="1000"></div>
+    <div class="form-group"><label>БИК</label><input id="counterpartyBik" maxlength="20"></div>
+    <div class="form-group"><label>Расчётный счёт</label><input id="counterpartySettlement" maxlength="40"></div>
+    <div class="form-group" style="grid-column:1/-1"><label>Корреспондентский счёт</label><input id="counterpartyCorrespondent" maxlength="40"></div>
+    <div class="form-group" style="grid-column:1/-1"><label>Комментарий</label><textarea id="counterpartyComments" rows="3" maxlength="8000"></textarea></div>
+  </div>
+  <div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn btn-gray" type="button" onclick="closeModal('counterpartyModal')">Отмена</button><button class="btn btn-green" type="button" onclick="saveCounterparty()">Сохранить</button></div>
+</div></div>
 <div class="modal-overlay" id="dealModal"><div class="modal" style="max-width:1180px;width:96%"><span class="modal-close" onclick="closeModal('dealModal')">&times;</span><h2 id="dealModalTitle">Новая сделка</h2>
   <div class="form-row" id="dealOrganizationRow" style="display:none"><div class="form-group"><label>Организация *</label><select id="dealOrganization"></select></div></div>
   <div class="form-row"><div class="form-group"><label>№ п/п</label><input type="text" id="dealNo" maxlength="80"></div><div class="form-group"><label>Заказчик *</label><input type="text" id="dealCustomer" maxlength="500"></div><div class="form-group"><label>Сумма договора</label><input type="number" id="dealContractAmount" step="0.01"></div><div class="form-group"><label>Статус</label><select id="dealStatus"><option value="quiet">Тишина</option><option value="current">Текущая работа</option><option value="attention">Обратить внимание</option><option value="urgent">Срочно разобраться</option><option value="completed">Завершено</option></select></div></div>
@@ -1152,6 +1208,9 @@ let organizations = [];
 let salaryRecords = [];
 let deals = [];
 let editingDealId = null;
+let quickDealEdit = null;
+let counterparties = [];
+let editingCounterpartyId = null;
 let employeeBalances = [];
 let bankStatementPayments = [];
 let objectResponsibleUsers = [];
@@ -1209,6 +1268,7 @@ function tabAccessAllowed(tab){
     employees:can('employees.view'),
     organizations:can('organizations.view'),
     accounting:can('accounting.view'),
+    counterparties:can('accounting.view'),
     deals:can('deals.view'),
     objects:can('deals.view')&&can('objects.view'),
     warehouse:can('warehouse.view'),
@@ -1225,14 +1285,14 @@ function setSidebarGroupVisible(id,visible){
 }
 function applyPermissionsToUi(){
   if(!currentUser)return;
-  const tabs=['dashboard','input','salary','employees','organizations','accounting','deals','objects','warehouse','users','compliance','data'];
+  const tabs=['dashboard','input','salary','employees','organizations','accounting','counterparties','deals','objects','warehouse','users','compliance','data'];
   tabs.forEach(function(tab){
     const btn=document.querySelector('.tab-btn[data-tab="'+tab+'"]');
     if(btn)btn.style.display=tabAccessAllowed(tab)?'block':'none';
   });
   setSidebarGroupVisible('menuSalary',['dashboard','input','salary'].some(tabAccessAllowed));
   setSidebarGroupVisible('menuHr',['employees','organizations'].some(tabAccessAllowed));
-  setSidebarGroupVisible('menuAccounting',tabAccessAllowed('accounting'));
+  setSidebarGroupVisible('menuAccounting',['accounting','counterparties'].some(tabAccessAllowed));
   setSidebarGroupVisible('menuDeals',['deals','objects'].some(tabAccessAllowed));
   setSidebarGroupVisible('menuWarehouse',tabAccessAllowed('warehouse'));
   setSidebarGroupVisible('menuCompliance',['compliance','data'].some(tabAccessAllowed));
@@ -1256,6 +1316,7 @@ function applyPermissionsToUi(){
   setVisibleById('dealAddBtn',can('deals.manage'));
   setVisibleById('dealImportBtn',can('deals.manage'));
   setVisibleById('dealExportBtn',can('reports.export')&&can('deals.view'));
+  setVisibleById('counterpartyAddBtn',can('counterparties.manage'));
   const siteWide=String(currentUser.login||'').trim().toUpperCase()==='ADMIN'||currentUser.role==='Руководитель сайта';
   const importOrg=document.getElementById('dealImportOrg');
   if(importOrg){
@@ -1264,7 +1325,7 @@ function applyPermissionsToUi(){
   }
 }
 function firstAccessibleTab(){
-  const order=['dashboard','input','salary','employees','organizations','accounting','deals','objects','warehouse','compliance','users','data'];
+  const order=['dashboard','input','salary','employees','organizations','accounting','counterparties','deals','objects','warehouse','compliance','users','data'];
   for(const tab of order)if(tabAccessAllowed(tab))return tab;
   return 'compliance';
 }
@@ -2022,6 +2083,7 @@ async function loadAll(){
     objectResponsibleUsers=can('objects.manage')?await api('/api/object-responsible-users'):[];
     salaryRecords=can('salary.view')?await api('/api/salary'):[];
     deals=can('deals.view')?await api('/api/deals'):[];
+    counterparties=can('accounting.view')?await api('/api/counterparties'):[];
     employeeBalances=can('salary.view')?await api('/api/employee-balances'):[];
     bankStatementPayments=can('bank.view')?await api('/api/bank-payments'):(can('salary.view')?await api('/api/financial-payments'):[]);
     closedSalaryPeriods=can('salary.view')?await api('/api/salary-periods'):[];
@@ -2049,6 +2111,7 @@ function showTab(tab) {
   if (tab === 'employees') renderEmployees();
   if (tab === 'objects') renderObjects();
   if (tab === 'organizations') renderOrganizations();
+  if (tab === 'counterparties') renderCounterparties();
   if (tab === 'deals') renderDeals();
   if (tab === 'users') renderUsers();
   if (tab === 'compliance') loadCompliance();
@@ -3932,6 +3995,69 @@ async function showSecurityLog(){
   }catch(e){toast(e.message,'error');}
 }
 
+// === COUNTERPARTIES ===
+const COUNTERPARTY_TYPE_LABELS={customer:'Заказчик',supplier:'Поставщик / подрядчик',both:'Заказчик и поставщик',other:'Прочее'};
+function counterpartyTypeLabel(value){return COUNTERPARTY_TYPE_LABELS[value]||COUNTERPARTY_TYPE_LABELS.other;}
+function renderCounterparties(){
+  const body=document.getElementById('counterpartiesBody');if(!body)return;
+  const q=String(document.getElementById('counterpartySearch')&&document.getElementById('counterpartySearch').value||'').trim().toLocaleLowerCase('ru-RU');
+  const rows=counterparties.filter(function(x){return !q||[x.name,x.full_name,x.inn,x.kpp,x.director_fio,x.contact_person,x.phone,x.email].join(' ').toLocaleLowerCase('ru-RU').includes(q);});
+  if(!rows.length){body.innerHTML='<tr><td colspan="7" style="text-align:center;color:#777;padding:24px">Контрагентов пока нет.</td></tr>';return;}
+  body.innerHTML=rows.map(function(x){
+    const actions=can('counterparties.manage')?'<button class="btn btn-blue btn-sm" onclick="openCounterpartyModal('+Number(x.id)+')">Изменить</button> <button class="btn btn-red btn-sm" onclick="deleteCounterparty('+Number(x.id)+')">Удалить</button>':'';
+    return '<tr><td><span class="counterparty-type">'+escapeHtml(counterpartyTypeLabel(x.counterparty_type))+'</span></td><td><b>'+escapeHtml(x.name||'')+'</b><div style="font-size:11px;color:#667085">'+escapeHtml(x.full_name||'')+'</div></td>'+
+      '<td>'+escapeHtml(x.inn||'')+(x.kpp?'<div style="font-size:11px;color:#667085">КПП '+escapeHtml(x.kpp)+'</div>':'')+'</td>'+
+      '<td>'+escapeHtml(x.director_fio||'')+(x.contact_person?'<div style="font-size:11px;color:#667085">'+escapeHtml(x.contact_person)+'</div>':'')+'</td>'+
+      '<td>'+escapeHtml(x.phone||'')+(x.email?'<div style="font-size:11px;color:#667085">'+escapeHtml(x.email)+'</div>':'')+'</td>'+
+      '<td>'+escapeHtml(x.bank_name||'')+(x.settlement_account?'<div style="font-size:11px;color:#667085">'+escapeHtml(x.settlement_account)+'</div>':'')+'</td><td>'+actions+'</td></tr>';
+  }).join('');
+}
+function fillCounterpartyOrganizationSelect(selected){
+  const select=document.getElementById('counterpartyOrganization');if(!select)return;
+  select.innerHTML=organizations.map(function(o){return '<option value="'+escapeHtml(o.name)+'">'+escapeHtml(o.name)+'</option>';}).join('');
+  if(selected)select.value=selected;
+}
+function openCounterpartyModal(id){
+  if(!can('counterparties.manage'))return;
+  const x=id?counterparties.find(function(r){return Number(r.id)===Number(id);}):null;editingCounterpartyId=x?Number(x.id):null;
+  document.getElementById('counterpartyModalTitle').textContent=x?'Карточка контрагента':'Новый контрагент';
+  const siteWide=dealIsSiteWide();document.getElementById('counterpartyOrganizationRow').style.display=siteWide?'':'none';
+  if(siteWide)fillCounterpartyOrganizationSelect(x&&x.organization||'');
+  const values={
+    counterpartyType:x&&x.counterparty_type||'both',counterpartyName:x&&x.name||'',counterpartyFullName:x&&x.full_name||'',counterpartyInn:x&&x.inn||'',
+    counterpartyKpp:x&&x.kpp||'',counterpartyOgrn:x&&x.ogrn||'',counterpartyDirector:x&&x.director_fio||'',counterpartyLegalAddress:x&&x.legal_address||'',
+    counterpartyPostalAddress:x&&x.postal_address||'',counterpartyContact:x&&x.contact_person||'',counterpartyPhone:x&&x.phone||'',counterpartyEmail:x&&x.email||'',
+    counterpartyWebsite:x&&x.website||'',counterpartyBank:x&&x.bank_name||'',counterpartyBik:x&&x.bik||'',counterpartySettlement:x&&x.settlement_account||'',
+    counterpartyCorrespondent:x&&x.correspondent_account||'',counterpartyComments:x&&x.comments||''
+  };
+  Object.keys(values).forEach(function(id){const el=document.getElementById(id);if(el)el.value=values[id];});
+  document.getElementById('counterpartyModal').classList.add('show');
+}
+function counterpartyFormPayload(){
+  return {
+    organization:dealIsSiteWide()?document.getElementById('counterpartyOrganization').value:(currentUser.organization||''),
+    counterparty_type:document.getElementById('counterpartyType').value,name:document.getElementById('counterpartyName').value.trim(),
+    full_name:document.getElementById('counterpartyFullName').value.trim(),inn:document.getElementById('counterpartyInn').value.trim(),kpp:document.getElementById('counterpartyKpp').value.trim(),
+    ogrn:document.getElementById('counterpartyOgrn').value.trim(),legal_address:document.getElementById('counterpartyLegalAddress').value.trim(),postal_address:document.getElementById('counterpartyPostalAddress').value.trim(),
+    director_fio:document.getElementById('counterpartyDirector').value.trim(),contact_person:document.getElementById('counterpartyContact').value.trim(),phone:document.getElementById('counterpartyPhone').value.trim(),
+    email:document.getElementById('counterpartyEmail').value.trim(),website:document.getElementById('counterpartyWebsite').value.trim(),bank_name:document.getElementById('counterpartyBank').value.trim(),
+    bik:document.getElementById('counterpartyBik').value.trim(),settlement_account:document.getElementById('counterpartySettlement').value.trim(),correspondent_account:document.getElementById('counterpartyCorrespondent').value.trim(),
+    comments:document.getElementById('counterpartyComments').value.trim()
+  };
+}
+async function saveCounterparty(){
+  if(!can('counterparties.manage'))return;
+  try{
+    const payload=counterpartyFormPayload();if(!payload.organization)throw new Error('Выберите организацию');if(!payload.name)throw new Error('Укажите наименование');
+    if(editingCounterpartyId)await api('/api/counterparties/'+editingCounterpartyId,'PUT',payload);else await api('/api/counterparties','POST',payload);
+    counterparties=await api('/api/counterparties');closeModal('counterpartyModal');editingCounterpartyId=null;renderCounterparties();toast('Контрагент сохранён');
+  }catch(e){toast(e.message,'error');}
+}
+async function deleteCounterparty(id){
+  if(!can('counterparties.manage')||!confirm('Удалить контрагента?'))return;
+  try{await api('/api/counterparties/'+Number(id),'DELETE');counterparties=await api('/api/counterparties');renderCounterparties();toast('Контрагент удалён');}catch(e){toast(e.message,'error');}
+}
+
 // === DEALS ===
 const DEAL_STATUS_LABELS={quiet:'Тишина',current:'Текущая работа',attention:'Обратить внимание',urgent:'Срочно разобраться',completed:'Завершено'};
 function dealStatusLabel(status){return DEAL_STATUS_LABELS[status]||DEAL_STATUS_LABELS.quiet;}
@@ -3981,6 +4107,82 @@ function dealDetailHtml(d){
       '<div class="deal-detail-block"><h4>Комментарии и обязательства</h4><div style="font-size:13px;white-space:pre-wrap">'+escapeHtml(d.comments||'Комментариев нет')+'</div><div style="font-size:12px;color:#667085;margin-top:8px">З/П: <b>'+formatMoney(d.obligation_salary)+' ₽</b> · Возвраты и премии: <b>'+formatMoney(d.obligation_returns)+' ₽</b> · Транзит: <b>'+formatMoney(d.obligation_transit)+' ₽</b></div><div style="font-size:12px;color:#667085;margin-top:5px">Оплачено заказчиком: <b>'+formatMoney(m.customerPaid)+' ₽</b> · Оплачено поставщикам: <b>'+formatMoney(m.supplierPaid)+' ₽</b></div></div>'+
     '</div></div>';
 }
+function dealRecordPayload(d,patch){
+  const base={
+    organization:d.organization||'',deal_no:d.deal_no||'',customer:d.customer||'',contract_description:d.contract_description||'',
+    contract_amount:dealAmount(d.contract_amount),customer_invoices:dealList(d.customer_invoices),customer_payments:dealList(d.customer_payments),
+    supplier_entries:dealList(d.supplier_entries),additional_expenses:dealList(d.additional_expenses),comments:d.comments||'',
+    obligation_salary:dealAmount(d.obligation_salary),obligation_returns:dealAmount(d.obligation_returns),obligation_transit:dealAmount(d.obligation_transit),status:d.status||'quiet'
+  };
+  return Object.assign(base,patch||{});
+}
+async function persistDealPatch(id,patch,quiet){
+  const d=deals.find(function(x){return Number(x.id)===Number(id);});if(!d)throw new Error('Сделка не найдена');
+  const saved=await api('/api/deals/'+Number(id),'PUT',dealRecordPayload(d,patch));
+  const idx=deals.findIndex(function(x){return Number(x.id)===Number(id);});if(idx>=0)deals[idx]=saved;
+  renderDeals();if(!quiet)toast('Сделка обновлена');return saved;
+}
+function dealInlineStatusSelect(d){
+  const options=Object.keys(DEAL_STATUS_LABELS).map(function(key){return '<option value="'+key+'"'+(d.status===key?' selected':'')+'>'+escapeHtml(DEAL_STATUS_LABELS[key])+'</option>';}).join('');
+  return '<select class="deal-inline-status" onchange="quickUpdateDealStatus('+Number(d.id)+',this.value)">'+options+'</select>';
+}
+function dealInlineNumber(d,field){
+  return '<input class="deal-inline-number" type="number" step="0.01" value="'+escapeHtml(dealAmount(d[field]))+'" onchange="quickUpdateDealNumber('+Number(d.id)+',\''+field+'\',this.value)">';
+}
+async function quickUpdateDealStatus(id,status){
+  try{await persistDealPatch(id,{status:status},true);toast('Статус сделки изменён');}catch(e){toast(e.message,'error');renderDeals();}
+}
+async function quickUpdateDealNumber(id,field,value){
+  const allowed=new Set(['contract_amount','obligation_returns','obligation_transit']);if(!allowed.has(field))return;
+  try{const patch={};patch[field]=dealAmount(value);await persistDealPatch(id,patch,true);toast('Значение сохранено');}catch(e){toast(e.message,'error');renderDeals();}
+}
+function dealQuickInput(id,label,type,extra){
+  return '<div class="form-group"><label>'+label+'</label><input id="'+id+'" type="'+(type||'text')+'" '+(extra||'')+'></div>';
+}
+function openDealQuickAdd(id,type){
+  if(!can('deals.manage'))return;
+  const d=deals.find(function(x){return Number(x.id)===Number(id);});if(!d)return;
+  quickDealEdit={id:Number(id),type:type};
+  const body=document.getElementById('dealQuickBody'),title=document.getElementById('dealQuickTitle');
+  if(type==='customer_invoice'){
+    title.textContent='Добавить счёт заказчику · '+(d.customer||'');
+    body.innerHTML='<div class="form-row">'+dealQuickInput('dqDate','Дата','text','class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ"')+dealQuickInput('dqNumber','Номер счёта','text','maxlength="180"')+dealQuickInput('dqAmount','Сумма','number','step="0.01"')+'</div>';
+  }else if(type==='supplier_entry'){
+    title.textContent='Добавить поставщика / оплату · '+(d.customer||'');
+    body.innerHTML='<div class="form-row">'+dealQuickInput('dqSupplier','Поставщик / подрядчик','text','maxlength="500"')+dealQuickInput('dqSubject','Предмет счёта','text','maxlength="1000"')+dealQuickInput('dqPlanned','Плановые затраты','number','step="0.01"')+'</div>'+
+      '<div class="form-row">'+dealQuickInput('dqInvoiceDate','Дата счёта','text','class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ"')+dealQuickInput('dqInvoiceNumber','№ счёта','text','maxlength="180"')+dealQuickInput('dqInvoiceAmount','Сумма счёта','number','step="0.01"')+'</div>'+
+      '<div class="form-row">'+dealQuickInput('dqPaymentDate','Дата оплаты','text','class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ"')+dealQuickInput('dqPaymentNumber','№ ПП','text','maxlength="180"')+dealQuickInput('dqPaymentAmount','Сумма оплаты','number','step="0.01"')+'</div>';
+  }else{
+    title.textContent='Добавить дополнительный расход · '+(d.customer||'');
+    body.innerHTML='<div class="form-row">'+dealQuickInput('dqSupplier','Поставщик','text','maxlength="500"')+dealQuickInput('dqSubject','Предмет расхода','text','maxlength="1000"')+'</div><div class="form-row">'+dealQuickInput('dqDate','Дата оплаты','text','class="date-input" inputmode="numeric" maxlength="10" placeholder="ДД.ММ.ГГГГ"')+dealQuickInput('dqAmount','Сумма','number','step="0.01"')+'</div>';
+  }
+  initDateInputs(body);document.getElementById('dealQuickModal').classList.add('show');
+}
+async function saveDealQuickEntry(){
+  if(!quickDealEdit)return;
+  const d=deals.find(function(x){return Number(x.id)===quickDealEdit.id;});if(!d)return;
+  try{
+    let patch={};
+    if(quickDealEdit.type==='customer_invoice'){
+      const item={date:statementDateToIso(document.getElementById('dqDate').value),number:document.getElementById('dqNumber').value.trim(),amount:dealAmount(document.getElementById('dqAmount').value)};
+      if(!item.date&&!item.number&&!item.amount)throw new Error('Заполните данные счёта');
+      patch.customer_invoices=dealList(d.customer_invoices).concat([item]);
+    }else if(quickDealEdit.type==='supplier_entry'){
+      const item={
+        planned_cost:dealAmount(document.getElementById('dqPlanned').value),supplier:document.getElementById('dqSupplier').value.trim(),subject:document.getElementById('dqSubject').value.trim(),
+        invoice_date:statementDateToIso(document.getElementById('dqInvoiceDate').value),invoice_number:document.getElementById('dqInvoiceNumber').value.trim(),invoice_amount:dealAmount(document.getElementById('dqInvoiceAmount').value),
+        payment_date:statementDateToIso(document.getElementById('dqPaymentDate').value),payment_number:document.getElementById('dqPaymentNumber').value.trim(),payment_amount:dealAmount(document.getElementById('dqPaymentAmount').value)
+      };
+      if(!item.supplier&&!item.subject&&!item.invoice_number&&!item.payment_number&&!item.invoice_amount&&!item.payment_amount&&!item.planned_cost)throw new Error('Заполните данные поставщика, счёта или оплаты');
+      patch.supplier_entries=dealList(d.supplier_entries).concat([item]);
+    }else{
+      const item={supplier:document.getElementById('dqSupplier').value.trim(),subject:document.getElementById('dqSubject').value.trim(),date:statementDateToIso(document.getElementById('dqDate').value),amount:dealAmount(document.getElementById('dqAmount').value)};
+      if(!item.supplier&&!item.subject&&!item.date&&!item.amount)throw new Error('Заполните данные расхода');
+      patch.additional_expenses=dealList(d.additional_expenses).concat([item]);
+    }
+    await persistDealPatch(d.id,patch,true);closeModal('dealQuickModal');quickDealEdit=null;toast('Информация добавлена');
+  }catch(e){toast(e.message,'error');}
+}
 function renderDeals(){
   const body=document.getElementById('dealsBody');if(!body)return;
   const search=String(document.getElementById('dealSearch')&&document.getElementById('dealSearch').value||'').trim().toLocaleLowerCase('ru-RU');
@@ -4007,11 +4209,19 @@ function renderDeals(){
     const m=dealMetrics(d),supplierNames=Array.from(new Set(dealList(d.supplier_entries).map(function(x){return String(x.supplier||'').trim();}).filter(Boolean)));
     const actions='<button class="btn btn-gray btn-sm" type="button" onclick="toggleDealDetails('+Number(d.id)+')">Подробнее</button>'+
       (can('deals.manage')?' <button class="btn btn-blue btn-sm" type="button" onclick="openDealModal('+Number(d.id)+')">Изменить</button> <button class="btn btn-red btn-sm" type="button" onclick="deleteDeal('+Number(d.id)+')">Удалить</button>':'');
+    const manage=can('deals.manage');
+    const statusCell=manage?dealInlineStatusSelect(d):dealStatusBadge(d.status);
+    const contractCell=manage?dealInlineNumber(d,'contract_amount'):formatMoney(d.contract_amount)+' ₽';
+    const invoiceCell='<div class="deal-cell-stack"><b>'+formatMoney(m.invoiced)+' ₽</b><span class="deal-cell-meta">'+dealList(d.customer_invoices).length+' сч.</span>'+(manage?'<button class="btn btn-blue deal-cell-add" type="button" onclick="openDealQuickAdd('+Number(d.id)+',\'customer_invoice\')">+ Добавить</button>':'')+'</div>';
+    const supplierCell='<div class="deal-cell-stack"><span>'+escapeHtml(supplierNames.slice(0,3).join(', ')+(supplierNames.length>3?'…':''))+'</span><b>'+formatMoney(m.supplierPaid)+' ₽</b><span class="deal-cell-meta">Счетов: '+formatMoney(m.supplierInvoices)+' ₽</span>'+(manage?'<button class="btn btn-blue deal-cell-add" type="button" onclick="openDealQuickAdd('+Number(d.id)+',\'supplier_entry\')">+ Добавить</button>':'')+'</div>';
+    const extraCell='<div class="deal-cell-stack"><b>'+formatMoney(m.extra)+' ₽</b>'+(manage?'<button class="btn btn-blue deal-cell-add" type="button" onclick="openDealQuickAdd('+Number(d.id)+',\'additional_expense\')">+ Добавить</button>':'')+'</div>';
+    const returnsCell=manage?dealInlineNumber(d,'obligation_returns'):formatMoney(d.obligation_returns)+' ₽';
+    const transitCell=manage?dealInlineNumber(d,'obligation_transit'):formatMoney(d.obligation_transit)+' ₽';
     return '<tr class="deal-main-row status-'+escapeHtml(d.status||'quiet')+'">'+
-      '<td><b>'+escapeHtml(d.deal_no||String(index+1))+'</b></td><td>'+dealStatusBadge(d.status)+'</td><td>'+escapeHtml(d.customer||'')+'</td><td style="max-width:310px;white-space:normal">'+escapeHtml(d.contract_description||'')+'</td>'+
-      '<td>'+formatMoney(d.contract_amount)+' ₽</td><td>'+formatMoney(m.invoiced)+' ₽</td><td><b>'+formatMoney(m.customerPaid)+' ₽</b></td><td>'+formatMoney(m.planned)+' ₽</td>'+
-      '<td style="max-width:220px;white-space:normal">'+escapeHtml(supplierNames.slice(0,3).join(', ')+(supplierNames.length>3?'…':''))+'<div style="font-size:11px;color:#667085">'+formatMoney(m.supplierPaid)+' ₽</div></td>'+
-      '<td>'+formatMoney(m.extra)+' ₽</td><td>'+formatMoney(d.obligation_salary)+' ₽</td><td>'+formatMoney(d.obligation_returns)+' ₽</td><td>'+formatMoney(d.obligation_transit)+' ₽</td>'+
+      '<td><b>'+escapeHtml(d.deal_no||String(index+1))+'</b></td><td>'+statusCell+'</td><td>'+escapeHtml(d.customer||'')+'</td><td style="max-width:310px;white-space:normal">'+escapeHtml(d.contract_description||'')+'</td>'+
+      '<td>'+contractCell+'</td><td>'+invoiceCell+'</td><td><b>'+formatMoney(m.customerPaid)+' ₽</b></td><td>'+formatMoney(m.planned)+' ₽</td>'+
+      '<td style="max-width:240px;white-space:normal">'+supplierCell+'</td>'+
+      '<td>'+extraCell+'</td><td>'+formatMoney(d.obligation_salary)+' ₽</td><td>'+returnsCell+'</td><td>'+transitCell+'</td>'+
       '<td><b>'+formatMoney(m.result)+' ₽</b></td><td><b>'+formatMoney(m.percent)+' %</b></td><td style="white-space:nowrap">'+actions+'</td></tr>'+
       '<tr class="deal-detail-row" id="dealDetail'+Number(d.id)+'"><td colspan="16">'+dealDetailHtml(d)+'</td></tr>';
   }).join('');
