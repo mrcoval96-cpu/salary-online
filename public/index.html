@@ -867,6 +867,8 @@ button,input,select,textarea{max-width:100%}
         <div class="deals-summary-item"><label>Оплачено заказчиками</label><b id="dealSummaryCustomerPaid">0,00 ₽</b></div>
         <div class="deals-summary-item"><label>Фактические расходы</label><b id="dealSummaryExpenses">0,00 ₽</b></div>
         <div class="deals-summary-item"><label>Итог по сделкам</label><b id="dealSummaryResult">0,00 ₽</b></div>
+        <div class="deals-summary-item"><label>Нам должны</label><b id="dealSummaryReceivable">0,00 ₽</b></div>
+        <div class="deals-summary-item"><label>Мы должны</label><b id="dealSummaryPayable">0,00 ₽</b></div>
       </div>
       <div class="deals-filters">
         <input id="dealSearch" type="search" placeholder="Поиск по заказчику, договору, поставщику..." oninput="renderDeals()">
@@ -3984,12 +3986,22 @@ function renderDeals(){
   const search=String(document.getElementById('dealSearch')&&document.getElementById('dealSearch').value||'').trim().toLocaleLowerCase('ru-RU');
   const status=String(document.getElementById('dealStatusFilter')&&document.getElementById('dealStatusFilter').value||'');
   const rows=deals.filter(function(d){return (!status||d.status===status)&&(!search||dealSearchText(d).includes(search));});
-  let contractTotal=0,customerPaid=0,expenses=0,result=0;
-  rows.forEach(function(d){const m=dealMetrics(d);contractTotal+=dealAmount(d.contract_amount);customerPaid+=m.customerPaid;expenses+=m.supplierPaid+m.extra+m.obligations;result+=m.result;});
+  let contractTotal=0,customerPaid=0,supplierInvoices=0,supplierPaid=0,expenses=0,result=0;
+  rows.forEach(function(d){
+    const m=dealMetrics(d);
+    contractTotal+=dealAmount(d.contract_amount);
+    customerPaid+=m.customerPaid;
+    supplierInvoices+=m.supplierInvoices;
+    supplierPaid+=m.supplierPaid;
+    expenses+=m.supplierPaid+m.extra+m.obligations;
+    result+=m.result;
+  });
   document.getElementById('dealSummaryContracts').textContent=formatMoney(contractTotal)+' ₽';
   document.getElementById('dealSummaryCustomerPaid').textContent=formatMoney(customerPaid)+' ₽';
   document.getElementById('dealSummaryExpenses').textContent=formatMoney(expenses)+' ₽';
   document.getElementById('dealSummaryResult').textContent=formatMoney(result)+' ₽';
+  document.getElementById('dealSummaryReceivable').textContent=formatMoney(contractTotal-customerPaid)+' ₽';
+  document.getElementById('dealSummaryPayable').textContent=formatMoney(supplierInvoices-supplierPaid)+' ₽';
   if(!rows.length){body.innerHTML='<tr><td colspan="16" style="text-align:center;color:#777;padding:24px">Сделок пока нет. Добавьте сделку вручную или импортируйте Excel.</td></tr>';return;}
   body.innerHTML=rows.map(function(d,index){
     const m=dealMetrics(d),supplierNames=Array.from(new Set(dealList(d.supplier_entries).map(function(x){return String(x.supplier||'').trim();}).filter(Boolean)));
