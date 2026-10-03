@@ -109,7 +109,36 @@ table tr:hover{background:#f5f6fa}
 /* mobile + salary/object usability */
 .header-main{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
 header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mobile-menu-toggle{display:none}
+.mobile-menu-toggle{display:inline-flex;align-items:center;justify-content:center;min-width:42px;min-height:42px;font-size:20px;flex:0 0 auto}
+.site-sidebar-overlay{position:fixed;inset:0;background:rgba(15,23,42,.34);z-index:84;opacity:0;pointer-events:none;transition:opacity .2s ease}
+.site-sidebar-overlay.show{opacity:1;pointer-events:auto}
+.site-sidebar{position:fixed;left:0;top:0;bottom:0;width:min(330px,88vw);background:#fff;z-index:85;box-shadow:10px 0 30px rgba(15,23,42,.18);transform:translateX(-105%);transition:transform .22s ease;display:flex;flex-direction:column}
+.site-sidebar.show{transform:translateX(0)}
+.site-sidebar-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 16px;border-bottom:1px solid #e4e7eb;background:#0f3460;color:#fff}
+.site-sidebar-head strong{font-size:18px;letter-spacing:.02em}
+.site-sidebar-close{border:0;background:rgba(255,255,255,.15);color:#fff;border-radius:7px;min-width:36px;min-height:36px;font-size:22px;cursor:pointer}
+.site-sidebar-nav{padding:12px;overflow:auto;flex:1}
+.sidebar-group{display:none;border-bottom:1px solid #eef0f3;padding:6px 0}
+.sidebar-group.visible{display:block}
+.sidebar-group-toggle{width:100%;border:0;background:transparent;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 10px;border-radius:8px;color:#16213e;font-size:15px;font-weight:700;text-align:left;cursor:pointer}
+.sidebar-group-toggle:hover{background:#f3f6fa}
+.sidebar-group-toggle .arrow{transition:transform .18s ease;color:#667085}
+.sidebar-group.open .sidebar-group-toggle .arrow{transform:rotate(90deg)}
+.sidebar-submenu{display:none;padding:0 4px 8px 10px}
+.sidebar-group.open .sidebar-submenu{display:grid;gap:4px}
+.site-sidebar .tab-btn{display:block;width:100%;padding:10px 12px;border:0;border-radius:7px;background:transparent;text-align:left;color:#475467;font-size:14px;cursor:pointer}
+.site-sidebar .tab-btn:hover{background:#f5f7fa;color:#0f3460}
+.site-sidebar .tab-btn.active{background:#eaf2fb;color:#0f3460;font-weight:700}
+.site-sidebar-foot{border-top:1px solid #e4e7eb;padding:12px 16px;background:#fafbfc}
+.site-sidebar-user{font-size:12px;color:#475467;margin-bottom:8px}
+.site-sidebar-actions{display:flex;gap:6px;flex-wrap:wrap}
+.site-sidebar-actions button{border:0;border-radius:6px;padding:7px 9px;font-size:12px;cursor:pointer}
+.site-sidebar-actions .logout{background:#fee4e2;color:#b42318}
+.tabs{display:none!important}
+.module-placeholder{min-height:260px;display:flex;align-items:center;justify-content:center}
+.module-placeholder-inner{max-width:620px;text-align:center;padding:28px}
+.module-placeholder-inner h2{margin-bottom:10px;color:#16213e}
+.module-placeholder-inner p{color:#667085;line-height:1.5}
 .salary-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
 .salary-toolbar-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .salary-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0}
@@ -490,8 +519,8 @@ button,input,select,textarea{max-width:100%}
 <div id="mainApp" class="app-wrapper">
   <header>
     <div class="header-main">
+      <button class="mobile-menu-toggle" type="button" onclick="toggleSidebar()" aria-label="Открыть разделы сайта" aria-expanded="false">☰</button>
       <h1>БИЗНЕС БЕЗ ТАБЛИЦ</h1>
-      <button class="mobile-menu-toggle" type="button" onclick="toggleMobileMenu()" aria-label="Меню" aria-expanded="false">☰</button>
     </div>
     <div class="user-info" id="headerUserInfo">
       <button id="actionLogBtn" onclick="showLog()">Журнал действий</button>
@@ -500,17 +529,67 @@ button,input,select,textarea{max-width:100%}
       <button onclick="doLogout()">Выйти</button>
     </div>
   </header>
-  <div class="tabs" id="tabs">
-    <button class="tab-btn" data-tab="dashboard" onclick="showTab('dashboard')">Главная</button>
-    <button class="tab-btn active" data-tab="input" onclick="showTab('input')">Ввод данных</button>
-    <button class="tab-btn" data-tab="salary" onclick="showTab('salary')">Зарплата</button>
-    <button class="tab-btn" data-tab="employees" onclick="showTab('employees')">Сотрудники</button>
-    <button class="tab-btn" data-tab="objects" onclick="showTab('objects')">Объекты</button>
-    <button class="tab-btn" data-tab="organizations" onclick="showTab('organizations')">Организации</button>
-    <button class="tab-btn" data-tab="users" onclick="showTab('users')" id="usersTab" style="display:none">Пользователи</button>
-    <button class="tab-btn" data-tab="compliance" onclick="showTab('compliance')">ПД / Compliance</button>
-    <button class="tab-btn" data-tab="data" onclick="showTab('data')">Данные</button>
-  </div>
+  <div class="site-sidebar-overlay" id="siteSidebarOverlay" onclick="closeSidebar()"></div>
+  <aside class="site-sidebar" id="siteSidebar" aria-hidden="true">
+    <div class="site-sidebar-head"><strong>KORVEX</strong><button class="site-sidebar-close" type="button" onclick="closeSidebar()" aria-label="Закрыть меню">×</button></div>
+    <nav class="site-sidebar-nav" aria-label="Разделы сайта">
+      <div class="sidebar-group" id="menuSalary" data-menu-group="salary">
+        <button class="sidebar-group-toggle" type="button" onclick="toggleSidebarGroup(this)"><span>Зарплата</span><span class="arrow">›</span></button>
+        <div class="sidebar-submenu">
+          <button class="tab-btn" data-tab="dashboard" onclick="showTab('dashboard')">Главная</button>
+          <button class="tab-btn" data-tab="input" onclick="showTab('input')">Ввод данных</button>
+          <button class="tab-btn" data-tab="salary" onclick="showTab('salary')">Зарплата</button>
+        </div>
+      </div>
+      <div class="sidebar-group" id="menuHr" data-menu-group="hr">
+        <button class="sidebar-group-toggle" type="button" onclick="toggleSidebarGroup(this)"><span>Кадры</span><span class="arrow">›</span></button>
+        <div class="sidebar-submenu">
+          <button class="tab-btn" data-tab="employees" onclick="showTab('employees')">Сотрудники</button>
+          <button class="tab-btn" data-tab="organizations" onclick="showTab('organizations')">Организации</button>
+        </div>
+      </div>
+      <div class="sidebar-group" id="menuAccounting" data-menu-group="accounting">
+        <button class="sidebar-group-toggle" type="button" onclick="toggleSidebarGroup(this)"><span>Бухгалтерия</span><span class="arrow">›</span></button>
+        <div class="sidebar-submenu">
+          <button class="tab-btn" data-tab="accounting" onclick="showTab('accounting')">Обзор</button>
+        </div>
+      </div>
+      <div class="sidebar-group" id="menuDeals" data-menu-group="deals">
+        <button class="sidebar-group-toggle" type="button" onclick="toggleSidebarGroup(this)"><span>Сделки</span><span class="arrow">›</span></button>
+        <div class="sidebar-submenu">
+          <button class="tab-btn" data-tab="deals" onclick="showTab('deals')">Сделки</button>
+          <button class="tab-btn" data-tab="objects" onclick="showTab('objects')">Объекты</button>
+        </div>
+      </div>
+      <div class="sidebar-group" id="menuWarehouse" data-menu-group="warehouse">
+        <button class="sidebar-group-toggle" type="button" onclick="toggleSidebarGroup(this)"><span>Склад</span><span class="arrow">›</span></button>
+        <div class="sidebar-submenu">
+          <button class="tab-btn" data-tab="warehouse" onclick="showTab('warehouse')">Склад</button>
+        </div>
+      </div>
+      <div class="sidebar-group" id="menuCompliance" data-menu-group="compliance">
+        <button class="sidebar-group-toggle" type="button" onclick="toggleSidebarGroup(this)"><span>ПД / Compliance</span><span class="arrow">›</span></button>
+        <div class="sidebar-submenu">
+          <button class="tab-btn" data-tab="compliance" onclick="showTab('compliance')">ПД / Compliance</button>
+          <button class="tab-btn" data-tab="data" onclick="showTab('data')">Данные</button>
+        </div>
+      </div>
+      <div class="sidebar-group" id="menuUsers" data-menu-group="users">
+        <button class="sidebar-group-toggle" type="button" onclick="toggleSidebarGroup(this)"><span>Пользователи</span><span class="arrow">›</span></button>
+        <div class="sidebar-submenu">
+          <button class="tab-btn" data-tab="users" onclick="showTab('users')" id="usersTab">Пользователи</button>
+        </div>
+      </div>
+    </nav>
+    <div class="site-sidebar-foot">
+      <div class="site-sidebar-user"><b id="sidebarUserFio"></b><br><span id="sidebarUserRole"></span></div>
+      <div class="site-sidebar-actions">
+        <button id="sidebarActionLogBtn" type="button" onclick="showLog()">Журнал</button>
+        <button id="sidebarSecurityLogBtn" type="button" onclick="showSecurityLog()">Безопасность</button>
+        <button class="logout" type="button" onclick="doLogout()">Выйти</button>
+      </div>
+    </div>
+  </aside>
 
   <!-- TAB: DASHBOARD -->
   <div id="tab-dashboard" class="tab-content">
@@ -724,6 +803,21 @@ button,input,select,textarea{max-width:100%}
       <table id="usersTable"><thead><tr><th>ФИО</th><th>Логин</th><th>Email</th><th>Телефон</th><th>Роль</th><th>Организация / объект</th><th>Последний вход</th><th>Действия</th></tr></thead>
       <tbody id="usersBody"></tbody></table>
     </div>
+  </div>
+
+  <!-- TAB: ACCOUNTING -->
+  <div id="tab-accounting" class="tab-content">
+    <div class="card module-placeholder"><div class="module-placeholder-inner"><h2>Бухгалтерия</h2><p>Раздел создан и подключён к системе ролей. Здесь можно последовательно развивать бухгалтерские документы, платежи, акты, счета и отчётность.</p></div></div>
+  </div>
+
+  <!-- TAB: DEALS -->
+  <div id="tab-deals" class="tab-content">
+    <div class="card module-placeholder"><div class="module-placeholder-inner"><h2>Сделки</h2><p>Раздел создан и подключён к системе ролей. Объекты уже доступны отдельным пунктом этого подраздела; карточки сделок и этапы будут добавляться сюда.</p></div></div>
+  </div>
+
+  <!-- TAB: WAREHOUSE -->
+  <div id="tab-warehouse" class="tab-content">
+    <div class="card module-placeholder"><div class="module-placeholder-inner"><h2>Склад</h2><p>Раздел создан и подключён к системе ролей. Здесь можно развивать остатки, приход, расход, перемещения и материально ответственных лиц.</p></div></div>
   </div>
 
   <!-- TAB: COMPLIANCE -->
@@ -1023,25 +1117,46 @@ function canAny(){
 function setVisibleById(id,visible){
   const el=document.getElementById(id);if(el)el.style.display=visible?'':'none';
 }
-function applyPermissionsToUi(){
-  if(!currentUser)return;
-  const tabRules={
+function tabAccessAllowed(tab){
+  const rules={
     dashboard:can('salary.view'),
     input:canAny('salary.create','balances.manage','bank.import'),
     salary:can('salary.view'),
     employees:can('employees.view'),
-    objects:can('objects.view'),
     organizations:can('organizations.view'),
+    accounting:can('accounting.view'),
+    deals:can('deals.view'),
+    objects:can('deals.view')&&can('objects.view'),
+    warehouse:can('warehouse.view'),
     users:can('users.manage'),
     compliance:true,
     data:can('backups.manage')
   };
-  Object.keys(tabRules).forEach(function(tab){
+  return !!rules[tab];
+}
+function setSidebarGroupVisible(id,visible){
+  const el=document.getElementById(id);if(!el)return;
+  el.classList.toggle('visible',!!visible);
+  if(!visible)el.classList.remove('open');
+}
+function applyPermissionsToUi(){
+  if(!currentUser)return;
+  const tabs=['dashboard','input','salary','employees','organizations','accounting','deals','objects','warehouse','users','compliance','data'];
+  tabs.forEach(function(tab){
     const btn=document.querySelector('.tab-btn[data-tab="'+tab+'"]');
-    if(btn)btn.style.display=tabRules[tab]?'inline-block':'none';
+    if(btn)btn.style.display=tabAccessAllowed(tab)?'block':'none';
   });
+  setSidebarGroupVisible('menuSalary',['dashboard','input','salary'].some(tabAccessAllowed));
+  setSidebarGroupVisible('menuHr',['employees','organizations'].some(tabAccessAllowed));
+  setSidebarGroupVisible('menuAccounting',tabAccessAllowed('accounting'));
+  setSidebarGroupVisible('menuDeals',['deals','objects'].some(tabAccessAllowed));
+  setSidebarGroupVisible('menuWarehouse',tabAccessAllowed('warehouse'));
+  setSidebarGroupVisible('menuCompliance',['compliance','data'].some(tabAccessAllowed));
+  setSidebarGroupVisible('menuUsers',tabAccessAllowed('users'));
   setVisibleById('actionLogBtn',can('logs.view'));
   setVisibleById('securityLogBtn',can('security.view'));
+  setVisibleById('sidebarActionLogBtn',can('logs.view'));
+  setVisibleById('sidebarSecurityLogBtn',can('security.view'));
   setVisibleById('salaryCreateBtn',can('salary.create'));
   setVisibleById('manualPaymentBtn',can('salary.edit'));
   setVisibleById('balanceManageBtn',can('balances.manage'));
@@ -1056,12 +1171,9 @@ function applyPermissionsToUi(){
   setVisibleById('orgAddBtn',currentUser.role==='Руководитель сайта');
 }
 function firstAccessibleTab(){
-  const order=['dashboard','input','salary','employees','objects','organizations','users','compliance','data'];
-  for(const tab of order){
-    const btn=document.querySelector('.tab-btn[data-tab="'+tab+'"]');
-    if(btn&&btn.style.display!=='none')return tab;
-  }
-  return 'dashboard';
+  const order=['dashboard','input','salary','employees','organizations','accounting','deals','objects','warehouse','compliance','users','data'];
+  for(const tab of order)if(tabAccessAllowed(tab))return tab;
+  return 'compliance';
 }
 
 function normalizeExtraItems(value){
@@ -1130,12 +1242,27 @@ function employeePositionAt(fio,cutoff){
   const balance=opening?parseFloat(opening.amount||0):0;
   return {opening:opening,balance:balance,charged:charged,paid:paid,debt:balance+charged-paid};
 }
-function toggleMobileMenu(){
-  const info=document.getElementById('headerUserInfo'), btn=document.querySelector('.mobile-menu-toggle');
-  if(!info || !btn) return;
-  const open=info.classList.toggle('mobile-open');
-  btn.setAttribute('aria-expanded',open ? 'true' : 'false');
+function toggleSidebar(){
+  const sidebar=document.getElementById('siteSidebar'),overlay=document.getElementById('siteSidebarOverlay'),btn=document.querySelector('.mobile-menu-toggle');
+  if(!sidebar||!overlay||!btn)return;
+  const open=!sidebar.classList.contains('show');
+  sidebar.classList.toggle('show',open);
+  overlay.classList.toggle('show',open);
+  sidebar.setAttribute('aria-hidden',open?'false':'true');
+  btn.setAttribute('aria-expanded',open?'true':'false');
 }
+function closeSidebar(){
+  const sidebar=document.getElementById('siteSidebar'),overlay=document.getElementById('siteSidebarOverlay'),btn=document.querySelector('.mobile-menu-toggle');
+  if(sidebar)sidebar.classList.remove('show');
+  if(overlay)overlay.classList.remove('show');
+  if(sidebar)sidebar.setAttribute('aria-hidden','true');
+  if(btn)btn.setAttribute('aria-expanded','false');
+}
+function toggleSidebarGroup(button){
+  const group=button&&button.closest('.sidebar-group');if(!group)return;
+  group.classList.toggle('open');
+}
+document.addEventListener('keydown',function(event){if(event.key==='Escape')closeSidebar();});
 function toggleSalaryExport(){
   const panel=document.getElementById('salaryExportPanel'),btn=document.getElementById('salaryExportToggleBtn');
   if(!panel||!btn)return;
@@ -1785,6 +1912,8 @@ async function showApp(){
   document.getElementById('mainApp').style.display='block';
   document.getElementById('userFio').textContent=currentUser.fio;
   document.getElementById('userRole').textContent=currentUser.role || 'без роли';
+  document.getElementById('sidebarUserFio').textContent=currentUser.fio||currentUser.login||'';
+  document.getElementById('sidebarUserRole').textContent=currentUser.role||'без роли';
   applyPermissionsToUi();
   await loadAll();
   applyPermissionsToUi();
@@ -1810,10 +1939,16 @@ async function loadAll(){
 
 // === TABS ===
 function showTab(tab) {
+  if(!tabAccessAllowed(tab)){toast('У вашей роли нет доступа к этому разделу','error');return;}
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-  document.querySelector('[data-tab="' + tab + '"]').classList.add('active');
-  document.getElementById('tab-' + tab).classList.add('active');
+  const nav=document.querySelector('.tab-btn[data-tab="' + tab + '"]');
+  const panel=document.getElementById('tab-' + tab);
+  if(!nav||!panel)return;
+  nav.classList.add('active');
+  panel.classList.add('active');
+  const group=nav.closest('.sidebar-group');if(group)group.classList.add('open');
+  closeSidebar();
   if (tab === 'dashboard') renderDashboard();
   if (tab === 'salary') renderSalary();
   if (tab === 'data' && can('backups.manage')) loadAutoBackups();
