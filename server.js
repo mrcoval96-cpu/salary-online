@@ -2261,6 +2261,7 @@ app.put('/api/salary/:id', requirePermission('salary.edit'), async (req, res) =>
     const oldPaid=paymentSummary(before.payments),newPaid=paymentSummary(payments);
     let action='Изменена запись зарплаты ID='+id+' — '+(employee_fio||before.employee_fio);
     if(Math.abs(newPaid-oldPaid)>0.005)action+='; выплаты: '+oldPaid.toFixed(2)+' ₽ → '+newPaid.toFixed(2)+' ₽';
+    if(JSON.stringify(normalizePayments(before.payments))!==JSON.stringify(normalizePayments(payments)))action+='; обновлены реквизиты/распределение ручных выплат';
     await pool.query('INSERT INTO action_log (user_login, action) VALUES ($1, $2)',[req.session.user.login,action]);
     res.json(result.rows[0]);
   } catch (err) { res.status(err.status||500).json({ error: err.message }); }
