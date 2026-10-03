@@ -192,7 +192,7 @@ header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tab-content{padding:12px}
   .card{padding:14px}
   .salary-toolbar-actions,.salary-export-grid{display:grid;grid-template-columns:1fr;width:100%}
-  .salary-entry-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .salary-entry-grid,.salary-source-row-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .salary-summary{grid-template-columns:1fr}
   .dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .responsible-picker{grid-template-columns:1fr}
@@ -202,7 +202,7 @@ header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .modal{width:calc(100vw - 24px);max-width:none;max-height:calc(100vh - 24px);padding:18px}
 }
 @media(max-width:420px){
-  .salary-entry-grid{grid-template-columns:1fr}
+  .salary-entry-grid,.salary-source-row-grid{grid-template-columns:1fr}
   .salary-card .stats{display:grid;grid-template-columns:1fr;gap:4px}
 }
 
@@ -2159,7 +2159,7 @@ function groupSalaryRecordsByMonth(recs){
     const key=year+'|'+month;
     if(!groups[key])groups[key]={
       key:key,month:month,year:year,records:[],objects:new Set(),hours:0,hourlyAmount:0,
-      perDiemDays:0,perDiemAmount:0,extraTotal:0,total:0,paid:0,extras:{}
+      perDiemDays:0,perDiemAmount:0,extraTotal:0,total:0,paid:0,extras:Object.create(null)
     };
     const g=groups[key],hourRate=Number(r.hour_rate||0),hours=Number(r.hours||0),perDays=Number(r.per_diem_days||0),perRate=Number(r.per_diem_rate||0);
     g.records.push(r);
