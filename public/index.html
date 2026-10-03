@@ -275,6 +275,14 @@ header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .backup-warning{font-size:12px;color:#777;margin-top:8px}
 .salary-card{padding:0;overflow:hidden;cursor:default}
 .salary-card-head{width:100%;display:block;text-align:left;border:0;background:transparent;cursor:pointer;padding:16px}
+.salary-card.salary-reconciled{border:1px solid #86efac;box-shadow:0 2px 10px rgba(22,163,74,.14)}
+.salary-card.salary-reconciled .salary-card-head{background:#ecfdf3}
+.salary-card.salary-reconciled:hover{box-shadow:0 4px 14px rgba(22,163,74,.2)}
+.salary-reconcile-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:999px;background:#dcfce7;color:#166534;font-size:11px;font-weight:700;white-space:nowrap}
+.salary-reconcile-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 16px;border-top:1px solid #bbf7d0;background:#f0fdf4;font-size:12px;color:#166534}
+.salary-reconcile-check{display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer}
+.salary-reconcile-check input{width:18px;height:18px;min-height:0;accent-color:#16a34a}
+.salary-reconcile-meta{font-size:11px;color:#667085;text-align:right}
 .salary-card .name{display:flex;align-items:center;gap:8px}
 .salary-card .chevron{transition:transform .2s}
 .salary-card.open .chevron{transform:rotate(180deg)}
@@ -804,6 +812,7 @@ button,input,select,textarea{max-width:100%}
         </div>
       </div>
       <div class="period-bar"><button class="btn btn-gray btn-sm" onclick="changeSalaryPeriod(-1)">← месяц</button><span id="salaryPeriodLabel">Период</span><button class="btn btn-gray btn-sm" onclick="changeSalaryPeriod(1)">месяц →</button><span id="salaryPeriodStatus" class="period-status"></span><button id="periodToggleBtn" class="btn btn-red btn-sm" style="display:none" onclick="toggleCurrentPeriod()">Закрыть период</button><button class="btn btn-gray btn-sm" id="salaryArchiveBtn" onclick="showSalaryArchive()">Архив удалённых</button></div>
+      <div id="salaryReconcileHint" style="font-size:11px;color:#667085;margin:-3px 0 8px">Для отметки сверки выберите конкретный месяц. Сверенные сотрудники подсвечиваются зелёным.</div>
       <div class="salary-summary" id="salarySummary">
         <div class="salary-summary-item"><label>Остатки</label><b id="salarySummaryBalance">0,00 ₽</b></div>
         <div class="salary-summary-item"><label>Начислено</label><b id="salarySummaryTotal">0,00 ₽</b></div>
@@ -1318,6 +1327,7 @@ let objectResponsibleUsers = [];
 let bankStatementTransactions = [];
 let bankStatementPreview = [];
 let closedSalaryPeriods = [];
+let salaryReconciliations = [];
 let dashboardInitialized = false;
 let objectsPeriodInitialized = false;
 let editingBankAllocationId = null;
@@ -2194,6 +2204,7 @@ async function loadAll(){
     employeeBalances=can('salary.view')?await api('/api/employee-balances'):[];
     bankStatementPayments=can('bank.view')?await api('/api/bank-payments'):(can('salary.view')?await api('/api/financial-payments'):[]);
     closedSalaryPeriods=can('salary.view')?await api('/api/salary-periods'):[];
+    salaryReconciliations=can('salary.view')?await api('/api/salary-reconciliations'):[];
     users=can('users.manage')?await api('/api/users'):[];
     permissionCatalog=can('users.manage')?await api('/api/permissions/catalog'):null;
     fillSalaryExportEmployees();
@@ -2923,6 +2934,40 @@ function salaryMonthGroupHtml(group){
     (group.records.length?'<details class="salary-month-source"><summary>Исходные записи месяца ('+group.records.length+')</summary><div class="salary-source-list">'+sourceRows+'</div></details>':'')+
   '</div>';
 }
+function salaryReconciliationOrganization(fio,recs){
+  const recordOrgs=Array.from(new Set((recs||[]).map(function(r){return String(r&&r.organization||'').trim();}).filter(Boolean)));
+  if(recordOrgs.length===1)return recordOrgs[0];
+  const employeeOrgs=Array.from(new Set(employees.filter(function(e){return String(e&&e.fio||'').trim().toLocaleLowerCase('ru-RU')===String(fio||'').trim().toLocaleLowerCase('ru-RU');}).map(function(e){return String(e.organization||'').trim();}).filter(Boolean)));
+  if(employeeOrgs.length===1)return employeeOrgs[0];
+  return String(currentUser&&currentUser.organization||'').trim();
+}
+function salaryReconciliationFor(fio,month,year,organization){
+  const f=String(fio||'').trim().toLocaleLowerCase('ru-RU'),org=String(organization||'').trim().toLocaleLowerCase('ru-RU');
+  return salaryReconciliations.find(function(x){
+    return String(x.employee_fio||'').trim().toLocaleLowerCase('ru-RU')===f&&String(x.month||'')===String(month||'')&&String(x.year||'')===String(year||'')&&(!org||String(x.organization||'').trim().toLocaleLowerCase('ru-RU')===org);
+  })||null;
+}
+function salaryReconciliationMeta(item){
+  if(!item)return '';
+  let when='';try{when=item.reconciled_at?new Date(item.reconciled_at).toLocaleString('ru-RU'):'';}catch(e){}
+  return (item.reconciled_by?('Сверил: '+item.reconciled_by):'')+(when?((item.reconciled_by?' · ':'')+when):'');
+}
+async function toggleSalaryReconciliation(fio,month,year,organization,reconciled,input){
+  if(!can('salary.reconcile'))return;
+  if(!month||!year){toast('Для сверки выберите конкретный месяц','error');if(input)input.checked=!reconciled;return;}
+  if(!organization){toast('Не удалось определить организацию сотрудника','error');if(input)input.checked=!reconciled;return;}
+  if(!reconciled&&!confirm('Снять отметку о сверке зарплаты с сотрудником?')){if(input)input.checked=true;return;}
+  if(input)input.disabled=true;
+  try{
+    await api('/api/salary-reconciliations/toggle','POST',{employee_fio:fio,month:month,year:String(year),organization:organization,reconciled:!!reconciled});
+    salaryReconciliations=await api('/api/salary-reconciliations');
+    renderSalary();
+    toast(reconciled?'Зарплата отмечена как сверенная':'Отметка сверки снята');
+  }catch(e){
+    if(input)input.checked=!reconciled;
+    toast(e.message,'error');
+  }finally{if(input)input.disabled=false;}
+}
 function renderSalary(){
   fillSalaryObjectFilter();
   const filter=document.getElementById('salaryMonthFilter').value;
@@ -2993,12 +3038,27 @@ function renderSalary(){
     const paid=manualPaid+bankItems.reduce(function(sum,p){return sum+p.amount;},0);
     const historyBankItems=bankUnallocatedHistoryItemsForEmployee(fio,periodStart,filter?cutoff:'');
     const position=employeePositionAt(fio,cutoff),opening=position.opening,paymentItems=manualPaymentItemsAfterOpening(fio,recs,cutoff).concat(historyBankItems).sort(function(a,b){return String(a.date||a.recordDate||'').localeCompare(String(b.date||b.recordDate||''));}),balanceItems=balanceItemsForEmployee(fio);
-    const card=document.createElement('div');card.className='salary-card';
+    const reconciliationOrg=salaryReconciliationOrganization(fio,recs);
+    const reconciliation=filter?salaryReconciliationFor(fio,filter,periodYear,reconciliationOrg):null;
+    const card=document.createElement('div');card.className='salary-card'+(reconciliation?' salary-reconciled':'');
     const head=document.createElement('button');head.type='button';head.className='salary-card-head';head.setAttribute('aria-expanded','false');
     const balanceDate=opening?'<span class="salary-balance-date">на '+formatDateRu(opening.balance_date)+'</span>':'';
     const openingDirection=opening?balanceDirectionLabel(opening):'Остаток не задан';
     const debtDirection=debtDirectionLabel(position.debt);
-    head.innerHTML='<div class="name"><span class="chevron">▼</span>'+escapeHtml(fio)+' <span style="font-size:12px;color:#777">('+monthGroups.length+' мес. / '+recs.length+' зап.)</span></div><div class="stats"><div class="stat">Остаток: <span class="salary-balance-link" role="button" tabindex="0" title="Показать историю остатков">'+formatMoney(Math.abs(position.balance))+' ₽</span>'+balanceDate+' <span style="font-size:11px;color:#667085">— '+openingDirection+'</span></div><div class="stat">Начислено: <span>'+formatMoney(total)+' ₽</span></div><div class="stat">Выплачено: <span class="salary-paid-link" role="button" tabindex="0" title="Показать выплаты">'+formatMoney(paid)+' ₽</span></div><div class="stat">Сальдо: <span>'+formatMoney(Math.abs(position.debt))+' ₽</span> <span style="font-size:11px;color:#667085">— '+debtDirection+'</span></div></div>';
+    const reconciliationBadge=reconciliation?'<span class="salary-reconcile-badge" title="'+escapeHtml(salaryReconciliationMeta(reconciliation))+'">✓ Сверено</span>':'';
+    head.innerHTML='<div class="name"><span class="chevron">▼</span>'+escapeHtml(fio)+' <span style="font-size:12px;color:#777">('+monthGroups.length+' мес. / '+recs.length+' зап.)</span>'+reconciliationBadge+'</div><div class="stats"><div class="stat">Остаток: <span class="salary-balance-link" role="button" tabindex="0" title="Показать историю остатков">'+formatMoney(Math.abs(position.balance))+' ₽</span>'+balanceDate+' <span style="font-size:11px;color:#667085">— '+openingDirection+'</span></div><div class="stat">Начислено: <span>'+formatMoney(total)+' ₽</span></div><div class="stat">Выплачено: <span class="salary-paid-link" role="button" tabindex="0" title="Показать выплаты">'+formatMoney(paid)+' ₽</span></div><div class="stat">Сальдо: <span>'+formatMoney(Math.abs(position.debt))+' ₽</span> <span style="font-size:11px;color:#667085">— '+debtDirection+'</span></div></div>';
+
+    let reconcileBar=null;
+    if(filter&&!objectFilter&&recs.length&&can('salary.reconcile')&&reconciliationOrg){
+      reconcileBar=document.createElement('div');reconcileBar.className='salary-reconcile-bar';
+      const checkLabel=document.createElement('label');checkLabel.className='salary-reconcile-check';
+      const check=document.createElement('input');check.type='checkbox';check.checked=!!reconciliation;
+      const checkText=document.createElement('span');checkText.textContent='Зарплата сверена с сотрудником';
+      checkLabel.appendChild(check);checkLabel.appendChild(checkText);
+      check.onchange=function(){toggleSalaryReconciliation(fio,filter,periodYear,reconciliationOrg,check.checked,check);};
+      const meta=document.createElement('span');meta.className='salary-reconcile-meta';meta.textContent=reconciliation?salaryReconciliationMeta(reconciliation):'Отметка руководителя организации';
+      reconcileBar.appendChild(checkLabel);reconcileBar.appendChild(meta);
+    }
 
     const balanceDetail=document.createElement('div');balanceDetail.className='salary-balance-detail';
     balanceDetail.innerHTML='<div class="salary-payment-title">История остатков</div>'+(balanceItems.length?balanceItems.map(function(b){return '<div class="balance-history-row"><div class="balance-history-main"><span>'+formatDateRu(b.balance_date)+' — <b>'+formatMoney(Math.abs(Number(b.amount)||0))+' ₽</b></span><div style="font-size:12px;color:#475467;margin-top:2px">'+balanceDirectionLabel(b)+'</div>'+(b.comment?'<div class="balance-history-comment">'+escapeHtml(b.comment)+'</div>':'')+'</div>'+(can('balances.manage')?'<div class="balance-history-actions"><button class="btn btn-blue btn-sm" type="button" onclick="event.stopPropagation();editEmployeeBalance('+b.id+')">Изменить</button><button class="btn btn-red btn-sm" type="button" onclick="event.stopPropagation();deleteEmployeeBalance('+b.id+')">Удалить</button></div>':'')+'</div>';}).join(''):'<div class="salary-payment-empty">Остатки не вводились.</div>');
@@ -3024,7 +3084,7 @@ function renderSalary(){
     const detail=document.createElement('div');detail.className='salary-detail';
     detail.innerHTML=(monthGroups.length?'<div class="salary-records">'+monthGroups.map(salaryMonthGroupHtml).join('')+'</div>':'<div class="salary-payment-empty">После ввода остатка начислений за выбранный период нет.</div>')+((can('salary.edit')||can('reports.export'))?'<div class="salary-entry-actions">'+(can('salary.edit')?'<button class="btn btn-green btn-sm" type="button" onclick="event.stopPropagation();openQuickPaymentForEmployee('+JSON.stringify(fio).replace(/"/g,'&quot;')+')">+ Выплата сотруднику</button>':'')+(can('reports.export')?'<button class="btn btn-blue btn-sm" type="button" onclick="event.stopPropagation();exportSalaryCSV('+JSON.stringify(fio).replace(/"/g,'&quot;')+')">Экспорт</button>':'')+'</div>':'');
     head.onclick=function(){const open=detail.classList.toggle('show');card.classList.toggle('open',open);head.setAttribute('aria-expanded',open?'true':'false');};
-    card.appendChild(head);card.appendChild(balanceDetail);card.appendChild(paymentDetail);card.appendChild(detail);container.appendChild(card);
+    card.appendChild(head);if(reconcileBar)card.appendChild(reconcileBar);card.appendChild(balanceDetail);card.appendChild(paymentDetail);card.appendChild(detail);container.appendChild(card);
   });
 }
 let quickPaymentEdit=null;
