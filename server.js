@@ -1833,6 +1833,37 @@ function normalizePayments(value){
 function paymentSummary(value){
   return normalizePayments(value).reduce((s,p)=>s+(parseFloat(p&&((p.amount!=null)?p.amount:p.sum))||0),0);
 }
+function assertManualPaymentAllocations(value){
+  const payments=normalizePayments(value);
+  const allowedMonths=new Set(['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']);
+  payments.forEach((p,paymentIndex)=>{
+    const paymentAmount=Number(p&&((p.amount!=null)?p.amount:p.sum));
+    if(!Number.isFinite(paymentAmount)||paymentAmount<0){
+      const err=new Error('Некорректная сумма ручной выплаты #'+(paymentIndex+1));err.status=400;throw err;
+    }
+    const allocations=Array.isArray(p&&p.allocations)?p.allocations:[];
+    let allocated=0;
+    allocations.forEach((a,index)=>{
+      const month=String(a&&a.month||'').trim();
+      const year=String(a&&a.year||'').trim();
+      const amount=Number(a&&a.amount);
+      const handedBy=String(a&&a.handed_by||'').trim();
+      const handedAt=String(a&&a.handed_at||'').slice(0,10);
+      if(!allowedMonths.has(month)||!/^(20\d{2}|2100)$/.test(year)||!(amount>0)||!handedBy||handedBy.length>255||!/^(20\d{2}|2100)-\d{2}-\d{2}$/.test(handedAt)){
+        const err=new Error('Некорректные данные распределения ручной выплаты #'+(paymentIndex+1)+', строка '+(index+1));err.status=400;throw err;
+      }
+      const d=new Date(handedAt+'T00:00:00Z');
+      if(Number.isNaN(d.getTime())||d.toISOString().slice(0,10)!==handedAt){
+        const err=new Error('Некорректная дата передачи денег в распределении ручной выплаты');err.status=400;throw err;
+      }
+      allocated+=amount;
+    });
+    if(allocated>paymentAmount+0.005){
+      const err=new Error('Распределённая сумма ручной выплаты превышает сумму самой выплаты');err.status=400;throw err;
+    }
+  });
+  return payments;
+}
 function normalizeEmployeeMatchName(value){
   return String(value||'').trim().replace(/\s+/g,' ').toLocaleLowerCase('ru-RU').replace(/ё/g,'е');
 }
@@ -2190,6 +2221,7 @@ app.post('/api/salary', requirePermission('salary.create'), async (req, res) => 
     const scope=await ensureSalaryAccess(user,employee_fio,object_name);
     const org=scope.organization;
     await assertSalaryPeriodOpen(month,year,org);
+    assertManualPaymentAllocations(payments);
     const duplicate=await pool.query("SELECT id FROM salary_records WHERE deleted_at IS NULL AND lower(employee_fio)=lower($1) AND lower(COALESCE(object_name,''))=lower($2) AND month=$3 AND year=$4 AND (trim(COALESCE(organization,''))='' OR lower(trim(organization))=lower(trim($5))) LIMIT 1",[employee_fio||'',object_name||'',month||'',String(year||''),org]);
     if(duplicate.rows.length && !req.body.allow_duplicate)return res.status(409).json({error:'За '+month+' '+year+' уже есть начисление для '+employee_fio+(object_name?' по объекту «'+object_name+'»':'')+'.',duplicate:true});
     const result = await pool.query(
@@ -2220,6 +2252,7 @@ app.put('/api/salary/:id', requirePermission('salary.edit'), async (req, res) =>
     const nextOrg=nextScope.organization;
     await assertSalaryPeriodOpen(before.month,before.year,beforeOrg);
     if(before.month!==month||String(before.year)!==String(year)||!sameAccessValue(beforeOrg,nextOrg))await assertSalaryPeriodOpen(month,year,nextOrg);
+    assertManualPaymentAllocations(payments);
     const result = await pool.query(
       `UPDATE salary_records SET employee_fio=$1, object_name=$2, organization=$3, month=$4, year=$5, charge_date=$6, hour_rate=$7, hours=$8, per_diem_days=$9, per_diem_rate=$10, extra_charges=$11, payments=$12, total=$13, paid=$14 WHERE id=$15 AND deleted_at IS NULL RETURNING *`,
       [employee_fio||'', object_name||'', nextOrg, month||'', year||'', charge_date||null, hour_rate||0, hours||0, per_diem_days||0, per_diem_rate||0,
