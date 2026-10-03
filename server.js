@@ -478,6 +478,9 @@ const PERMISSION_DEFINITIONS=[
   {key:'objects.manage',group:'Объекты',label:'Создание, изменение и удаление объектов'},
   {key:'organizations.view',group:'Организации',label:'Просмотр организации'},
   {key:'organizations.manage',group:'Организации',label:'Создание, изменение и удаление организаций',siteOnly:true},
+  {key:'accounting.view',group:'Разделы сайта',label:'Доступ к разделу «Бухгалтерия»'},
+  {key:'deals.view',group:'Разделы сайта',label:'Доступ к разделу «Сделки»'},
+  {key:'warehouse.view',group:'Разделы сайта',label:'Доступ к разделу «Склад»'},
   {key:'salary.view',group:'Зарплата',label:'Просмотр зарплаты и общего сальдо'},
   {key:'salary.create',group:'Зарплата',label:'Создание начислений'},
   {key:'salary.edit',group:'Зарплата',label:'Изменение начислений и ручных выплат'},
@@ -507,7 +510,8 @@ const ROLE_PERMISSION_DEFAULTS={
   'Руководитель сайта':Object.fromEntries(PERMISSION_DEFINITIONS.map(x=>[x.key,true])),
   'Руководитель организации':{
     'employees.view':true,'employees.manage':true,'objects.view':true,'objects.manage':true,
-    'organizations.view':true,'organizations.manage':false,'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':true,
+    'organizations.view':true,'organizations.manage':false,'accounting.view':true,'deals.view':true,'warehouse.view':true,
+    'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':true,
     'balances.manage':true,'bank.view':true,'bank.import':true,'bank.allocate':true,'bank.delete':true,
     'periods.close':true,'periods.reopen':true,'reports.export':true,
     'users.manage':true,'users.customize':true,'users.delete':false,'logs.view':true,'security.view':false,
@@ -515,21 +519,24 @@ const ROLE_PERMISSION_DEFAULTS={
   },
   'Бухгалтер':{
     'employees.view':true,'employees.manage':false,'objects.view':true,'objects.manage':false,
-    'organizations.view':true,'organizations.manage':false,'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':true,
+    'organizations.view':true,'organizations.manage':false,'accounting.view':true,'deals.view':true,'warehouse.view':false,
+    'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':true,
     'balances.manage':true,'bank.view':true,'bank.import':true,'bank.allocate':true,'bank.delete':true,
     'periods.close':true,'periods.reopen':false,'reports.export':true,
     'users.manage':false,'users.customize':false,'users.delete':false,'logs.view':false,'security.view':false,'backups.manage':false
   },
   'Руководитель':{
     'employees.view':true,'employees.manage':true,'objects.view':true,'objects.manage':false,
-    'organizations.view':true,'organizations.manage':false,'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':false,
+    'organizations.view':true,'organizations.manage':false,'accounting.view':false,'deals.view':true,'warehouse.view':true,
+    'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':false,
     'balances.manage':false,'bank.view':false,'bank.import':false,'bank.allocate':false,'bank.delete':false,
     'periods.close':false,'periods.reopen':false,'reports.export':true,
     'users.manage':false,'users.customize':false,'users.delete':false,'logs.view':false,'security.view':false,'backups.manage':false
   },
   'Руководитель проекта':{
     'employees.view':true,'employees.manage':false,'objects.view':true,'objects.manage':false,
-    'organizations.view':false,'organizations.manage':false,'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':false,
+    'organizations.view':false,'organizations.manage':false,'accounting.view':false,'deals.view':true,'warehouse.view':true,
+    'salary.view':true,'salary.create':true,'salary.edit':true,'salary.delete':false,
     'balances.manage':false,'bank.view':false,'bank.import':false,'bank.allocate':false,'bank.delete':false,
     'periods.close':false,'periods.reopen':false,'reports.export':true,
     'users.manage':false,'users.customize':false,'users.delete':false,'logs.view':false,'security.view':false,'backups.manage':false
