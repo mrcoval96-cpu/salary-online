@@ -176,10 +176,10 @@ header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .counterparty-contact-row{display:grid;grid-template-columns:1.2fr 1fr 1fr 1.2fr auto;gap:7px;align-items:end;margin:7px 0;padding:9px;border:1px solid #eaecf0;border-radius:8px;background:#fafbfc}
 .counterparty-contact-row .form-group{margin:0}
 .object-customer-line{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;align-items:center}
-.loan-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}
+.loan-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin:12px 0}
 .loan-summary-item{padding:12px;border:1px solid #e4e7eb;border-radius:9px;background:#fafbfc}
 .loan-summary-item label{display:block;font-size:11px;color:#667085;margin-bottom:4px}.loan-summary-item b{font-size:18px}
-.loan-table-wrap{overflow:auto;border:1px solid #e4e7eb;border-radius:10px}#loansTable{min-width:1150px;margin:0}
+.loan-table-wrap{overflow:auto;border:1px solid #e4e7eb;border-radius:10px}#loansTable{min-width:1450px;margin:0}
 .loan-lender-row{cursor:pointer}
 .loan-lender-row td{background:#f8fafc;font-weight:600}
 .loan-lender-row:hover td{background:#f1f5f9}
@@ -191,7 +191,7 @@ header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .loan-lender-detail-row.show{display:table-row}
 .loan-lender-detail-cell{padding:0!important;background:#fff!important}
 .loan-lender-inner{padding:12px 14px 16px 34px;overflow:auto}
-.loan-lender-inner table{min-width:1000px;margin:0;border:1px solid #e4e7eb}
+.loan-lender-inner table{min-width:1300px;margin:0;border:1px solid #e4e7eb}
 .loan-lender-inner th{background:#f8fafc;font-size:11px}
 .loan-lender-inner td{background:#fff;font-weight:400}
 .loan-attachments{display:flex;flex-direction:column;gap:7px;margin-top:10px}
@@ -924,11 +924,13 @@ button,input,select,textarea{max-width:100%}
       </div>
       <div class="loan-summary">
         <div class="loan-summary-item"><label>Получено</label><b id="loanSummaryPrincipal">0,00 ₽</b></div>
+        <div class="loan-summary-item"><label>Проценты</label><b id="loanSummaryInterest">0,00 ₽</b></div>
+        <div class="loan-summary-item"><label>Всего к возврату</label><b id="loanSummaryTotalDue">0,00 ₽</b></div>
         <div class="loan-summary-item"><label>Погашено</label><b id="loanSummaryRepaid">0,00 ₽</b></div>
-        <div class="loan-summary-item"><label>Остаток основного долга</label><b id="loanSummaryOutstanding">0,00 ₽</b></div>
+        <div class="loan-summary-item"><label>Остаток к погашению</label><b id="loanSummaryOutstanding">0,00 ₽</b></div>
       </div>
       <div class="counterparty-search"><input id="loanSearch" type="search" placeholder="Поиск по займодавцу, договору, ИНН..." oninput="renderLoans()"></div>
-      <div class="loan-table-wrap"><table id="loansTable"><thead><tr><th>Займодавец</th><th>Договор</th><th>Получено</th><th>Ставка</th><th>Срок возврата</th><th>Погашено</th><th>Остаток</th><th>Статус</th><th>Действия</th></tr></thead><tbody id="loansBody"></tbody></table></div>
+      <div class="loan-table-wrap"><table id="loansTable"><thead><tr><th>Займодавец</th><th>Договор</th><th>Получено</th><th>Ставка</th><th>Проценты</th><th>К возврату</th><th>Срок возврата</th><th>Погашено</th><th>Остаток</th><th>Статус</th><th>Действия</th></tr></thead><tbody id="loansBody"></tbody></table></div>
     </div>
   </div>
 
@@ -1240,6 +1242,13 @@ button,input,select,textarea{max-width:100%}
   <div class="form-row"><div class="form-group"><label>Займодавец *</label><input id="loanLenderName" maxlength="500"></div><div class="form-group"><label>Тип займодавца</label><select id="loanLenderType"><option value="individual">Физическое лицо</option><option value="legal">Юридическое лицо</option></select></div><div class="form-group"><label>ИНН</label><input id="loanLenderInn" maxlength="20"></div></div>
   <div class="form-row"><div class="form-group"><label>Договор №</label><input id="loanContractNo" maxlength="120"></div><div class="form-group"><label>Дата договора</label><input id="loanContractDate" type="date"></div><div class="form-group"><label>Дата получения</label><input id="loanReceivedDate" type="date"></div></div>
   <div class="form-row"><div class="form-group"><label>Сумма займа *</label><input id="loanPrincipal" type="number" min="0" step="0.01"></div><div class="form-group"><label>Ставка, % годовых</label><input id="loanInterestRate" type="number" min="0" step="0.01"></div><div class="form-group"><label>Срок возврата</label><input id="loanDueDate" type="date"></div><div class="form-group"><label>Статус</label><select id="loanStatus"><option value="active">Действует</option><option value="overdue">Просрочен</option><option value="closed">Погашен</option></select></div></div>
+  <div class="loan-file-help">Проценты рассчитываются как простые годовые проценты за фактический срок: сумма × ставка × количество дней / 365.</div>
+  <div class="loan-summary">
+    <div class="loan-summary-item"><label>Срок расчёта</label><b id="loanCalcDays">0 дней</b></div>
+    <div class="loan-summary-item"><label>Проценты</label><b id="loanCalcInterest">0,00 ₽</b></div>
+    <div class="loan-summary-item"><label>Всего к возврату</label><b id="loanCalcTotalDue">0,00 ₽</b></div>
+    <div class="loan-summary-item"><label>Остаток</label><b id="loanCalcOutstanding">0,00 ₽</b></div>
+  </div>
   <div class="deal-form-section"><h3>Погашения</h3><div id="loanRepayments"></div><button class="btn btn-blue btn-sm" type="button" onclick="addLoanRepayment()">+ Погашение</button></div>
   <div class="deal-form-section">
     <h3>Файлы и документы</h3>
@@ -4346,7 +4355,19 @@ async function deleteCounterparty(id){
 // === LOANS ===
 const LOAN_STATUS_LABELS={active:'Действует',overdue:'Просрочен',closed:'Погашен'};
 function loanRepayments(value){return parseJsonArray(value);}
-function loanMetrics(x){const repaid=loanRepayments(x.repayments).reduce(function(s,p){return s+Number(p.amount||0);},0),principal=Number(x.principal||0);return {repaid,outstanding:Math.max(0,principal-repaid)};}
+function loanDateMs(value){
+  const s=String(value||'').slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(s))return NaN;
+  const parts=s.split('-').map(Number);return Date.UTC(parts[0],parts[1]-1,parts[2]);
+}
+function loanMetrics(x){
+  const repayments=loanRepayments(x&&x.repayments),repaid=repayments.reduce(function(s,p){return s+Number(p.amount||0);},0);
+  const principal=Number(x&&x.principal||0),rate=Math.max(0,Number(x&&x.interest_rate||0));
+  const startMs=loanDateMs(x&&x.received_date||x&&x.contract_date),dueMs=loanDateMs(x&&x.due_date);
+  const days=Number.isFinite(startMs)&&Number.isFinite(dueMs)&&dueMs>startMs?Math.round((dueMs-startMs)/86400000):0;
+  const interest=Math.round((principal*rate/100*days/365)*100)/100;
+  const totalDue=Math.round((principal+interest)*100)/100;
+  return {principal,rate,days,interest,totalDue,repaid,outstanding:Math.max(0,Math.round((totalDue-repaid)*100)/100)};
+}
 function loanLenderKey(x){
   const inn=String(x&&x.lender_inn||'').trim().toLocaleLowerCase('ru-RU');
   const name=String(x&&x.lender_name||'').trim().toLocaleLowerCase('ru-RU');
@@ -4363,33 +4384,53 @@ function renderLoans(){
   const body=document.getElementById('loansBody');if(!body)return;
   const q=String(document.getElementById('loanSearch')&&document.getElementById('loanSearch').value||'').trim().toLocaleLowerCase('ru-RU');
   const rows=loans.filter(function(x){return !q||[x.lender_name,x.lender_inn,x.contract_no].join(' ').toLocaleLowerCase('ru-RU').includes(q);});
-  let principal=0,repaid=0,outstanding=0;rows.forEach(function(x){const m=loanMetrics(x);principal+=Number(x.principal||0);repaid+=m.repaid;outstanding+=m.outstanding;});
-  document.getElementById('loanSummaryPrincipal').textContent=formatMoney(principal)+' ₽';document.getElementById('loanSummaryRepaid').textContent=formatMoney(repaid)+' ₽';document.getElementById('loanSummaryOutstanding').textContent=formatMoney(outstanding)+' ₽';
-  if(!rows.length){body.innerHTML='<tr><td colspan="9" style="text-align:center;color:#777;padding:24px">Займов и кредитов пока нет.</td></tr>';return;}
+  let principal=0,interest=0,totalDue=0,repaid=0,outstanding=0;
+  rows.forEach(function(x){const m=loanMetrics(x);principal+=m.principal;interest+=m.interest;totalDue+=m.totalDue;repaid+=m.repaid;outstanding+=m.outstanding;});
+  document.getElementById('loanSummaryPrincipal').textContent=formatMoney(principal)+' ₽';
+  document.getElementById('loanSummaryInterest').textContent=formatMoney(interest)+' ₽';
+  document.getElementById('loanSummaryTotalDue').textContent=formatMoney(totalDue)+' ₽';
+  document.getElementById('loanSummaryRepaid').textContent=formatMoney(repaid)+' ₽';
+  document.getElementById('loanSummaryOutstanding').textContent=formatMoney(outstanding)+' ₽';
+  if(!rows.length){body.innerHTML='<tr><td colspan="11" style="text-align:center;color:#777;padding:24px">Займов и кредитов пока нет.</td></tr>';return;}
   const groups=new Map();
   rows.forEach(function(x){const key=loanLenderKey(x);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(x);});
   body.innerHTML=Array.from(groups.values()).map(function(items){
     items.sort(function(a,b){return Number(b.id)-Number(a.id);});
     const first=items[0],type=first.lender_type==='legal'?'Юр. лицо':'Физ. лицо';
-    let groupPrincipal=0,groupRepaid=0,groupOutstanding=0;
-    items.forEach(function(x){const m=loanMetrics(x);groupPrincipal+=Number(x.principal||0);groupRepaid+=m.repaid;groupOutstanding+=m.outstanding;});
+    let groupPrincipal=0,groupInterest=0,groupTotalDue=0,groupRepaid=0,groupOutstanding=0;
+    items.forEach(function(x){const m=loanMetrics(x);groupPrincipal+=m.principal;groupInterest+=m.interest;groupTotalDue+=m.totalDue;groupRepaid+=m.repaid;groupOutstanding+=m.outstanding;});
     const active=items.filter(function(x){return x.status==='active';}).length,overdue=items.filter(function(x){return x.status==='overdue';}).length;
     const dueDates=items.map(function(x){return String(x.due_date||'').slice(0,10);}).filter(Boolean).sort();
     const nearestDue=dueDates.length?formatDateRu(dueDates[0]):'—';
     const statusSummary=overdue?('Просрочено: '+overdue):(active?('Действует: '+active):'Погашено');
     const inner=items.map(function(x){
       const m=loanMetrics(x),actions=can('loans.manage')?'<button class="btn btn-blue btn-sm" onclick="openLoanModal('+Number(x.id)+')">Изменить</button> <button class="btn btn-red btn-sm" onclick="deleteLoan('+Number(x.id)+')">Удалить</button>':'';
-      return '<tr><td>'+escapeHtml(x.contract_no||'—')+(x.contract_date?'<div style="font-size:11px">'+formatDateRu(x.contract_date)+'</div>':'')+'</td><td>'+formatDateRu(x.received_date)+'</td><td>'+formatMoney(x.principal)+' ₽</td><td>'+formatMoney(x.interest_rate)+' %</td><td>'+formatDateRu(x.due_date)+'</td><td>'+formatMoney(m.repaid)+' ₽</td><td><b>'+formatMoney(m.outstanding)+' ₽</b></td><td>'+escapeHtml(LOAN_STATUS_LABELS[x.status]||x.status||'')+'</td><td>'+actions+'</td></tr>';
+      const rateMeta=m.rate>0&&m.days>0?'<div style="font-size:10px;color:#667085">'+m.days+' дн.</div>':'';
+      return '<tr><td>'+escapeHtml(x.contract_no||'—')+(x.contract_date?'<div style="font-size:11px">'+formatDateRu(x.contract_date)+'</div>':'')+'</td><td>'+formatDateRu(x.received_date)+'</td><td>'+formatMoney(m.principal)+' ₽</td><td>'+formatMoney(m.rate)+' %'+rateMeta+'</td><td>'+formatMoney(m.interest)+' ₽</td><td><b>'+formatMoney(m.totalDue)+' ₽</b></td><td>'+formatDateRu(x.due_date)+'</td><td>'+formatMoney(m.repaid)+' ₽</td><td><b>'+formatMoney(m.outstanding)+' ₽</b></td><td>'+escapeHtml(LOAN_STATUS_LABELS[x.status]||x.status||'')+'</td><td>'+actions+'</td></tr>';
     }).join('');
     return '<tr class="loan-lender-row"><td><button class="loan-lender-toggle" type="button" aria-expanded="false" onclick="toggleLoanLenderGroup(this)"><span class="loan-lender-arrow">›</span><span>'+escapeHtml(first.lender_name||'Без наименования')+'<span class="loan-lender-count">'+type+(first.lender_inn?' · ИНН '+escapeHtml(first.lender_inn):'')+' · договоров: '+items.length+'</span></span></button></td>'+
-      '<td>'+items.length+' дог.</td><td>'+formatMoney(groupPrincipal)+' ₽</td><td>—</td><td>'+nearestDue+'</td><td>'+formatMoney(groupRepaid)+' ₽</td><td><b>'+formatMoney(groupOutstanding)+' ₽</b></td><td>'+escapeHtml(statusSummary)+'</td><td>Развернуть</td></tr>'+
-      '<tr class="loan-lender-detail-row"><td colspan="9" class="loan-lender-detail-cell"><div class="loan-lender-inner"><table><thead><tr><th>Договор</th><th>Дата получения</th><th>Сумма</th><th>Ставка</th><th>Срок возврата</th><th>Погашено</th><th>Остаток</th><th>Статус</th><th>Действия</th></tr></thead><tbody>'+inner+'</tbody></table></div></td></tr>';
+      '<td>'+items.length+' дог.</td><td>'+formatMoney(groupPrincipal)+' ₽</td><td>—</td><td>'+formatMoney(groupInterest)+' ₽</td><td><b>'+formatMoney(groupTotalDue)+' ₽</b></td><td>'+nearestDue+'</td><td>'+formatMoney(groupRepaid)+' ₽</td><td><b>'+formatMoney(groupOutstanding)+' ₽</b></td><td>'+escapeHtml(statusSummary)+'</td><td>Развернуть</td></tr>'+
+      '<tr class="loan-lender-detail-row"><td colspan="11" class="loan-lender-detail-cell"><div class="loan-lender-inner"><table><thead><tr><th>Договор</th><th>Дата получения</th><th>Сумма</th><th>Ставка</th><th>Проценты</th><th>К возврату</th><th>Срок возврата</th><th>Погашено</th><th>Остаток</th><th>Статус</th><th>Действия</th></tr></thead><tbody>'+inner+'</tbody></table></div></td></tr>';
   }).join('');
 }
 function addLoanRepayment(value){
   value=value||{};const box=document.getElementById('loanRepayments'),row=document.createElement('div');row.className='loan-repayment-row';
-  row.innerHTML='<div class="form-group"><label>Дата</label><input type="date" class="loan-repay-date" value="'+escapeHtml(String(value.date||'').slice(0,10))+'"></div><div class="form-group"><label>Сумма</label><input type="number" min="0" step="0.01" class="loan-repay-amount" value="'+escapeHtml(value.amount==null?'':value.amount)+'"></div><div class="form-group"><label>Комментарий</label><input class="loan-repay-comment" maxlength="1000" value="'+escapeHtml(value.comment||'')+'"></div><button class="btn btn-red btn-sm" type="button" onclick="this.closest(\'.loan-repayment-row\').remove()">×</button>';
-  box.appendChild(row);
+  row.innerHTML='<div class="form-group"><label>Дата</label><input type="date" class="loan-repay-date" value="'+escapeHtml(String(value.date||'').slice(0,10))+'"></div><div class="form-group"><label>Сумма</label><input type="number" min="0" step="0.01" class="loan-repay-amount" value="'+escapeHtml(value.amount==null?'':value.amount)+'"></div><div class="form-group"><label>Комментарий</label><input class="loan-repay-comment" maxlength="1000" value="'+escapeHtml(value.comment||'')+'"></div><button class="btn btn-red btn-sm" type="button" onclick="removeLoanRepayment(this)">×</button>';
+  box.appendChild(row);updateLoanModalMetrics();
+}
+function removeLoanRepayment(button){const row=button&&button.closest('.loan-repayment-row');if(row)row.remove();updateLoanModalMetrics();}
+function updateLoanModalMetrics(){
+  const principal=Number(document.getElementById('loanPrincipal')&&document.getElementById('loanPrincipal').value||0);
+  const interest_rate=Number(document.getElementById('loanInterestRate')&&document.getElementById('loanInterestRate').value||0);
+  const received_date=document.getElementById('loanReceivedDate')&&document.getElementById('loanReceivedDate').value||'';
+  const contract_date=document.getElementById('loanContractDate')&&document.getElementById('loanContractDate').value||'';
+  const due_date=document.getElementById('loanDueDate')&&document.getElementById('loanDueDate').value||'';
+  const m=loanMetrics({principal,interest_rate,received_date,contract_date,due_date,repayments:readLoanRepayments()});
+  const days=document.getElementById('loanCalcDays'),interest=document.getElementById('loanCalcInterest'),total=document.getElementById('loanCalcTotalDue'),out=document.getElementById('loanCalcOutstanding');
+  if(days)days.textContent=m.days+' '+(m.days===1?'день':(m.days>=2&&m.days<=4?'дня':'дней'));
+  if(interest)interest.textContent=formatMoney(m.interest)+' ₽';
+  if(total)total.textContent=formatMoney(m.totalDue)+' ₽';
+  if(out)out.textContent=formatMoney(m.outstanding)+' ₽';
 }
 function readLoanRepayments(){return Array.from(document.querySelectorAll('#loanRepayments .loan-repayment-row')).map(function(row){return {date:row.querySelector('.loan-repay-date').value,amount:Number(row.querySelector('.loan-repay-amount').value||0),comment:row.querySelector('.loan-repay-comment').value.trim()};}).filter(function(x){return x.date||x.amount||x.comment;});}
 function fillLoanOrganization(selected){const el=document.getElementById('loanOrganization');el.innerHTML=organizations.map(function(o){return '<option value="'+escapeHtml(o.name)+'">'+escapeHtml(o.name)+'</option>';}).join('');if(selected)el.value=selected;}
@@ -4464,13 +4505,13 @@ function openLoanModal(id){
   document.getElementById('loanContractNo').value=x&&x.contract_no||'';document.getElementById('loanContractDate').value=x&&String(x.contract_date||'').slice(0,10)||'';document.getElementById('loanReceivedDate').value=x&&String(x.received_date||'').slice(0,10)||'';
   document.getElementById('loanPrincipal').value=x?Number(x.principal||0):'';document.getElementById('loanInterestRate').value=x?Number(x.interest_rate||0):'';document.getElementById('loanDueDate').value=x&&String(x.due_date||'').slice(0,10)||'';document.getElementById('loanStatus').value=x&&x.status||'active';document.getElementById('loanComments').value=x&&x.comments||'';
   const box=document.getElementById('loanRepayments');box.innerHTML='';const reps=x?loanRepayments(x.repayments):[];(reps.length?reps:[{}]).forEach(addLoanRepayment);
-  renderLoanAttachments();document.getElementById('loanModal').classList.add('show');if(x)loadLoanAttachments(x.id);
+  const modal=document.getElementById('loanModal');modal.oninput=updateLoanModalMetrics;renderLoanAttachments();modal.classList.add('show');updateLoanModalMetrics();if(x)loadLoanAttachments(x.id);
 }
 function loanFormPayload(){return {organization:dealIsSiteWide()?document.getElementById('loanOrganization').value:(currentUser.organization||''),lender_type:document.getElementById('loanLenderType').value,lender_name:document.getElementById('loanLenderName').value.trim(),lender_inn:document.getElementById('loanLenderInn').value.trim(),contract_no:document.getElementById('loanContractNo').value.trim(),contract_date:document.getElementById('loanContractDate').value||null,received_date:document.getElementById('loanReceivedDate').value||null,principal:Number(document.getElementById('loanPrincipal').value||0),interest_rate:Number(document.getElementById('loanInterestRate').value||0),due_date:document.getElementById('loanDueDate').value||null,repayments:readLoanRepayments(),status:document.getElementById('loanStatus').value,comments:document.getElementById('loanComments').value.trim()};}
 async function saveLoan(){
   if(!can('loans.manage'))return;
   try{
-    const data=loanFormPayload();if(!data.organization)throw new Error('Выберите организацию');if(!data.lender_name)throw new Error('Укажите займодавца');if(data.principal<=0)throw new Error('Сумма займа должна быть больше нуля');
+    const data=loanFormPayload();if(!data.organization)throw new Error('Выберите организацию');if(!data.lender_name)throw new Error('Укажите займодавца');if(data.principal<=0)throw new Error('Сумма займа должна быть больше нуля');if(data.interest_rate>0){const start=data.received_date||data.contract_date;if(!start||!data.due_date)throw new Error('Для кредита с процентами укажите дату получения (или дату договора) и срок возврата');if(loanDateMs(data.due_date)<=loanDateMs(start))throw new Error('Срок возврата должен быть позже даты получения');}
     const saved=editingLoanId?await api('/api/loans/'+editingLoanId,'PUT',data):await api('/api/loans','POST',data);
     editingLoanId=Number(saved&&saved.id||editingLoanId);document.getElementById('loanModalTitle').textContent='Изменить займ / кредит';
     const pending=loanPendingFiles.slice(),failed=[];
