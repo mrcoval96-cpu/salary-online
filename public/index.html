@@ -1178,6 +1178,12 @@ button,input,select,textarea{max-width:100%}
     <div class="form-group"><label>Примечания кадрового учёта</label><textarea id="hrNotes" rows="4"></textarea></div>
   </div>
 
+  <div class="hr-section"><h3>Файлы и документы сотрудника</h3>
+    <div class="loan-file-help">Можно прикрепить сканы документов, заявления, договоры, приказы, удостоверения, дипломы и другие кадровые файлы. Допустимые форматы: PDF, JPG, PNG, WEBP, DOC, DOCX, XLS, XLSX, TXT, CSV. До 5 МБ на файл.</div>
+    <input type="file" id="hrAttachmentFile" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv" onchange="handleHrAttachmentFiles(event)">
+    <div id="hrAttachmentList" class="loan-attachments"></div>
+  </div>
+
   <div class="hr-actions">
     <button class="btn btn-gray" type="button" onclick="downloadEmployeeProfilePdf()">Скачать PDF</button>
     <button class="btn btn-green" id="hrProfileSaveBtn" type="button" onclick="saveEmployeeProfile()">Сохранить анкету</button>
@@ -1246,6 +1252,12 @@ button,input,select,textarea{max-width:100%}
   <div class="deal-form-section"><h3>Оплачено заказчиком</h3><div id="dealCustomerPayments"></div><button class="btn btn-blue btn-sm" type="button" onclick="addDealCustomerRow('dealCustomerPayments')">+ Оплата</button></div>
   <div class="deal-form-section"><h3>Поставщики, счета и оплаты</h3><div id="dealSupplierEntries"></div><button class="btn btn-blue btn-sm" type="button" onclick="addDealSupplierRow()">+ Строка поставщика</button></div>
   <div class="deal-form-section"><h3>Дополнительные расходы</h3><div id="dealAdditionalExpenses"></div><button class="btn btn-blue btn-sm" type="button" onclick="addDealExtraRow()">+ Доп. расход</button></div>
+  <div class="deal-form-section">
+    <h3>Файлы и документы сделки</h3>
+    <div class="loan-file-help">Можно прикрепить договоры, приложения, спецификации, счета, акты, переписку и другие документы по сделке. Допустимые форматы: PDF, JPG, PNG, WEBP, DOC, DOCX, XLS, XLSX, TXT, CSV. До 5 МБ на файл.</div>
+    <input type="file" id="dealAttachmentFile" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv" onchange="handleDealAttachmentFiles(event)">
+    <div id="dealAttachmentList" class="loan-attachments"></div>
+  </div>
   <div class="form-row"><div class="form-group"><label>З/П</label><input type="number" id="dealObligationSalary" step="0.01"></div><div class="form-group"><label>Возврат и премии</label><input type="number" id="dealObligationReturns" step="0.01"></div><div class="form-group"><label>Расходы по транзиту</label><input type="number" id="dealObligationTransit" step="0.01"></div></div>
   <div class="form-group"><label>Комментарии</label><textarea id="dealComments" rows="3" maxlength="8000"></textarea></div>
   <div class="deal-metrics"><div class="deal-metric"><label>Оплачено заказчиком</label><b id="dealCalcPaid">0,00 ₽</b></div><div class="deal-metric"><label>Оплачено поставщикам</label><b id="dealCalcSupplierPaid">0,00 ₽</b></div><div class="deal-metric"><label>ИТОГ</label><b id="dealCalcResult">0,00 ₽</b></div><div class="deal-metric"><label>% сделки</label><b id="dealCalcPercent">0,00 %</b></div></div>
@@ -1272,6 +1284,8 @@ let organizations = [];
 let salaryRecords = [];
 let deals = [];
 let editingDealId = null;
+let dealAttachments = [];
+let dealPendingFiles = [];
 let quickDealEdit = null;
 let counterparties = [];
 let editingCounterpartyId = null;
@@ -1297,6 +1311,8 @@ let editingOrganizationUserId = null;
 let editingEmpId = null;
 let hrProfileEmployeeId = null;
 let hrPhotoData = '';
+let hrAttachments = [];
+let hrPendingFiles = [];
 const selectedEmployeeIds = new Set();
 let editingObjId = null;
 let editingOrgId = null;
@@ -3411,8 +3427,55 @@ function setHrReadonly(readonly){
   Object.values(HR_FIELD_IDS).forEach(function(id){const el=document.getElementById(id);if(el)el.disabled=readonly;});
   document.getElementById('hrPhotoFile').disabled=readonly;
   document.getElementById('hrPhotoRemoveBtn').disabled=readonly;
+  const hrAttachmentInput=document.getElementById('hrAttachmentFile');if(hrAttachmentInput)hrAttachmentInput.disabled=readonly;
   document.querySelectorAll('#hrRelatives input,#hrRelatives button').forEach(function(el){el.disabled=readonly;});
   document.getElementById('hrProfileSaveBtn').style.display=readonly?'none':'inline-block';
+}
+function renderHrAttachments(){
+  const box=document.getElementById('hrAttachmentList');if(!box)return;
+  const existing=hrAttachments.map(function(a){
+    const del=can('employees.manage')?'<button class="btn btn-red btn-sm" type="button" onclick="deleteHrAttachment('+Number(a.id)+')">Удалить</button>':'';
+    return '<div class="loan-attachment-item"><div class="loan-attachment-main"><span>📎</span><div><div class="loan-attachment-name">'+escapeHtml(a.file_name||'Файл')+'</div><div class="loan-attachment-meta">'+loanFileSize(a.file_size)+(a.uploaded_by?' · '+escapeHtml(a.uploaded_by):'')+(a.created_at?' · '+escapeHtml(loanAttachmentDate(a.created_at)):'')+'</div></div></div><div class="loan-attachment-actions"><button class="btn btn-blue btn-sm" type="button" onclick="downloadHrAttachment('+Number(a.id)+')">Скачать</button>'+del+'</div></div>';
+  }).join('');
+  const pending=hrPendingFiles.map(function(file,index){
+    return '<div class="loan-attachment-item loan-attachment-pending"><div class="loan-attachment-main"><span>⏳</span><div><div class="loan-attachment-name">'+escapeHtml(file.name)+'</div><div class="loan-attachment-meta">'+loanFileSize(file.size)+' · будет загружен после сохранения анкеты</div></div></div><div class="loan-attachment-actions"><button class="btn btn-gray btn-sm" type="button" onclick="removePendingHrAttachment('+index+')">Убрать</button></div></div>';
+  }).join('');
+  box.innerHTML=existing+pending||'<div style="font-size:12px;color:#777;padding:4px 0">Файлы пока не прикреплены.</div>';
+}
+async function loadHrAttachments(){
+  hrAttachments=[];renderHrAttachments();
+  if(!hrProfileEmployeeId)return;
+  try{
+    const items=await api('/api/employees/'+Number(hrProfileEmployeeId)+'/attachments');
+    hrAttachments=Array.isArray(items)?items:[];renderHrAttachments();
+  }catch(e){toast('Не удалось загрузить документы сотрудника: '+e.message,'error');}
+}
+function handleHrAttachmentFiles(event){
+  if(!can('employees.manage'))return;
+  const files=Array.from(event.target.files||[]),allowed=/\.(pdf|jpe?g|png|webp|docx?|xlsx?|txt|csv)$/i;
+  files.forEach(function(file){
+    if(!allowed.test(file.name)){toast('Формат файла не поддерживается: '+file.name,'error');return;}
+    if(file.size>5*1024*1024){toast('Файл больше 5 МБ: '+file.name,'error');return;}
+    if(file.size<=0){toast('Файл пустой: '+file.name,'error');return;}
+    const duplicate=hrPendingFiles.some(function(x){return x.name===file.name&&x.size===file.size&&x.lastModified===file.lastModified;});
+    if(!duplicate)hrPendingFiles.push(file);
+  });
+  event.target.value='';renderHrAttachments();
+}
+function removePendingHrAttachment(index){hrPendingFiles.splice(Number(index),1);renderHrAttachments();}
+async function uploadHrAttachment(file){
+  if(!hrProfileEmployeeId)throw new Error('Сотрудник не выбран');
+  const data=await readLoanFileBase64(file);
+  return api('/api/employees/'+Number(hrProfileEmployeeId)+'/attachments','POST',{file_name:file.name,mime_type:file.type||'',data_base64:data});
+}
+function downloadHrAttachment(id){
+  if(!hrProfileEmployeeId)return;
+  const a=document.createElement('a');a.href='/api/employees/'+Number(hrProfileEmployeeId)+'/attachments/'+Number(id)+'/download';a.style.display='none';document.body.appendChild(a);a.click();a.remove();
+}
+async function deleteHrAttachment(id){
+  if(!hrProfileEmployeeId||!can('employees.manage')||!confirm('Удалить прикреплённый файл сотрудника?'))return;
+  try{await api('/api/employees/'+Number(hrProfileEmployeeId)+'/attachments/'+Number(id),'DELETE');await loadHrAttachments();toast('Файл удалён');}
+  catch(e){toast(e.message,'error');}
 }
 async function openEmployeeProfile(id){
   if(currentUser&&currentUser.role==='Руководитель проекта'){
@@ -3420,6 +3483,7 @@ async function openEmployeeProfile(id){
     return;
   }
   hrProfileEmployeeId=Number(id);
+  hrAttachments=[];hrPendingFiles=[];const hrFileInput=document.getElementById('hrAttachmentFile');if(hrFileInput)hrFileInput.value='';renderHrAttachments();
   try{
     const data=await api('/api/employees/'+hrProfileEmployeeId+'/profile');
     const p=normalizedHrProfile(data.hr_profile);
@@ -3438,6 +3502,7 @@ async function openEmployeeProfile(id){
     document.getElementById('hrPhotoFile').value='';
     setHrReadonly(!can('employees.manage'));
     document.getElementById('employeeProfileModal').classList.add('show');
+    await loadHrAttachments();
   }catch(e){toast(e.message,'error');}
 }
 function collectEmployeeProfile(){
@@ -3458,7 +3523,11 @@ async function saveEmployeeProfile(){
   if(!hrProfileEmployeeId||!can('employees.manage'))return;
   try{
     await api('/api/employees/'+hrProfileEmployeeId+'/profile','PUT',{profile:collectEmployeeProfile(),photo_data:hrPhotoData});
-    toast('Кадровая анкета сохранена');
+    const pending=hrPendingFiles.slice(),failed=[];
+    for(const file of pending){try{await uploadHrAttachment(file);}catch(e){failed.push(file);toast('Не загружен '+file.name+': '+e.message,'error');}}
+    hrPendingFiles=failed;await loadHrAttachments();
+    if(failed.length){toast('Анкета сохранена. Часть файлов не загрузилась — повторите сохранение.','error');return;}
+    toast(pending.length?'Анкета и файлы сохранены':'Кадровая анкета сохранена');
   }catch(e){toast(e.message,'error');}
 }
 function hrPdfRow(label,value){
@@ -4573,6 +4642,50 @@ function readDealExtraRows(){
     const i=row.querySelectorAll('input');return {supplier:i[0].value.trim(),subject:i[1].value.trim(),date:statementDateToIso(i[2].value),amount:dealAmount(i[3].value)};
   }).filter(function(x){return x.supplier||x.subject||x.date||Math.abs(x.amount)>0.0001;});
 }
+function renderDealAttachments(){
+  const box=document.getElementById('dealAttachmentList');if(!box)return;
+  const existing=dealAttachments.map(function(a){
+    const del=can('deals.manage')?'<button class="btn btn-red btn-sm" type="button" onclick="deleteDealAttachment('+Number(a.id)+')">Удалить</button>':'';
+    return '<div class="loan-attachment-item"><div class="loan-attachment-main"><span>📎</span><div><div class="loan-attachment-name">'+escapeHtml(a.file_name||'Файл')+'</div><div class="loan-attachment-meta">'+loanFileSize(a.file_size)+(a.uploaded_by?' · '+escapeHtml(a.uploaded_by):'')+(a.created_at?' · '+escapeHtml(loanAttachmentDate(a.created_at)):'')+'</div></div></div><div class="loan-attachment-actions"><button class="btn btn-blue btn-sm" type="button" onclick="downloadDealAttachment('+Number(a.id)+')">Скачать</button>'+del+'</div></div>';
+  }).join('');
+  const pending=dealPendingFiles.map(function(file,index){
+    return '<div class="loan-attachment-item loan-attachment-pending"><div class="loan-attachment-main"><span>⏳</span><div><div class="loan-attachment-name">'+escapeHtml(file.name)+'</div><div class="loan-attachment-meta">'+loanFileSize(file.size)+' · будет загружен после сохранения сделки</div></div></div><div class="loan-attachment-actions"><button class="btn btn-gray btn-sm" type="button" onclick="removePendingDealAttachment('+index+')">Убрать</button></div></div>';
+  }).join('');
+  box.innerHTML=existing+pending||'<div style="font-size:12px;color:#777;padding:4px 0">Файлы пока не прикреплены.</div>';
+}
+async function loadDealAttachments(id){
+  dealAttachments=[];renderDealAttachments();if(!id)return;
+  try{
+    const items=await api('/api/deals/'+Number(id)+'/attachments');
+    if(Number(editingDealId)===Number(id)){dealAttachments=Array.isArray(items)?items:[];renderDealAttachments();}
+  }catch(e){toast('Не удалось загрузить документы сделки: '+e.message,'error');}
+}
+function handleDealAttachmentFiles(event){
+  if(!can('deals.manage'))return;
+  const files=Array.from(event.target.files||[]),allowed=/\.(pdf|jpe?g|png|webp|docx?|xlsx?|txt|csv)$/i;
+  files.forEach(function(file){
+    if(!allowed.test(file.name)){toast('Формат файла не поддерживается: '+file.name,'error');return;}
+    if(file.size>5*1024*1024){toast('Файл больше 5 МБ: '+file.name,'error');return;}
+    if(file.size<=0){toast('Файл пустой: '+file.name,'error');return;}
+    const duplicate=dealPendingFiles.some(function(x){return x.name===file.name&&x.size===file.size&&x.lastModified===file.lastModified;});
+    if(!duplicate)dealPendingFiles.push(file);
+  });
+  event.target.value='';renderDealAttachments();
+}
+function removePendingDealAttachment(index){dealPendingFiles.splice(Number(index),1);renderDealAttachments();}
+async function uploadDealAttachment(dealId,file){
+  const data=await readLoanFileBase64(file);
+  return api('/api/deals/'+Number(dealId)+'/attachments','POST',{file_name:file.name,mime_type:file.type||'',data_base64:data});
+}
+function downloadDealAttachment(id){
+  if(!editingDealId)return;
+  const a=document.createElement('a');a.href='/api/deals/'+Number(editingDealId)+'/attachments/'+Number(id)+'/download';a.style.display='none';document.body.appendChild(a);a.click();a.remove();
+}
+async function deleteDealAttachment(id){
+  if(!editingDealId||!can('deals.manage')||!confirm('Удалить прикреплённый файл сделки?'))return;
+  try{await api('/api/deals/'+Number(editingDealId)+'/attachments/'+Number(id),'DELETE');await loadDealAttachments(editingDealId);toast('Файл удалён');}
+  catch(e){toast(e.message,'error');}
+}
 function dealModalPayload(){
   return {
     organization:dealIsSiteWide()?document.getElementById('dealOrganization').value:(currentUser.organization||''),
@@ -4600,6 +4713,7 @@ function openDealModal(id){
   if(!can('deals.manage'))return;
   const d=id?deals.find(function(x){return Number(x.id)===Number(id);}):null;
   editingDealId=d?Number(d.id):null;
+  dealAttachments=[];dealPendingFiles=[];const dealFileInput=document.getElementById('dealAttachmentFile');if(dealFileInput)dealFileInput.value='';renderDealAttachments();
   document.getElementById('dealModalTitle').textContent=d?'Изменить сделку':'Новая сделка';
   const siteWide=dealIsSiteWide();document.getElementById('dealOrganizationRow').style.display=siteWide?'':'none';
   if(siteWide)fillDealOrganizationSelect(d&&d.organization||document.getElementById('dealImportOrg').value||'');
@@ -4619,6 +4733,7 @@ function openDealModal(id){
   (suppliers.length?suppliers:[{}]).forEach(addDealSupplierRow);
   (extras.length?extras:[{}]).forEach(addDealExtraRow);
   const modal=document.getElementById('dealModal');modal.oninput=updateDealModalMetrics;modal.classList.add('show');updateDealModalMetrics();
+  if(d)loadDealAttachments(d.id);
 }
 async function saveDeal(){
   if(!can('deals.manage'))return;
@@ -4626,8 +4741,14 @@ async function saveDeal(){
     const payload=dealModalPayload();
     if(!payload.organization)throw new Error('Выберите организацию');
     if(!payload.customer)throw new Error('Укажите заказчика');
-    if(editingDealId)await api('/api/deals/'+editingDealId,'PUT',payload);else await api('/api/deals','POST',payload);
-    deals=await api('/api/deals');closeModal('dealModal');editingDealId=null;renderDeals();toast('Сделка сохранена');
+    const saved=editingDealId?await api('/api/deals/'+editingDealId,'PUT',payload):await api('/api/deals','POST',payload);
+    editingDealId=Number(saved&&saved.id||editingDealId);document.getElementById('dealModalTitle').textContent='Изменить сделку';
+    const pending=dealPendingFiles.slice(),failed=[];
+    for(const file of pending){try{await uploadDealAttachment(editingDealId,file);}catch(e){failed.push(file);toast('Не загружен '+file.name+': '+e.message,'error');}}
+    dealPendingFiles=failed;
+    deals=await api('/api/deals');renderDeals();await loadDealAttachments(editingDealId);
+    if(failed.length){toast('Сделка сохранена. Часть файлов не загрузилась — повторите сохранение.','error');return;}
+    closeModal('dealModal');editingDealId=null;dealAttachments=[];dealPendingFiles=[];toast(pending.length?'Сделка и файлы сохранены':'Сделка сохранена');
   }catch(e){toast(e.message,'error');}
 }
 async function deleteDeal(id){
