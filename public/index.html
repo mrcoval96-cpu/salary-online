@@ -521,6 +521,7 @@ button,input,select,textarea{max-width:100%}
               <select id="dashboardMonth" onchange="renderDashboard()"><option>Январь</option><option>Февраль</option><option>Март</option><option>Апрель</option><option>Май</option><option>Июнь</option><option>Июль</option><option>Август</option><option>Сентябрь</option><option>Октябрь</option><option>Ноябрь</option><option>Декабрь</option></select>
               <input id="dashboardYear" type="number" min="2000" max="2100" style="width:105px" onchange="renderDashboard()">
               <button class="btn btn-gray btn-sm" type="button" onclick="changeDashboardPeriod(1)">→</button>
+              <button class="btn btn-blue btn-sm" type="button" onclick="resetDashboardToCurrentMonth()">Текущий месяц</button>
             </div>
           </div>
           <div class="dashboard-grid">
@@ -1847,7 +1848,6 @@ function dashboardPeriodData(mode,month,year){
     employeeMap[fio].total+=Number(r.total||0);
   });
   selectedMonths.forEach(function(selectedMonth){
-    allocatedManualItemsForEmployee('', '').forEach(function(){});
     salaryRecords.forEach(function(r){
       const fio=String(r.employee_fio||'').trim();if(!fio)return;
       parseJsonArray(r.payments).forEach(function(p){
@@ -1904,6 +1904,14 @@ function renderDashboard(){
   document.getElementById('dashDebtors').textContent=period.debtors;
   document.getElementById('dashPayments').innerHTML=period.payments.length?period.payments.slice(0,12).map(dashboardPaymentRowHtml).join(''):'<div class="salary-payment-empty">Выплат за выбранный период нет.</div>';
   document.getElementById('dashboardPeriodCaption').textContent=mode==='year'?('Год: '+year):('Период: '+month+' '+year);
+}
+function resetDashboardToCurrentMonth(){
+  const now=new Date(),months=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  document.getElementById('dashboardMode').value='month';
+  document.getElementById('dashboardMonth').style.display='block';
+  document.getElementById('dashboardMonth').value=months[now.getMonth()];
+  document.getElementById('dashboardYear').value=now.getFullYear();
+  renderDashboard();
 }
 function changeDashboardPeriod(delta){
   const mode=document.getElementById('dashboardMode').value||'month',months=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
