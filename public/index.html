@@ -159,6 +159,17 @@ header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .salary-entry-field label{display:block;font-size:11px;color:#777;margin-bottom:2px}
 .salary-entry-field div{font-size:13px;word-break:break-word}
 .salary-entry-totals,.salary-entry-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.salary-month-entry{border-color:#d7dde5;background:#fff}
+.salary-month-entry .salary-entry-date{font-size:15px;color:#16213e}
+.salary-month-source{margin-top:12px;border-top:1px solid #e6e8eb;padding-top:10px}
+.salary-month-source summary{cursor:pointer;font-size:12px;font-weight:600;color:#0f3460;user-select:none}
+.salary-source-list{display:grid;gap:8px;margin-top:9px}
+.salary-source-row{padding:10px;border:1px solid #edf0f3;border-radius:7px;background:#f8fafc}
+.salary-source-row-top{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:12px;margin-bottom:7px}
+.salary-source-row-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.salary-source-row-grid label{display:block;font-size:10px;color:#777;margin-bottom:2px}
+.salary-source-row-grid div{font-size:12px;word-break:break-word}
+.salary-source-row-totals{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;font-size:12px}
 .salary-export{margin:12px 0;padding:12px;border:1px solid #e4e7eb;border-radius:8px;background:#fafbfc}
 .salary-export-title{font-weight:600;margin-bottom:8px}
 .salary-export-grid{display:grid;grid-template-columns:minmax(180px,1.3fr) repeat(2,minmax(150px,1fr)) auto;gap:8px;align-items:end}
@@ -181,7 +192,7 @@ header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tab-content{padding:12px}
   .card{padding:14px}
   .salary-toolbar-actions,.salary-export-grid{display:grid;grid-template-columns:1fr;width:100%}
-  .salary-entry-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .salary-entry-grid,.salary-source-row-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .salary-summary{grid-template-columns:1fr}
   .dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .responsible-picker{grid-template-columns:1fr}
@@ -191,7 +202,7 @@ header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .modal{width:calc(100vw - 24px);max-width:none;max-height:calc(100vh - 24px);padding:18px}
 }
 @media(max-width:420px){
-  .salary-entry-grid{grid-template-columns:1fr}
+  .salary-entry-grid,.salary-source-row-grid{grid-template-columns:1fr}
   .salary-card .stats{display:grid;grid-template-columns:1fr;gap:4px}
 }
 
@@ -2137,6 +2148,83 @@ function fillSalaryObjectFilter(){
   select.innerHTML='<option value="">Все объекты</option>'+names.map(function(x){return '<option value="'+escapeHtml(x)+'">'+escapeHtml(x)+'</option>';}).join('');
   if(names.indexOf(current)>=0)select.value=current;
 }
+function formatSalaryQty(value){
+  const n=Number(value||0);
+  return Number.isFinite(n)?n.toLocaleString('ru-RU',{maximumFractionDigits:2}):'0';
+}
+function groupSalaryRecordsByMonth(recs){
+  const groups={};
+  recs.forEach(function(r){
+    const month=String(r.month||'Без месяца'),year=String(r.year||'');
+    const key=year+'|'+month;
+    if(!groups[key])groups[key]={
+      key:key,month:month,year:year,records:[],objects:new Set(),hours:0,hourlyAmount:0,
+      perDiemDays:0,perDiemAmount:0,extraTotal:0,total:0,paid:0,extras:Object.create(null)
+    };
+    const g=groups[key],hourRate=Number(r.hour_rate||0),hours=Number(r.hours||0),perDays=Number(r.per_diem_days||0),perRate=Number(r.per_diem_rate||0);
+    g.records.push(r);
+    if(r.object_name)g.objects.add(String(r.object_name));
+    g.hours+=hours;
+    g.hourlyAmount+=hourRate*hours;
+    g.perDiemDays+=perDays;
+    g.perDiemAmount+=perDays*perRate;
+    normalizeExtraItems(r.extra_charges).forEach(function(e){
+      const name=String(e.description||'Доп. начисление').trim()||'Доп. начисление';
+      const amount=Number(e.amount||0);
+      g.extraTotal+=amount;
+      g.extras[name]=(g.extras[name]||0)+amount;
+    });
+    g.total+=Number(r.total||0);
+    g.paid+=Number(r.paid||0);
+  });
+  return Object.values(groups).sort(function(a,b){
+    const ay=Number(a.year)||0,by=Number(b.year)||0;
+    if(ay!==by)return ay-by;
+    const am=monthNumber(a.month),bm=monthNumber(b.month);
+    if(am!==bm)return am-bm;
+    return a.month.localeCompare(b.month,'ru');
+  });
+}
+function salaryMonthExtrasHtml(group){
+  const items=Object.keys(group.extras||{});
+  if(!items.length)return '—';
+  return items.sort(function(a,b){return a.localeCompare(b,'ru');}).map(function(name){
+    return '<div><b>'+escapeHtml(name)+'</b>: '+formatMoney(group.extras[name])+' ₽</div>';
+  }).join('');
+}
+function salarySourceRecordHtml(r){
+  const rowDebt=Number(r.total||0)-Number(r.paid||0);
+  let rowActions='';
+  if(can('salary.edit'))rowActions+='<button class="btn btn-green btn-sm" type="button" onclick="event.stopPropagation();openQuickPayment('+r.id+')">+ Выплата</button><button class="btn btn-blue btn-sm" type="button" onclick="event.stopPropagation();editSalary('+r.id+')">Изменить</button>';
+  if(can('salary.delete'))rowActions+='<button class="btn btn-red btn-sm" type="button" onclick="event.stopPropagation();deleteSalary('+r.id+')">Удалить</button>';
+  return '<div class="salary-source-row">'+
+    '<div class="salary-source-row-top"><b>'+(r.charge_date?('Дата начисления: '+formatDateRu(r.charge_date)):'Дата начисления не указана')+'</b><span>'+escapeHtml(r.object_name||'Без объекта')+'</span></div>'+
+    '<div class="salary-source-row-grid">'+
+      '<div><label>Ставка / часы</label><div>'+formatMoney(r.hour_rate)+' ₽ × '+escapeHtml(r.hours||0)+'</div></div>'+
+      '<div><label>Суточные</label><div>'+escapeHtml(r.per_diem_days||0)+' × '+formatMoney(r.per_diem_rate)+' ₽</div></div>'+
+      '<div><label>Доп. начисления</label><div>'+formatExtra(r.extra_charges)+'</div></div>'+
+      '<div><label>Итого записи</label><div><b>'+formatMoney(r.total)+' ₽</b></div></div>'+
+    '</div>'+
+    '<div class="salary-source-row-totals"><span>Выплачено: <b>'+formatMoney(r.paid)+' ₽</b></span><span>Долг записи: <b>'+formatMoney(rowDebt)+' ₽</b></span></div>'+
+    (rowActions?'<div class="salary-entry-actions">'+rowActions+'</div>':'')+
+  '</div>';
+}
+function salaryMonthGroupHtml(group){
+  const debt=group.total-group.paid;
+  const objects=Array.from(group.objects).sort(function(a,b){return a.localeCompare(b,'ru');});
+  const sourceRows=group.records.slice().sort(function(a,b){return (recordExportDate(a)||'').localeCompare(recordExportDate(b)||'');}).map(salarySourceRecordHtml).join('');
+  return '<div class="salary-entry salary-month-entry">'+
+    '<div class="salary-entry-top"><div class="salary-entry-date">'+escapeHtml(group.month+(group.year?' '+group.year:''))+'</div><div class="salary-entry-month">'+group.records.length+' '+(group.records.length===1?'ввод':'вводов')+'</div></div>'+
+    '<div class="salary-entry-grid">'+
+      '<div class="salary-entry-field"><label>Объекты</label><div>'+escapeHtml(objects.length?objects.join(', '):'—')+'</div></div>'+
+      '<div class="salary-entry-field"><label>Часы / начислено по часам</label><div>'+formatSalaryQty(group.hours)+' ч · '+formatMoney(group.hourlyAmount)+' ₽</div></div>'+
+      '<div class="salary-entry-field"><label>Суточные</label><div>'+formatSalaryQty(group.perDiemDays)+' дн. · '+formatMoney(group.perDiemAmount)+' ₽</div></div>'+
+      '<div class="salary-entry-field"><label>Доп. начисления</label><div>'+salaryMonthExtrasHtml(group)+'</div></div>'+
+    '</div>'+
+    '<div class="salary-entry-totals"><span>Начислено за месяц: <b>'+formatMoney(group.total)+' ₽</b></span><span>Выплачено в записях: <b>'+formatMoney(group.paid)+' ₽</b></span><span>Долг по записям месяца: <b>'+formatMoney(debt)+' ₽</b></span></div>'+
+    '<details class="salary-month-source"><summary>Исходные записи месяца ('+group.records.length+')</summary><div class="salary-source-list">'+sourceRows+'</div></details>'+
+  '</div>';
+}
 function renderSalary(){
   fillSalaryObjectFilter();
   const filter=document.getElementById('salaryMonthFilter').value;
@@ -2195,6 +2283,7 @@ function renderSalary(){
 
   employeeNames.sort(function(a,b){return a.localeCompare(b,'ru');}).forEach(function(fio){
     const recs=(byEmp[fio]||[]).slice().sort(function(a,b){return (recordExportDate(a)||'').localeCompare(recordExportDate(b)||'');});
+    const monthGroups=groupSalaryRecordsByMonth(recs);
     const total=recs.reduce(function(sum,r){return sum+parseFloat(r.total||0);},0);
     const manualPaid=manualPaidAfterOpeningForRecords(fio,recs,cutoff);
     const bankItems=bankPaymentItemsForEmployee(fio,periodStart,filter?cutoff:'');
@@ -2205,7 +2294,7 @@ function renderSalary(){
     const balanceDate=opening?'<span class="salary-balance-date">на '+formatDateRu(opening.balance_date)+'</span>':'';
     const openingDirection=opening?balanceDirectionLabel(opening):'Остаток не задан';
     const debtDirection=debtDirectionLabel(position.debt);
-    head.innerHTML='<div class="name"><span class="chevron">▼</span>'+escapeHtml(fio)+' <span style="font-size:12px;color:#777">('+recs.length+' зап.)</span></div><div class="stats"><div class="stat">Остаток: <span class="salary-balance-link" role="button" tabindex="0" title="Показать историю остатков">'+formatMoney(Math.abs(position.balance))+' ₽</span>'+balanceDate+' <span style="font-size:11px;color:#667085">— '+openingDirection+'</span></div><div class="stat">Начислено: <span>'+formatMoney(total)+' ₽</span></div><div class="stat">Выплачено: <span class="salary-paid-link" role="button" tabindex="0" title="Показать выплаты">'+formatMoney(paid)+' ₽</span></div><div class="stat">Сальдо: <span>'+formatMoney(Math.abs(position.debt))+' ₽</span> <span style="font-size:11px;color:#667085">— '+debtDirection+'</span></div></div>';
+    head.innerHTML='<div class="name"><span class="chevron">▼</span>'+escapeHtml(fio)+' <span style="font-size:12px;color:#777">('+monthGroups.length+' мес. / '+recs.length+' зап.)</span></div><div class="stats"><div class="stat">Остаток: <span class="salary-balance-link" role="button" tabindex="0" title="Показать историю остатков">'+formatMoney(Math.abs(position.balance))+' ₽</span>'+balanceDate+' <span style="font-size:11px;color:#667085">— '+openingDirection+'</span></div><div class="stat">Начислено: <span>'+formatMoney(total)+' ₽</span></div><div class="stat">Выплачено: <span class="salary-paid-link" role="button" tabindex="0" title="Показать выплаты">'+formatMoney(paid)+' ₽</span></div><div class="stat">Сальдо: <span>'+formatMoney(Math.abs(position.debt))+' ₽</span> <span style="font-size:11px;color:#667085">— '+debtDirection+'</span></div></div>';
 
     const balanceDetail=document.createElement('div');balanceDetail.className='salary-balance-detail';
     balanceDetail.innerHTML='<div class="salary-payment-title">История остатков</div>'+(balanceItems.length?balanceItems.map(function(b){return '<div class="balance-history-row"><div class="balance-history-main"><span>'+formatDateRu(b.balance_date)+' — <b>'+formatMoney(Math.abs(Number(b.amount)||0))+' ₽</b></span><div style="font-size:12px;color:#475467;margin-top:2px">'+balanceDirectionLabel(b)+'</div>'+(b.comment?'<div class="balance-history-comment">'+escapeHtml(b.comment)+'</div>':'')+'</div>'+(can('balances.manage')?'<div class="balance-history-actions"><button class="btn btn-blue btn-sm" type="button" onclick="event.stopPropagation();editEmployeeBalance('+b.id+')">Изменить</button><button class="btn btn-red btn-sm" type="button" onclick="event.stopPropagation();deleteEmployeeBalance('+b.id+')">Удалить</button></div>':'')+'</div>';}).join(''):'<div class="salary-payment-empty">Остатки не вводились.</div>');
@@ -2229,13 +2318,7 @@ function renderSalary(){
     paidLink.addEventListener('click',togglePayments);paidLink.addEventListener('keydown',function(event){if(event.key==='Enter'||event.key===' '){togglePayments(event);}});
 
     const detail=document.createElement('div');detail.className='salary-detail';
-    detail.innerHTML=(recs.length?'<div class="salary-records">'+recs.map(function(r){
-      const rowDebt=parseFloat(r.total||0)-parseFloat(r.paid||0);
-      let rowActions='';
-      if(can('salary.edit'))rowActions+='<button class="btn btn-green btn-sm" type="button" onclick="event.stopPropagation();openQuickPayment('+r.id+')">+ Выплата</button><button class="btn btn-blue btn-sm" type="button" onclick="event.stopPropagation();editSalary('+r.id+')">Изменить</button>';
-      if(can('salary.delete'))rowActions+='<button class="btn btn-red btn-sm" type="button" onclick="event.stopPropagation();deleteSalary('+r.id+')">Удалить</button>';
-      return '<div class="salary-entry"><div class="salary-entry-top"><div class="salary-entry-date">Дата начисления: '+formatDateRu(r.charge_date)+'</div><div class="salary-entry-month">'+escapeHtml((r.month||'')+(r.year?' '+r.year:''))+'</div></div><div class="salary-entry-grid"><div class="salary-entry-field"><label>Объект</label><div>'+escapeHtml(r.object_name||'—')+'</div></div><div class="salary-entry-field"><label>Ставка / часы</label><div>'+formatMoney(r.hour_rate)+' ₽ × '+escapeHtml(r.hours||0)+'</div></div><div class="salary-entry-field"><label>Суточные</label><div>'+escapeHtml(r.per_diem_days||0)+' × '+formatMoney(r.per_diem_rate)+' ₽</div></div><div class="salary-entry-field"><label>Доп. начисления</label><div>'+formatExtra(r.extra_charges)+'</div></div></div><div class="salary-entry-totals"><span>Итого: <b>'+formatMoney(r.total)+' ₽</b></span><span>Выплачено: <b>'+formatMoney(r.paid)+' ₽</b></span><span>Долг записи: <b>'+formatMoney(rowDebt)+' ₽</b></span></div>'+(rowActions?'<div class="salary-entry-actions">'+rowActions+'</div>':'')+'</div>';
-    }).join('')+'</div>':'<div class="salary-payment-empty">После ввода остатка начислений за выбранный период нет.</div>')+((can('salary.edit')||can('reports.export'))?'<div class="salary-entry-actions">'+(can('salary.edit')?'<button class="btn btn-green btn-sm" type="button" onclick="event.stopPropagation();openQuickPaymentForEmployee('+JSON.stringify(fio).replace(/"/g,'&quot;')+')">+ Выплата сотруднику</button>':'')+(can('reports.export')?'<button class="btn btn-blue btn-sm" type="button" onclick="event.stopPropagation();exportSalaryCSV('+JSON.stringify(fio).replace(/"/g,'&quot;')+')">Экспорт</button>':'')+'</div>':'');
+    detail.innerHTML=(monthGroups.length?'<div class="salary-records">'+monthGroups.map(salaryMonthGroupHtml).join('')+'</div>':'<div class="salary-payment-empty">После ввода остатка начислений за выбранный период нет.</div>')+((can('salary.edit')||can('reports.export'))?'<div class="salary-entry-actions">'+(can('salary.edit')?'<button class="btn btn-green btn-sm" type="button" onclick="event.stopPropagation();openQuickPaymentForEmployee('+JSON.stringify(fio).replace(/"/g,'&quot;')+')">+ Выплата сотруднику</button>':'')+(can('reports.export')?'<button class="btn btn-blue btn-sm" type="button" onclick="event.stopPropagation();exportSalaryCSV('+JSON.stringify(fio).replace(/"/g,'&quot;')+')">Экспорт</button>':'')+'</div>':'');
     head.onclick=function(){const open=detail.classList.toggle('show');card.classList.toggle('open',open);head.setAttribute('aria-expanded',open?'true':'false');};
     card.appendChild(head);card.appendChild(balanceDetail);card.appendChild(paymentDetail);card.appendChild(detail);container.appendChild(card);
   });
