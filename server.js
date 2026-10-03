@@ -98,6 +98,20 @@ async function ensureDatabaseSchema(){
   await pool.query("ALTER TABLE employees ADD COLUMN IF NOT EXISTS employment_status TEXT NOT NULL DEFAULT 'working'");
   await pool.query("ALTER TABLE employees ADD COLUMN IF NOT EXISTS hr_profile JSONB NOT NULL DEFAULT '{}'::jsonb");
   await pool.query("ALTER TABLE employees ADD COLUMN IF NOT EXISTS photo_data TEXT NOT NULL DEFAULT ''");
+  await pool.query(`CREATE TABLE IF NOT EXISTS employee_attachments(
+    id BIGSERIAL PRIMARY KEY,
+    employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+    organization TEXT NOT NULL DEFAULT '',
+    file_name TEXT NOT NULL,
+    mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+    file_size INTEGER NOT NULL DEFAULT 0,
+    file_data BYTEA NOT NULL,
+    uploaded_by TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_employee_attachments_employee ON employee_attachments(employee_id,id DESC)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_employee_attachments_organization ON employee_attachments(lower(trim(organization)),employee_id)");
   await pool.query("CREATE TABLE IF NOT EXISTS object_responsibles (object_id INTEGER NOT NULL REFERENCES objects(id) ON DELETE CASCADE, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (object_id, employee_id))");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_object_responsibles_employee ON object_responsibles(employee_id)");
   await pool.query("CREATE TABLE IF NOT EXISTS object_user_responsibles (object_id INTEGER NOT NULL REFERENCES objects(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (object_id, user_id))");
@@ -167,6 +181,20 @@ async function ensureDatabaseSchema(){
   )`);
   await pool.query("CREATE INDEX IF NOT EXISTS idx_deals_organization ON deals(lower(trim(organization)),id)");
   await pool.query("CREATE INDEX IF NOT EXISTS idx_deals_tenant ON deals(tenant_id,id)");
+  await pool.query(`CREATE TABLE IF NOT EXISTS deal_attachments(
+    id BIGSERIAL PRIMARY KEY,
+    deal_id BIGINT NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+    organization TEXT NOT NULL DEFAULT '',
+    file_name TEXT NOT NULL,
+    mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+    file_size INTEGER NOT NULL DEFAULT 0,
+    file_data BYTEA NOT NULL,
+    uploaded_by TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_deal_attachments_deal ON deal_attachments(deal_id,id DESC)");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_deal_attachments_organization ON deal_attachments(lower(trim(organization)),deal_id)");
   await pool.query(`CREATE TABLE IF NOT EXISTS counterparties(
     id BIGSERIAL PRIMARY KEY,
     tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
@@ -1641,6 +1669,58 @@ app.put('/api/employees/:id/profile', requirePermission('employees.manage'), asy
   }catch(err){res.status(err.status||500).json({error:err.message});}
 });
 
+async function requireHrEmployeeAccess(id,user){
+  if(!Number.isInteger(id)||id<=0){const err=new Error('Некорректный сотрудник');err.status=400;throw err;}
+  if(isProjectScoped(user)){const err=new Error('Кадровые анкеты и документы недоступны руководителю проекта');err.status=403;throw err;}
+  await ensureEmployeeAccess(user,id);
+  const r=await pool.query(`SELECT e.id,e.fio,e.organization,o.id AS tenant_id
+    FROM employees e LEFT JOIN organizations o ON lower(trim(o.name))=lower(trim(e.organization))
+    WHERE e.id=$1`,[id]);
+  if(!r.rows.length){const err=new Error('Сотрудник не найден');err.status=404;throw err;}
+  return r.rows[0];
+}
+app.get('/api/employees/:id/attachments', requirePermission('employees.view'), async (req,res)=>{
+  try{
+    const id=Number(req.params.id),user=req.accessUser||await refreshAccessUser(req);
+    await requireHrEmployeeAccess(id,user);
+    const r=await pool.query('SELECT id,employee_id,file_name,mime_type,file_size,uploaded_by,created_at FROM employee_attachments WHERE employee_id=$1 ORDER BY id DESC',[id]);
+    res.setHeader('Cache-Control','no-store');
+    res.json(r.rows);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.post('/api/employees/:id/attachments', requirePermission('employees.manage'), async (req,res)=>{
+  try{
+    const id=Number(req.params.id),user=req.accessUser||await refreshAccessUser(req),employee=await requireHrEmployeeAccess(id,user),file=cleanLoanAttachment(req.body);
+    const r=await pool.query('INSERT INTO employee_attachments(employee_id,tenant_id,organization,file_name,mime_type,file_size,file_data,uploaded_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,employee_id,file_name,mime_type,file_size,uploaded_by,created_at',[id,employee.tenant_id||null,employee.organization||'',file.file_name,file.mime_type,file.file_size,file.file_data,req.session.user.login]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Добавлен файл в кадровую анкету: '+employee.fio+' — '+file.file_name]);
+    res.json(r.rows[0]);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.get('/api/employees/:employeeId/attachments/:attachmentId/download', requirePermission('employees.view'), async (req,res)=>{
+  try{
+    const employeeId=Number(req.params.employeeId),attachmentId=Number(req.params.attachmentId),user=req.accessUser||await refreshAccessUser(req);
+    await requireHrEmployeeAccess(employeeId,user);
+    const r=await pool.query('SELECT file_name,mime_type,file_size,file_data FROM employee_attachments WHERE id=$1 AND employee_id=$2',[attachmentId,employeeId]);
+    if(!r.rows.length)return res.status(404).json({error:'Файл не найден'});
+    const a=r.rows[0];
+    res.setHeader('Content-Type',a.mime_type||'application/octet-stream');
+    res.setHeader('Content-Length',String(a.file_size||a.file_data.length||0));
+    res.setHeader('Content-Disposition',"attachment; filename*=UTF-8''"+encodeURIComponent(a.file_name||'document'));
+    res.setHeader('Cache-Control','private, no-store');
+    res.send(a.file_data);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.delete('/api/employees/:employeeId/attachments/:attachmentId', requirePermission('employees.manage'), async (req,res)=>{
+  try{
+    const employeeId=Number(req.params.employeeId),attachmentId=Number(req.params.attachmentId),user=req.accessUser||await refreshAccessUser(req),employee=await requireHrEmployeeAccess(employeeId,user);
+    const before=await pool.query('SELECT file_name FROM employee_attachments WHERE id=$1 AND employee_id=$2',[attachmentId,employeeId]);
+    if(!before.rows.length)return res.status(404).json({error:'Файл не найден'});
+    await pool.query('DELETE FROM employee_attachments WHERE id=$1 AND employee_id=$2',[attachmentId,employeeId]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Удалён файл из кадровой анкеты: '+employee.fio+' — '+before.rows[0].file_name]);
+    res.json({ok:true});
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+
 app.post('/api/employees', requirePermission('employees.manage'), async (req, res) => {
   const { fio, organization, position, phone, birth_date, comments } = req.body;
   const employment_status=req.body.employment_status==='dismissed'?'dismissed':'working';
@@ -2402,6 +2482,14 @@ async function dealTargetScope(user,requestedOrganization){
   if(!org.rows.length){const err=new Error('Организация сделки не найдена');err.status=400;throw err;}
   return {organization:org.rows[0].name,tenant_id:org.rows[0].id};
 }
+async function requireDealAccess(id,user){
+  if(!Number.isInteger(id)||id<=0){const err=new Error('Некорректный ID сделки');err.status=400;throw err;}
+  const r=await pool.query('SELECT id,tenant_id,organization,deal_no,customer FROM deals WHERE id=$1',[id]);
+  if(!r.rows.length){const err=new Error('Сделка не найдена');err.status=404;throw err;}
+  const deal=r.rows[0];
+  if(!isSiteWideUser(user)&&!sameAccessValue(deal.organization,accessOrganization(user))){const err=new Error('Нет доступа к этой сделке');err.status=403;throw err;}
+  return deal;
+}
 app.get('/api/deals',requirePermission('deals.view'),async(req,res)=>{
   try{
     const user=req.accessUser||await refreshAccessUser(req);
@@ -2437,6 +2525,46 @@ app.put('/api/deals/:id',requirePermission('deals.manage'),async(req,res)=>{
     res.json(result.rows[0]);
   }catch(err){res.status(err.status||500).json({error:err.message});}
 });
+app.get('/api/deals/:id/attachments',requirePermission('deals.view'),async(req,res)=>{
+  try{
+    const id=Number(req.params.id),user=req.accessUser||await refreshAccessUser(req);await requireDealAccess(id,user);
+    const r=await pool.query('SELECT id,deal_id,file_name,mime_type,file_size,uploaded_by,created_at FROM deal_attachments WHERE deal_id=$1 ORDER BY id DESC',[id]);
+    res.setHeader('Cache-Control','no-store');
+    res.json(r.rows);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.post('/api/deals/:id/attachments',requirePermission('deals.manage'),async(req,res)=>{
+  try{
+    const id=Number(req.params.id),user=req.accessUser||await refreshAccessUser(req),deal=await requireDealAccess(id,user),file=cleanLoanAttachment(req.body);
+    const r=await pool.query('INSERT INTO deal_attachments(deal_id,tenant_id,organization,file_name,mime_type,file_size,file_data,uploaded_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,deal_id,file_name,mime_type,file_size,uploaded_by,created_at',[id,deal.tenant_id||null,deal.organization||'',file.file_name,file.mime_type,file.file_size,file.file_data,req.session.user.login]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Добавлен файл к сделке '+(deal.deal_no||('#'+id))+' — '+file.file_name]);
+    res.json(r.rows[0]);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.get('/api/deals/:dealId/attachments/:attachmentId/download',requirePermission('deals.view'),async(req,res)=>{
+  try{
+    const dealId=Number(req.params.dealId),attachmentId=Number(req.params.attachmentId),user=req.accessUser||await refreshAccessUser(req);await requireDealAccess(dealId,user);
+    const r=await pool.query('SELECT file_name,mime_type,file_size,file_data FROM deal_attachments WHERE id=$1 AND deal_id=$2',[attachmentId,dealId]);
+    if(!r.rows.length)return res.status(404).json({error:'Файл не найден'});
+    const a=r.rows[0];
+    res.setHeader('Content-Type',a.mime_type||'application/octet-stream');
+    res.setHeader('Content-Length',String(a.file_size||a.file_data.length||0));
+    res.setHeader('Content-Disposition',"attachment; filename*=UTF-8''"+encodeURIComponent(a.file_name||'document'));
+    res.setHeader('Cache-Control','private, no-store');
+    res.send(a.file_data);
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+app.delete('/api/deals/:dealId/attachments/:attachmentId',requirePermission('deals.manage'),async(req,res)=>{
+  try{
+    const dealId=Number(req.params.dealId),attachmentId=Number(req.params.attachmentId),user=req.accessUser||await refreshAccessUser(req),deal=await requireDealAccess(dealId,user);
+    const before=await pool.query('SELECT file_name FROM deal_attachments WHERE id=$1 AND deal_id=$2',[attachmentId,dealId]);
+    if(!before.rows.length)return res.status(404).json({error:'Файл не найден'});
+    await pool.query('DELETE FROM deal_attachments WHERE id=$1 AND deal_id=$2',[attachmentId,dealId]);
+    await pool.query('INSERT INTO action_log(user_login,action) VALUES($1,$2)',[req.session.user.login,'Удалён файл из сделки '+(deal.deal_no||('#'+dealId))+' — '+before.rows[0].file_name]);
+    res.json({ok:true});
+  }catch(err){res.status(err.status||500).json({error:err.message});}
+});
+
 app.delete('/api/deals/:id',requirePermission('deals.manage'),async(req,res)=>{
   try{
     const id=Number(req.params.id);if(!Number.isInteger(id)||id<=0)return res.status(400).json({error:'Некорректный ID сделки'});
